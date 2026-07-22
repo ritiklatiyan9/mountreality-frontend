@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <defs>
+    <linearGradient id="favicon-bg" x1="0" y1="0" x2="0" y2="120" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4C6EF5" />
+      <stop offset="1" stop-color="#1E3A8A" />
+    </linearGradient>
+    <clipPath id="favicon-clip"><rect width="120" height="120" rx="27" /></clipPath>
+  </defs>
+  <g clip-path="url(#favicon-clip)">
+    <rect width="120" height="120" fill="url(#favicon-bg)" />
+    <!-- ledger sheet -->
+    <rect x="30" y="24" width="60" height="76" rx="6" fill="#F4F8FC" />
+    <rect x="30" y="24" width="60" height="76" rx="6" fill="none" stroke="#1E3A8A" stroke-opacity="0.12" stroke-width="1.5" />
+    <!-- ruled rows -->
+    <rect x="40" y="38" width="40" height="4" rx="2" fill="#B9C6E8" />
+    <rect x="40" y="50" width="40" height="4" rx="2" fill="#B9C6E8" />
+    <!-- rupee glyph -->
+    <text x="60" y="86" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="42" font-weight="700" fill="#1E3A8A">₹</text>
+  </g>
+  <rect x="0.75" y="0.75" width="118.5" height="118.5" rx="26.25" fill="none" stroke="#fff" stroke-opacity="0.14" stroke-width="1.5" />
+</svg>

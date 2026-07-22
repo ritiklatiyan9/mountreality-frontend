@@ -1,0 +1,325 @@
+@import "tailwindcss";
+@plugin "tailwindcss-animate";
+
+/* Force font across entire app */
+@layer base {
+  html,
+  body,
+  * {
+    font-family: "Neue Montreal Regular", Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+    font-weight: 600;
+    font-style: normal;
+  }
+
+  html,
+
+  body {
+    margin: 0;
+    min-width: 320px;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  #root {
+    height: 100%;
+  }
+
+  /* Safe area for mobile bottom nav (iPhone notch etc.) */
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+}
+
+:root {
+  font-family: "Neue Montreal Regular", Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 600;
+  font-style: normal;
+
+  color-scheme: light;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  --radius: 0.625rem;
+  --background: hsl(214 32% 98%);
+  --foreground: hsl(222 47% 11%);
+  --card: hsl(0 0% 100%);
+  --card-foreground: hsl(0 0% 3.9%);
+  --popover: hsl(0 0% 100%);
+  --popover-foreground: hsl(0 0% 3.9%);
+  --primary: hsl(221 83% 53%);
+  --primary-foreground: hsl(0 0% 98%);
+  --secondary: hsl(214 32% 96%);
+  --secondary-foreground: hsl(222 47% 11%);
+  --muted: hsl(214 32% 96%);
+  --muted-foreground: hsl(215 16% 47%);
+  --accent: hsl(214 95% 93%);
+  --accent-foreground: hsl(221 83% 35%);
+  --destructive: hsl(0 84.2% 60.2%);
+  --border: hsl(214 32% 91%);
+  --input: hsl(214 32% 88%);
+  --ring: hsl(217 91% 60%);
+  --chart-1: hsl(12 76% 61%);
+  --chart-2: hsl(173 58% 39%);
+  --chart-3: hsl(197 37% 24%);
+  --chart-4: hsl(43 74% 66%);
+  --chart-5: hsl(27 87% 67%);
+  --sidebar: hsl(214 40% 98%);
+  --sidebar-foreground: hsl(222 47% 11%);
+  --sidebar-primary: hsl(221 83% 53%);
+  --sidebar-primary-foreground: hsl(0 0% 98%);
+  --sidebar-accent: hsl(214 95% 93%);
+  --sidebar-accent-foreground: hsl(221 83% 35%);
+  --sidebar-border: hsl(214 32% 91%);
+  --sidebar-ring: hsl(217 91% 60%);
+  --folder-back: hsl(20 55% 58%);
+  --folder-front: hsl(25 60% 65%);
+  --folder-tab: hsl(15 45% 50%);
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-folder-back: var(--folder-back);
+  --color-folder-front: var(--folder-front);
+  --color-folder-tab: var(--folder-tab);
+}
+
+.dark {
+  --background: hsl(0 0% 3.9%);
+  --foreground: hsl(0 0% 98%);
+  --card: hsl(0 0% 9%);
+  --card-foreground: hsl(0 0% 98%);
+  --popover: hsl(0 0% 9%);
+  --popover-foreground: hsl(0 0% 98%);
+  --primary: hsl(0 0% 89.8%);
+  --primary-foreground: hsl(0 0% 9%);
+  --secondary: hsl(0 0% 14.9%);
+  --secondary-foreground: hsl(0 0% 98%);
+  --muted: hsl(0 0% 14.9%);
+  --muted-foreground: hsl(0 0% 63.9%);
+  --accent: hsl(0 0% 14.9%);
+  --accent-foreground: hsl(0 0% 98%);
+  --destructive: hsl(0 62.8% 30.6%);
+  --border: hsl(0 0% 100% / 10%);
+  --input: hsl(0 0% 100% / 15%);
+  --ring: hsl(0 0% 45.1%);
+  --chart-1: hsl(220 70% 50%);
+  --chart-2: hsl(160 60% 45%);
+  --chart-3: hsl(30 80% 55%);
+  --chart-4: hsl(280 65% 60%);
+  --chart-5: hsl(340 75% 55%);
+  --sidebar: hsl(0 0% 9%);
+  --sidebar-foreground: hsl(0 0% 98%);
+  --sidebar-primary: hsl(220 70% 50%);
+  --sidebar-primary-foreground: hsl(0 0% 98%);
+  --sidebar-accent: hsl(0 0% 14.9%);
+  --sidebar-accent-foreground: hsl(0 0% 98%);
+  --sidebar-border: hsl(0 0% 100% / 10%);
+  --sidebar-ring: hsl(0 0% 45.1%);
+  --folder-back: hsl(20 50% 48%);
+  --folder-front: hsl(25 55% 55%);
+  --folder-tab: hsl(15 40% 42%);
+}
+
+/* ── Connected-screen QR display (/qr-display) ── */
+@keyframes qr-fade-up {
+  from { opacity: 0; transform: translateY(14px) scale(0.98); }
+  to   { opacity: 1; transform: none; }
+}
+.animate-qr-fade-up {
+  animation: qr-fade-up 0.45s ease-out both;
+}
+
+@keyframes soft-pulse {
+  0%, 100% { opacity: 0.45; }
+  50%      { opacity: 1; }
+}
+.animate-soft-pulse {
+  animation: soft-pulse 2.4s ease-in-out infinite;
+}
+
+/* ── Sidebar collapsible groups — smooth height animation (Radix var) ── */
+@keyframes collapsible-down {
+  from { height: 0; opacity: 0.5; }
+  to   { height: var(--radix-collapsible-content-height); opacity: 1; }
+}
+@keyframes collapsible-up {
+  from { height: var(--radix-collapsible-content-height); opacity: 1; }
+  to   { height: 0; opacity: 0.4; }
+}
+
+/* ── Route change — soft fade/rise of page content ── */
+@keyframes route-fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+.animate-route-fade-in {
+  animation: route-fade-in 0.22s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+/* ── Page translator (LanguageSwitcher.jsx) — driven entirely by our own
+   dropdown; the widget's own banner/tooltip/highlight UI must never appear.
+
+   The banner ("Translated into: X / Show original") is an iframe with
+   inline visibility:visible nested in a direct-child div.skiptranslate.
+   Verified empirically (Playwright, scratchpad/gt-test):
+   - visibility:hidden on the wrapper → overridden by the child's inline style
+   - display:none or JS remove()/style-churn → BREAKS the translation engine
+   - clip-path on the wrapper → hides every pixel, becomes the containing
+     block for the fixed child iframe, can't be overridden by children, and
+     the engine keeps working. CSS only — do NOT fight it from JS. ── */
+body > div.skiptranslate,
+body > iframe.skiptranslate {
+  clip-path: inset(100%) !important;
+  pointer-events: none !important;
+}
+.goog-te-gadget-icon,
+#goog-gt-tt,
+.goog-tooltip,
+.goog-tooltip:hover {
+  display: none !important;
+}
+.goog-text-highlight {
+  background: none !important;
+  box-shadow: none !important;
+}
+body {
+  top: 0 !important;
+}
+/* Rendered (not display:none) so Google's script can initialize, but kept
+   completely off-screen and inert. */
+.gt-host {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 1px !important;
+  height: 1px !important;
+  overflow: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* ── Print Styles ── */
+@media print {
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  html,
+  body {
+    height: auto;
+    overflow: visible;
+  }
+
+  #root {
+    height: auto;
+    overflow: visible;
+  }
+
+  @page {
+    margin: 10mm;
+    size: A4 landscape;
+  }
+
+  body {
+    margin: 0;
+    padding: 0;
+    background: white;
+    color: black;
+    font-size: 11px;
+    line-height: 1.3;
+  }
+
+  /* Ensure tables print correctly */
+  table {
+    page-break-inside: avoid;
+    border-collapse: collapse;
+    width: 100%;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+
+  tbody tr {
+    page-break-inside: avoid;
+  }
+
+  tr,
+  td,
+  th {
+    page-break-inside: avoid;
+  }
+
+  /* Hide scrollbars and unnecessary elements */
+  ::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Ensure no margins overflow the page */
+  main {
+    margin: 0 !important;
+    padding: 10mm !important;
+    max-width: 100%;
+  }
+
+  /* Remove all shadows and decorative elements */
+  .shadow,
+  .shadow-sm,
+  .shadow-md,
+  .shadow-lg {
+    box-shadow: none !important;
+  }
+
+  /* Ensure text is readable */
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  button,
+  input[type="button"],
+  input[type="submit"] {
+    display: none;
+  }
+}
