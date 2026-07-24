@@ -11,6 +11,10 @@ import { cn } from '@/lib/utils';
  * @param {(v: 'credit'|'debit') => void} onChange
  * @param {string} [creditHint] tiny caption shown while Credit is selected
  * @param {string} [debitHint]  tiny caption shown while Debit is selected
+ * @param {string} [creditLabel] tab button text for Credit (default 'Credit')
+ * @param {string} [debitLabel]  tab button text for Debit (default 'Debit')
+ * @param {'in'|'out'} [creditVisual] icon/color for Credit — 'in' (default, green/down-arrow) or 'out' (red/up-arrow)
+ * @param {'in'|'out'} [debitVisual]  icon/color for Debit — 'out' (default, red/up-arrow) or 'in' (green/down-arrow)
  */
 export default function CreditDebitTabs({
   value,
@@ -18,11 +22,19 @@ export default function CreditDebitTabs({
   disabled = false,
   creditHint = 'Money In',
   debitHint = 'Money Out',
+  creditLabel = 'Credit',
+  debitLabel = 'Debit',
+  creditVisual = 'in',
+  debitVisual = 'out',
   className,
 }) {
+  const visuals = {
+    in: { icon: ArrowDownLeft, activeCls: 'bg-emerald-600 text-white shadow-sm' },
+    out: { icon: ArrowUpRight, activeCls: 'bg-red-600 text-white shadow-sm' },
+  };
   const tabs = [
-    { key: 'credit', label: 'Credit', icon: ArrowDownLeft, activeCls: 'bg-emerald-600 text-white shadow-sm' },
-    { key: 'debit', label: 'Debit', icon: ArrowUpRight, activeCls: 'bg-red-600 text-white shadow-sm' },
+    { key: 'credit', label: creditLabel, ...visuals[creditVisual] },
+    { key: 'debit', label: debitLabel, ...visuals[debitVisual] },
   ];
   return (
     <div className={className}>

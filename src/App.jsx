@@ -16,6 +16,7 @@ import Home from './pages/Home';
 import Clients from './pages/Clients';
 import ClientDetail from './pages/ClientDetail';
 import MemberKycPage from './pages/MemberKycPage';
+import FinanceForecast from './pages/FinanceForecast';
 import Reports from './pages/Reports';
 import Settings from './pages/Settings';
 import Sites from './pages/Sites';
@@ -166,6 +167,7 @@ function App() {
             <Route path="/receive-payments" element={<ProtectedRoute requiredModule="upi_collect"><ReceivePayments /></ProtectedRoute>} />
             <Route path="/bank-configs" element={<ProtectedRoute requiredModule="upi_collect"><BankConfigs /></ProtectedRoute>} />
             <Route path="/reports" element={<ProtectedRoute requiredModule="reports"><Reports /></ProtectedRoute>} />
+            <Route path="/finance-forecast" element={<ProtectedRoute requiredModule="finance_forecast"><FinanceForecast /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute requiredModule="settings"><Settings /></ProtectedRoute>} />
             {/* Billing — reachable by every authenticated role (402 redirects land here) */}
             <Route path="/subscription" element={<ProtectedRoute><Subscription /></ProtectedRoute>} />

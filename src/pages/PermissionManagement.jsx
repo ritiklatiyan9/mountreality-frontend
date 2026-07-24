@@ -39,6 +39,7 @@ import {
   ShieldOff,
   Store,
   Tractor,
+  TrendingUp,
   UserCog,
   Users,
   Wallet,
@@ -65,6 +66,7 @@ const MODULE_CONFIG = [
   { key: 'chat', label: 'Internal Chat', description: 'Team messages and conversations', icon: MessageSquare },
   { key: 'excel', label: 'Native Documents', description: 'Spreadsheet files and editor', icon: Sheet },
   { key: 'reports', label: 'Reports', description: 'Read-only reporting workspace', icon: FileText, accessOnly: true },
+  { key: 'finance_forecast', label: 'Finance Forecast', description: 'Predictive cash-flow forecast and diagnostics', icon: TrendingUp, accessOnly: true },
   { key: 'settings', label: 'Settings', description: 'Personal and workspace preferences', icon: Settings, accessOnly: true },
 ];
 

@@ -3,7 +3,7 @@ import {
   FileBox, LayoutGrid, FolderArchive, CalendarClock, BarChart3, HandCoins,
   CreditCard, ShoppingBag, UsersRound, MessageSquare, Sheet, MapPin, UserCog,
   CheckCircle2, Shield, Banknote, LayoutDashboard, QrCode, FileSearch,
-  FileText, HardHat, Boxes,
+  FileText, HardHat, Boxes, TrendingUp,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -39,6 +39,7 @@ export const ALL_APPS = [
   { key: 'chat', path: '/chat', label: 'Internal Chat', icon: MessageSquare, perm: 'chat' },
   { key: 'excel', path: '/excel/files', label: 'Native Excel', icon: Sheet, perm: 'excel' },
   { key: 'reports', path: '/reports', label: 'Reports', icon: FileText, perm: 'reports' },
+  { key: 'finance_forecast', path: '/finance-forecast', label: 'Finance Forecast', icon: TrendingUp, perm: 'finance_forecast' },
   // ── Admin-only ──
   { key: 'sites', path: '/sites', label: 'Sites', icon: MapPin, roles: ['admin', 'super_admin'] },
   { key: 'sub_admins', path: '/sub-admins', label: 'Admin Management', icon: UserCog, roles: ['admin', 'super_admin'] },

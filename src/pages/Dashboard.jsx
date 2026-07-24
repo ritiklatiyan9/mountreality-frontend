@@ -33,7 +33,6 @@ import FinancialPulseBoard from '../components/dashboard/FinancialPulseBoard';
 import ConstructionInventoryCards from '../components/dashboard/ConstructionInventoryCards';
 import VerifyPanel from '../components/dashboard/VerifyPanel';
 import { RevenueVsExpenseChart, ProfitTrendChart, ExpenseByCategoryRadar } from '../components/dashboard/AnalyticsCharts';
-import CashFlowForecast from '../components/dashboard/CashFlowForecast';
 import QuickEntry from '../components/QuickEntry';
 
 const MotionDiv = motion.div;
@@ -271,7 +270,7 @@ export const Dashboard = () => {
   // Socket.io for chat
   useEffect(() => {
     if (!token || !canReadChat) return;
-    const s = io(import.meta.env.VITE_API_URL || 'https://rgaccountbackend.onrender.com0', { auth: { token } });
+    const s = io(import.meta.env.VITE_API_URL || 'http://localhost:80000', { auth: { token } });
     chatSocketRef.current = s;
     s.on('new_message', (msg) => {
       const cur = chatActiveRef.current;
@@ -1363,11 +1362,6 @@ export const Dashboard = () => {
             <RevenueVsExpenseChart siteId={currentSite.id} range={range} resolution={chartResolution} excludeOldPlots={excludeOldPlots} />
             <ProfitTrendChart siteId={currentSite.id} range={range} resolution={chartResolution} excludeOldPlots={excludeOldPlots} />
           </MotionDiv>
-        )}
-
-        {/* ── Predictive Cash-Flow Forecast — full width (above Expense Radar) ── */}
-        {currentSite && deferredReady && canSee('cashflow_forecast') && (
-          <CashFlowForecast siteId={currentSite.id} />
         )}
 
         {/* ── Row 4: Expense Radar — full width ── */}

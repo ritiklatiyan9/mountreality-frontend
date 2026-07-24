@@ -84,6 +84,76 @@ export const GET_KPI_CARDS = gql`
   }
 `;
 
+export const GET_FINANCE_FORECAST = gql`
+  query GetFinanceForecast($siteId: ID!, $horizonMonths: Int, $lookbackMonths: Int, $forceRefresh: Boolean) {
+    financeForecast(siteId: $siteId, horizonMonths: $horizonMonths, lookbackMonths: $lookbackMonths, forceRefresh: $forceRefresh) {
+      modelVersion
+      generatedAt
+      disclaimer
+      horizonMonths
+      lookbackMonths
+      currentCash
+      expectedTotalInflow
+      expectedTotalOutflow
+      netMovement
+      lowestProjectedCash
+      firstDeficitMonth
+      deficitMonthCount
+      conservativeCashFloor
+      riskLevel
+      riskSummary
+      inflowTrendPct
+      outflowTrendPct
+      inflowVolatility
+      outflowVolatility
+      confidenceScore
+      confidenceLevel
+      history {
+        key
+        label
+        inflow
+        outflow
+        net
+        txnCount
+      }
+      weekdayPattern {
+        weekday
+        label
+        txnCount
+        inflow
+        outflow
+      }
+      sourceMixRevenue {
+        source
+        amount
+      }
+      sourceMixExpense {
+        source
+        amount
+      }
+      dueItems {
+        overdueReceivables
+        vendorOverdue
+        vendorUnscheduled
+        farmerOutstanding
+      }
+      months {
+        key
+        label
+        patternInflow
+        patternOutflow
+        scheduledInflow
+        scheduledOutflow
+        scenarios {
+          conservative { inflow outflow net projectedClosingCash lowerBound upperBound }
+          base { inflow outflow net projectedClosingCash lowerBound upperBound }
+          optimistic { inflow outflow net projectedClosingCash lowerBound upperBound }
+        }
+      }
+    }
+  }
+`;
+
 export const VERIFY_INTEGRITY = gql`
   query VerifyIntegrity($siteId: ID!, $range: DateRange!) {
     verifyFinancialIntegrity(siteId: $siteId, range: $range) {

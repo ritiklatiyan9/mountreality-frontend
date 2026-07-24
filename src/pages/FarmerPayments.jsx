@@ -58,6 +58,8 @@ import BulkActionsBar from '../components/BulkActionsBar';
 import { classifyPaymentMode } from '../utils/paymentMode';
 
 const todayISO = () => new Date().toISOString().split('T')[0];
+const LAND_UNIT_LABELS = { BIGHA: 'Bigha', YARD: 'Yard', SQMT: 'Mtr Sq' };
+const landUnitLabel = (unit) => LAND_UNIT_LABELS[unit] || 'Bigha';
 const isPostedPayment = (payment) => (
   String(payment?.status ?? '').trim().toLowerCase() === 'approved'
   && !['BOUNCED', 'RETURNED'].includes(String(payment?.cheque_status ?? '').trim().toUpperCase())
@@ -86,6 +88,7 @@ const FarmerPayments = () => {
   const [proofPhoto, setProofPhoto] = useState(null);
   const [proofPreview, setProofPreview] = useState(null);
   const [editRequestPending, setEditRequestPending] = useState(false);
+  const [voucherUploading, setVoucherUploading] = useState(false);
   const [receiptPayment, setReceiptPayment] = useState(null);
   const [signEntry, setSignEntry] = useState(null);
   const [receiptDialogOpen, setReceiptDialogOpen] = useState(false);
@@ -186,6 +189,7 @@ const FarmerPayments = () => {
     setProofPreview(null);
     setEditRequestPending(false);
     setSubmitting(false);
+    setVoucherUploading(false);
     setMappedPerson(null);
   };
 
@@ -293,6 +297,10 @@ const FarmerPayments = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (voucherUploading) {
+      setMessage({ type: 'error', text: 'Please wait for the voucher photo to finish uploading.' });
+      return;
+    }
     setMessage({ type: '', text: '' });
     setSubmitting(true);
 
@@ -1014,11 +1022,11 @@ const FarmerPayments = () => {
               </div>
               <p className="text-sm font-semibold text-amber-800">Land &amp; Commission Details</p>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
               <div>
                 <p className="text-[10px] uppercase tracking-wider text-amber-600/70 font-medium">Size of Land</p>
                 <p className="text-base font-bold text-amber-900 mt-0.5">
-                  {farmer.land_size_bigha ? `${parseFloat(farmer.land_size_bigha).toLocaleString('en-IN')} Bigha` : '—'}
+                  {farmer.land_size_bigha ? `${parseFloat(farmer.land_size_bigha).toLocaleString('en-IN')} ${landUnitLabel(farmer.land_size_unit)}` : '—'}
                 </p>
               </div>
               <div>
@@ -1028,21 +1036,10 @@ const FarmerPayments = () => {
                 </p>
               </div>
               <div>
-                <p className="text-[10px] uppercase tracking-wider text-amber-600/70 font-medium">Commission %</p>
+                <p className="text-[10px] uppercase tracking-wider text-amber-600/70 font-medium">Paid to Broker</p>
                 <p className="text-base font-bold text-amber-900 mt-0.5">
-                  {farmer.commission_percentage ? `${parseFloat(farmer.commission_percentage)}%` : '—'}
+                  {farmer.commission_paid_to_broker ? `₹${parseFloat(farmer.commission_paid_to_broker).toLocaleString('en-IN', { maximumFractionDigits: 2 })}` : '—'}
                 </p>
-              </div>
-              <div>
-                <p className="text-[10px] uppercase tracking-wider text-amber-600/70 font-medium">Commission Amount</p>
-                <p className="text-base font-bold text-amber-700 mt-0.5">
-                  {farmer.commission_amount ? `₹${parseFloat(farmer.commission_amount).toLocaleString('en-IN', { maximumFractionDigits: 2 })}` : '—'}
-                </p>
-                {farmer.commission_percentage && farmer.land_rate && farmer.land_size_bigha && (
-                  <p className="text-[9px] text-amber-500 mt-0.5">
-                    {farmer.commission_percentage}% × ₹{parseFloat(farmer.land_rate).toLocaleString('en-IN')} × {farmer.land_size_bigha} Bigha
-                  </p>
-                )}
               </div>
             </div>
           </CardContent>
@@ -1295,15 +1292,17 @@ const FarmerPayments = () => {
             onCancel={() => setDialogOpen(false)}
             onSubmit={() => paymentFormRef.current?.requestSubmit()}
             submitting={submitting}
-            disabled={editRequestPending}
+            disabled={editRequestPending || voucherUploading}
             submitLabel={
               submitting
                 ? (editingPayment && !canUpdate ? 'Submitting Request...' : editingPayment ? 'Updating...' : 'Adding...')
-                : editRequestPending
-                  ? 'Request Sent'
-                  : editingPayment && !canUpdate
-                    ? 'Submit Edit Request'
-                    : editingPayment ? 'Update' : 'Add Payment'
+                : voucherUploading
+                  ? 'Uploading voucher...'
+                  : editRequestPending
+                    ? 'Request Sent'
+                    : editingPayment && !canUpdate
+                      ? 'Submit Edit Request'
+                      : editingPayment ? 'Update' : 'Add Payment'
             }
           />
         }
@@ -1324,17 +1323,22 @@ const FarmerPayments = () => {
           <CreditDebitTabs
             value={formData.transaction_type}
             onChange={(v) => handleFormChange('transaction_type', v)}
-            creditHint="Received from farmer"
-            debitHint="Refund to farmer"
+            creditLabel="Payment to Farmer"
+            debitLabel="Refund from Farmer"
+            creditHint="Installment paid to the farmer (adds to Paid)"
+            debitHint="Farmer returns money (subtracts from Paid)"
+            creditVisual="out"
+            debitVisual="in"
           />
 
           <EntryRow>
-            <EntryField label="Date" required>
+            <EntryField label="Date" required hint={!isAdmin ? 'Only Admin/Super Admin can set a custom date' : undefined}>
               <Input
                 type="date"
                 value={formData.date}
                 onChange={(e) => handleFormChange('date', e.target.value)}
                 required
+                disabled={!isAdmin}
               />
             </EntryField>
             <EntryField
@@ -1352,9 +1356,10 @@ const FarmerPayments = () => {
 
           <EntryAmount
             direction={formData.transaction_type === 'debit' ? 'debit' : 'credit'}
+            visual={formData.transaction_type === 'debit' ? 'in' : 'out'}
             label={formData.transaction_type === 'debit'
               ? (formData.mode === 'CASH' ? 'Refund in Cash (₹)' : formData.mode === 'BANK' ? 'Refund in Bank (₹)' : 'Refund Cheque (₹)')
-              : (formData.mode === 'CASH' ? 'Received in Cash (₹)' : formData.mode === 'BANK' ? 'Received in Bank (₹)' : 'Cheque Amount (₹)')}
+              : (formData.mode === 'CASH' ? 'Paid in Cash (₹)' : formData.mode === 'BANK' ? 'Paid in Bank (₹)' : 'Cheque Amount (₹)')}
             inputProps={{
               step: '0.01',
               placeholder: '0',
@@ -1438,13 +1443,15 @@ const FarmerPayments = () => {
           </EntryField>
 
           {!editingPayment && (
-            <EntryField label="Map to User / Client" hint="Optional — mirrors this entry into their Personal Ledger">
+            <EntryField label="Map to Farmer" hint="Optional — mirrors this entry into the farmer's Personal Ledger">
               <EntryPersonPicker
                 siteId={currentSite?.id}
                 value={mappedPerson}
                 onChange={setMappedPerson}
                 approvers={personApprovers}
                 members={personMembers}
+                memberTypeFilter={['FARMER']}
+                lockRole="FARMER"
                 onMemberCreated={addPersonMember}
               />
             </EntryField>
@@ -1471,6 +1478,7 @@ const FarmerPayments = () => {
           <VoucherUpload
             value={formData.voucher_url}
             onChange={(url) => handleFormChange('voucher_url', url || '')}
+            onUploadingChange={setVoucherUploading}
             disabled={submitting}
           />
 

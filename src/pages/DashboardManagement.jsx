@@ -37,7 +37,6 @@ const COMPONENT_GROUPS = [
     headerColor: 'text-purple-700',
     components: [
       { key: 'revenue_charts', label: 'Revenue vs Expense Charts', desc: 'Line/bar charts for revenue & expense trends', Icon: BarChart2 },
-      { key: 'cashflow_forecast', label: 'Cash-Flow Forecast', desc: 'Predictive monthly inflow vs outflow & net cash', Icon: TrendingUp },
       { key: 'expense_radar', label: 'Expense Radar Chart', desc: 'Expense breakdown by category (radar)', Icon: PieChart },
       { key: 'module_breakdown', label: 'Module Breakdown', desc: 'Progress bars per expense source', Icon: BarChartHorizontalBig },
     ],

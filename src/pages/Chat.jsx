@@ -8,7 +8,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useDocViewer } from '../components/DocViewer';
 
-const socketUrl = import.meta.env.VITE_API_URL || 'https://rgaccountbackend.onrender.com';
+const socketUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 const isImageAttachment = (url = '') => /\.(jpeg|jpg|gif|png|webp)(\?.*)?$/i.test(url);
 const sameId = (left, right) => String(left) === String(right);
 const initials = (name = '') => name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || '?';

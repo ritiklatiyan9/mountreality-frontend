@@ -2,7 +2,7 @@ import axios from 'axios';
 import { toast } from 'sonner';
 import eventBus from '../utils/eventBus';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://rgaccountbackend.onrender.com';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -14,7 +14,7 @@ let refreshPromise = null;
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('accessToken');
-    const sessionId = localStorage.getItem('sessionId');
+    const sessionId = localStorage.getItem('sessionId');  
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { createElement, useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import api from '../api/api';
 import {
@@ -21,6 +21,17 @@ import { cn } from '@/lib/utils';
  *   5. notes/remarks full width, then uploads
  * Fields vary per module; size, spacing, labels, and footer never do.
  */
+
+/** Small colored circular icon badge used in front of a field label — the
+ * "premium" accent shared by Quick Entry and Day Book's redesigned dialogs. */
+export const FieldLabel = ({ icon, color, children }) => (
+  <span className="flex items-center gap-1.5">
+    <span className={cn('flex h-5 w-5 shrink-0 items-center justify-center rounded-full', color)}>
+      {createElement(icon, { className: 'w-3 h-3' })}
+    </span>
+    {children}
+  </span>
+);
 
 export function EntryDialog({ open, onOpenChange, title, description, children, footer }) {
   return (
@@ -79,8 +90,8 @@ export function EntryField({ label, required = false, hint, className, children 
  * The prominent amount box, tinted by direction to match CreditDebitTabs
  * (credit = emerald / debit = red). Direction-less modals pass their fixed one.
  */
-export function EntryAmount({ label = 'Amount (₹)', direction = 'credit', required = true, hint, inputProps = {} }) {
-  const credit = direction === 'credit';
+export function EntryAmount({ label = 'Amount (₹)', direction = 'credit', visual, required = true, hint, inputProps = {} }) {
+  const credit = visual ? visual === 'in' : direction === 'credit';
   return (
     <div className={cn(
       'rounded-lg border p-3',
@@ -324,13 +335,13 @@ export const mapPersonToPayload = (value) => ({
  * brand-new client on the fly (name → role → Enter). Optional everywhere —
  * leaving it unset changes nothing about how the transaction is saved.
  */
-export function EntryPersonPicker({ siteId, value, onChange, approvers = [], members = [], onMemberCreated, disabled = false, openUp = false }) {
+export function EntryPersonPicker({ siteId, value, onChange, approvers = [], members = [], onMemberCreated, disabled = false, openUp = false, memberTypeFilter, lockRole }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
   const [pickingRole, setPickingRole] = useState(false);
-  const [role, setRole] = useState('CLIENT');
+  const [role, setRole] = useState(lockRole || 'CLIENT');
   const [saving, setSaving] = useState(false);
   const boxRef = useRef(null);
 
@@ -343,9 +354,12 @@ export function EntryPersonPicker({ siteId, value, onChange, approvers = [], mem
     return () => document.removeEventListener('mousedown', onDoc);
   }, [open]);
 
+  const scopedMembers = memberTypeFilter
+    ? members.filter((m) => memberTypeFilter.includes(String(m.member_type || '').toUpperCase()))
+    : members;
   const options = [
     ...approvers.map((a) => ({ type: 'user', id: a.id, label: a.name || a.full_name || a.email, sublabel: a.role })),
-    ...members.map((m) => ({ type: 'member', id: m.id, label: m.full_name, sublabel: m.member_type })),
+    ...scopedMembers.map((m) => ({ type: 'member', id: m.id, label: m.full_name, sublabel: m.member_type })),
   ];
   const norm = (s) => String(s || '').toLowerCase();
   const query = norm(q.trim());
@@ -354,21 +368,14 @@ export function EntryPersonPicker({ siteId, value, onChange, approvers = [], mem
 
   const startCreate = () => { setCreating(true); setNewName(q.trim()); setPickingRole(false); };
 
-  const submitName = (e) => {
-    e.preventDefault();
-    if (!newName.trim()) return;
-    setPickingRole(true);
-  };
-
-  const confirmRole = async (e) => {
-    e.preventDefault();
+  const createMember = async (roleToUse) => {
     if (saving) return;
     setSaving(true);
     try {
       const { data } = await api.post('/members', {
         site_id: siteId,
         full_name: newName.trim().toUpperCase(),
-        member_type: role,
+        member_type: roleToUse,
       });
       const member = data?.member;
       if (member) {
@@ -383,6 +390,18 @@ export function EntryPersonPicker({ siteId, value, onChange, approvers = [], mem
     } finally {
       setSaving(false);
     }
+  };
+
+  const submitName = (e) => {
+    e.preventDefault();
+    if (!newName.trim()) return;
+    if (lockRole) { createMember(lockRole); return; }
+    setPickingRole(true);
+  };
+
+  const confirmRole = (e) => {
+    e.preventDefault();
+    createMember(role);
   };
 
   return (
