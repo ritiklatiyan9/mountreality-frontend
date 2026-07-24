@@ -14,6 +14,7 @@ import {
   Dialog, DialogContent, DialogDescription, DialogHeader,
   DialogTitle, DialogFooter,
 } from '../components/ui/dialog';
+import { cn } from '@/lib/utils';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '../components/ui/select';
@@ -25,8 +26,8 @@ import {
   ArrowLeft, IndianRupee, Calendar, Ruler, Tag, FileText, Loader2,
   Edit2, Plus, Trash2, CreditCard, TrendingUp, CheckCircle2, AlertTriangle,
   Clock, CalendarClock, Banknote, Landmark, Wallet, Percent, Hash,
-  ArrowDownRight, ArrowUpRight, CircleDollarSign, ChevronDown, X, Eye, Settings, Printer,
-  Check, ChevronsUpDown, User, Search, UserPlus, PenLine,
+  ArrowDownRight, ArrowUpRight, ArrowDownLeft, CircleDollarSign, ChevronDown, X, Eye, Settings, Printer,
+  Check, ChevronsUpDown, User, Users, Search, UserPlus, PenLine, MessageSquare,
 } from 'lucide-react';
 import SignaturePad from '../components/SignaturePad';
 import { printUnifiedReceipt } from '../lib/printReceipt';
@@ -38,7 +39,7 @@ import ChequeStatusControl from '../components/ChequeStatusControl';
 import { classifyPaymentMode } from '../utils/paymentMode';
 import CreditDebitTabs from '../components/CreditDebitTabs';
 import {
-  EntryDialog, EntryFooter, EntryRow, EntryField, EntryAmount, EntryModeChips,
+  EntryField, EntryAmount, EntryModeChips, FieldLabel,
   EntryPersonPicker, useEntryPersonOptions, mapPersonToPayload,
 } from '../components/EntryModal';
 
@@ -633,6 +634,7 @@ export default function PlotDetail() {
   const [editingPaymentId, setEditingPaymentId] = useState(null);
   const [mappedPerson, setMappedPerson] = useState(null);
   const [paySubmitting, setPaySubmitting] = useState(false);
+  const [voucherUploading, setVoucherUploading] = useState(false);
   const [payBuyerOpen, setPayBuyerOpen] = useState(false);
   const [payBookedByOpen, setPayBookedByOpen] = useState(false);
   const [payBuyerSearch, setPayBuyerSearch] = useState('');
@@ -691,6 +693,7 @@ export default function PlotDetail() {
     setPayMode('receive');
     setPayBuyerSearch('');
     setPayBookedBySearch('');
+    setVoucherUploading(false);
   };
 
   const handleOpenPay = () => { resetPayForm(); setPayOpen(true); };
@@ -730,6 +733,10 @@ export default function PlotDetail() {
 
   const handleSubmitPayment = async (e) => {
     e.preventDefault();
+    if (voucherUploading) {
+      showMsg('error', 'Please wait for the voucher photo to finish uploading.');
+      return;
+    }
     setPaySubmitting(true);
     try {
       const rawAmt = Math.abs(parseFloat(payForm.amount) || 0);
@@ -1763,243 +1770,297 @@ export default function PlotDetail() {
       </Dialog>
 
       {/* ── Take Payment Dialog ── */}
-      <EntryDialog
-        open={payOpen}
-        onOpenChange={(open) => { setPayOpen(open); if (!open) resetPayForm(); }}
-        title={editingPaymentId ? 'Edit Payment' : 'Take Payment'}
-        description={<>Plot <span className="font-semibold text-slate-700">{plot.plot_no}</span>{plot.buyer_name && <> · <span className="text-slate-600">{plot.buyer_name}</span></>}</>}
-        footer={
-          <EntryFooter
-            onCancel={() => setPayOpen(false)}
-            onSubmit={() => document.getElementById('pay-form')?.requestSubmit()}
-            submitting={paySubmitting}
-            submitLabel={paySubmitting ? 'Recording...' : payMode === 'refund' ? 'Record Refund' : 'Record Payment'}
-            submitClassName={payMode === 'refund' ? 'bg-red-600 hover:bg-red-700' : undefined}
-          />
-        }
-      >
-        <form id="pay-form" onSubmit={handleSubmitPayment} className="space-y-4">
-              <CreditDebitTabs
-                value={payMode === 'refund' ? 'debit' : 'credit'}
-                onChange={(v) => setPayMode(v === 'debit' ? 'refund' : 'receive')}
-                disabled={!!editingPaymentId}
-                creditHint="Receive payment"
-                debitHint="Refund / return"
-              />
-              <EntryRow>
-                <EntryField label="Date" required>
-                  <Input type="date" value={payForm.date}
-                    onChange={(e) => setPayForm({ ...payForm, date: e.target.value })}
-                    required />
-                </EntryField>
-                <EntryField label="Payment Mode">
-                  <EntryModeChips
-                    value={payForm.payment_type}
-                    modes={['CASH', 'BANK', 'CHEQUE']}
-                    onChange={(m) => setPayForm(m === 'CASH'
-                      ? { ...payForm, payment_type: 'CASH', payment_from: 'CASH' }
-                      : m === 'CHEQUE'
-                        ? { ...payForm, payment_type: 'CHEQUE', payment_from: 'CHEQUE' }
-                        : { ...payForm, payment_type: 'BANK' })}
-                  />
-                </EntryField>
-              </EntryRow>
-              {!editingPaymentId && (
-                <EntryField label="Map to User / Client" hint="Optional — mirrors this entry into their Personal Ledger">
-                  <EntryPersonPicker
-                    siteId={currentSite?.id}
-                    value={mappedPerson}
-                    onChange={setMappedPerson}
-                    approvers={personApprovers}
-                    members={personMembers}
-                    onMemberCreated={addPersonMember}
-                  />
-                </EntryField>
-              )}
-              <EntryAmount
-                direction={payMode === 'refund' ? 'debit' : 'credit'}
-                label={payMode === 'refund' ? 'Refund (₹)' : 'Amount (₹)'}
-                required
-                hint={payForm.amount ? `${payMode === 'refund' ? '−' : '+'} ₹${fmt(Math.abs(parseFloat(payForm.amount) || 0))}` : undefined}
-                inputProps={{
-                  step: '0.01',
-                  placeholder: '0',
-                  value: payForm.amount,
-                  onChange: (e) => setPayForm({ ...payForm, amount: e.target.value }),
-                  required: true,
-                }}
-              />
-              <EntryField label="Payment From">
-                <div className="flex flex-wrap gap-1.5">
-                  {PAYMENT_FROM_OPTIONS.map((f) => (
-                    <button key={f} type="button"
-                      onClick={() => {
-                        const newFrom = payForm.payment_from === f ? '' : f;
-                        const newType = newFrom ? derivePaymentType(newFrom) : payForm.payment_type;
-                        if (newFrom === 'REFUND' || newFrom === 'RETURN') setPayMode('refund');
-                        else if (newFrom) setPayMode('receive');
-                        setPayForm({ ...payForm, payment_from: newFrom, payment_type: newType });
-                      }}
-                      className={`px-3 py-1.5 rounded-md border text-xs font-medium transition-colors ${payForm.payment_from === f ? 'border-slate-800 bg-slate-800 text-white' : FROM_COLORS[f] || 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}>
-                      {f}
-                    </button>
-                  ))}
-                </div>
-              </EntryField>
-              {(payForm.payment_type !== 'CASH' || payForm.cheque_no) && (
-                <div className="rounded-lg border border-slate-200 p-3 space-y-3">
-                  <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Cheque / Bank Details</p>
-                  <EntryRow>
-                    {(payForm.payment_type === 'CHEQUE' || payForm.cheque_no) && (
-                      <EntryField label="Cheque No">
-                        <Input placeholder="Cheque number" value={payForm.cheque_no}
-                          onChange={(e) => setPayForm({ ...payForm, cheque_no: e.target.value })} />
-                      </EntryField>
-                    )}
-                    {payForm.payment_type !== 'CASH' && (
-                      <EntryField label="Bank Details">
-                        <Input placeholder="SBI-613266 / UNB-037191" value={payForm.bank_details}
-                          onChange={(e) => setPayForm({ ...payForm, bank_details: e.target.value.toUpperCase() })}
-                          list="pay-bank-suggestions-d" />
-                        <datalist id="pay-bank-suggestions-d">
-                          {autocomplete.bankDetails?.map((b) => <option key={b} value={b} />)}
-                        </datalist>
-                      </EntryField>
-                    )}
-                  </EntryRow>
-                </div>
-              )}
+      <Dialog open={payOpen} onOpenChange={(open) => { setPayOpen(open); if (!open) resetPayForm(); }}>
+        <DialogContent className="sm:max-w-5xl max-h-[96vh] gap-0 p-0 flex flex-col overflow-hidden rounded-3xl border-slate-200/90 bg-white shadow-2xl shadow-slate-900/10">
+          <div className="shrink-0 flex items-center gap-3 border-b border-slate-100 bg-gradient-to-r from-slate-50 via-white to-slate-50 px-5 py-3 sm:px-6">
+            <div className={cn(
+              'flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-white shadow-sm',
+              payMode === 'refund' ? 'bg-red-600 shadow-red-600/25' : 'bg-emerald-600 shadow-emerald-600/25'
+            )}>
+              {payMode === 'refund' ? <ArrowUpRight className="w-5 h-5" /> : <ArrowDownLeft className="w-5 h-5" />}
+            </div>
+            <div className="min-w-0 flex-1">
+              <DialogTitle className="text-base font-semibold text-slate-900">
+                {editingPaymentId ? 'Edit Payment' : 'Take Payment'}
+              </DialogTitle>
+              <DialogDescription className="text-xs text-slate-500 mt-0.5 truncate">
+                Plot <span className="font-semibold text-slate-700">{plot.plot_no}</span>{plot.buyer_name && <> · <span className="text-slate-600">{plot.buyer_name}</span></>} · complete the details below
+              </DialogDescription>
+            </div>
+            <span className={cn(
+              'shrink-0 rounded-full px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-white',
+              payMode === 'refund' ? 'bg-red-600' : 'bg-emerald-600'
+            )}>
+              {payMode === 'refund' ? 'Refund · Out' : 'Receive · In'}
+            </span>
+          </div>
 
-              {/* ── Booked By — inline dropdown (no Popover portal) ── */}
-              <EntryField label="Payment Booked By">
-                <div className="relative" ref={bookedByRef}>
-                  <button type="button"
-                    onClick={() => { setPayBookedByOpen(prev => !prev); setPayBookedBySearch(''); }}
-                    className="h-9 w-full flex items-center justify-between px-3 border rounded-md text-sm bg-white hover:bg-slate-50 transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1">
-                    {payForm.booked_by ? (
-                      <span className="flex items-center gap-1.5 truncate text-slate-800">
-                        <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                        {(() => { const m = autocomplete?.members?.find(x => x.name === payForm.booked_by); return m?.phone ? `${m.name} (${m.phone})` : payForm.booked_by; })()}
-                      </span>
-                    ) : (
-                      <span className="text-slate-400">Select person...</span>
-                    )}
-                    <ChevronsUpDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" />
-                  </button>
+          <div className="flex-1 min-h-0 overflow-y-auto px-5 py-3 sm:px-6 md:overflow-visible">
+            <form id="pay-form" onSubmit={handleSubmitPayment} className="space-y-3">
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+                {/* ── Left column: direction, date, mode, amount ── */}
+                <div className="space-y-3">
+                  <CreditDebitTabs
+                    value={payMode === 'refund' ? 'debit' : 'credit'}
+                    onChange={(v) => setPayMode(v === 'debit' ? 'refund' : 'receive')}
+                    disabled={!!editingPaymentId}
+                    creditHint="Receive payment"
+                    debitHint="Refund / return"
+                  />
+                  <EntryField label={<FieldLabel icon={Calendar} color="bg-sky-100 text-sky-600">Date</FieldLabel>} required>
+                    <Input type="date" value={payForm.date}
+                      onChange={(e) => setPayForm({ ...payForm, date: e.target.value })}
+                      required />
+                  </EntryField>
+                  <EntryField label={<FieldLabel icon={Landmark} color="bg-violet-100 text-violet-600">Payment Mode</FieldLabel>}>
+                    <EntryModeChips
+                      value={payForm.payment_type}
+                      modes={['CASH', 'BANK', 'CHEQUE']}
+                      onChange={(m) => setPayForm(m === 'CASH'
+                        ? { ...payForm, payment_type: 'CASH', payment_from: 'CASH' }
+                        : m === 'CHEQUE'
+                          ? { ...payForm, payment_type: 'CHEQUE', payment_from: 'CHEQUE' }
+                          : { ...payForm, payment_type: 'BANK' })}
+                    />
+                  </EntryField>
+                  <EntryAmount
+                    direction={payMode === 'refund' ? 'debit' : 'credit'}
+                    label={payMode === 'refund' ? 'Refund (₹)' : 'Amount (₹)'}
+                    required
+                    hint={payForm.amount ? `${payMode === 'refund' ? '−' : '+'} ₹${fmt(Math.abs(parseFloat(payForm.amount) || 0))}` : undefined}
+                    inputProps={{
+                      step: '0.01',
+                      placeholder: '0',
+                      value: payForm.amount,
+                      onChange: (e) => setPayForm({ ...payForm, amount: e.target.value }),
+                      required: true,
+                    }}
+                  />
+                </div>
 
-                  {payBookedByOpen && (
-                    <div className="absolute z-[200] left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl animate-in fade-in-0 zoom-in-95 duration-100">
-                      {/* Search input */}
-                      <div className="flex items-center gap-2 border-b border-slate-100 px-3">
-                        <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                        <input
-                          ref={bookedByInputRef}
-                          type="text"
-                          placeholder="Search name or phone..."
-                          value={payBookedBySearch}
-                          onChange={(e) => setPayBookedBySearch(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Escape') { setPayBookedByOpen(false); }
-                            if (e.key === 'Enter' && filteredBookedByMembers.length > 0) {
-                              e.preventDefault();
-                              const first = filteredBookedByMembers[0];
-                              setPayForm(prev => ({ ...prev, booked_by: first.name }));
-                              setPayBookedByOpen(false);
-                              setPayBookedBySearch('');
-                            }
-                          }}
-                          className="flex-1 h-9 text-sm outline-none bg-transparent placeholder:text-slate-400"
+                {/* ── Right column: map to person, payment from, cheque/bank, booked by, narration, approval ── */}
+                <div className="space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {!editingPaymentId && (
+                      <EntryField
+                        label={<FieldLabel icon={Users} color="bg-fuchsia-100 text-fuchsia-600">Map to person</FieldLabel>}
+                        hint="Optional — mirrors this entry into their Personal Ledger"
+                      >
+                        <EntryPersonPicker
+                          siteId={currentSite?.id}
+                          value={mappedPerson}
+                          onChange={setMappedPerson}
+                          approvers={personApprovers}
+                          members={personMembers}
+                          onMemberCreated={addPersonMember}
                         />
-                        {payBookedBySearch && (
-                          <button type="button" onClick={() => setPayBookedBySearch('')} className="p-0.5 rounded hover:bg-slate-100">
-                            <X className="w-3 h-3 text-slate-400" />
+                      </EntryField>
+                    )}
+                    <EntryField label={<FieldLabel icon={Tag} color="bg-orange-100 text-orange-600">Payment From</FieldLabel>}>
+                      <div className="flex flex-wrap gap-1.5">
+                        {PAYMENT_FROM_OPTIONS.map((f) => (
+                          <button key={f} type="button"
+                            onClick={() => {
+                              const newFrom = payForm.payment_from === f ? '' : f;
+                              const newType = newFrom ? derivePaymentType(newFrom) : payForm.payment_type;
+                              if (newFrom === 'REFUND' || newFrom === 'RETURN') setPayMode('refund');
+                              else if (newFrom) setPayMode('receive');
+                              setPayForm({ ...payForm, payment_from: newFrom, payment_type: newType });
+                            }}
+                            className={`px-3 py-1.5 rounded-md border text-xs font-medium transition-colors ${payForm.payment_from === f ? 'border-slate-800 bg-slate-800 text-white' : FROM_COLORS[f] || 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}>
+                            {f}
                           </button>
-                        )}
+                        ))}
                       </div>
-                      {/* Scrollable list */}
-                      <div className="max-h-[180px] overflow-y-auto overscroll-contain p-1">
-                        {filteredBookedByMembers.length === 0 ? (
-                          <p className="py-4 text-center text-xs text-slate-400">No members found</p>
-                        ) : (
-                          filteredBookedByMembers.map((m) => (
-                            <button
-                              key={`booked-${m.name}-${m.phone || ''}`}
-                              type="button"
-                              onClick={() => {
-                                setPayForm(prev => ({ ...prev, booked_by: prev.booked_by === m.name ? '' : m.name }));
-                                setPayBookedByOpen(false);
-                                setPayBookedBySearch('');
-                              }}
-                              className={`w-full flex items-center gap-2 text-xs px-2 py-1.5 rounded-md cursor-pointer transition-colors ${
-                                payForm.booked_by === m.name ? 'bg-emerald-50 text-emerald-800' : 'hover:bg-slate-50 text-slate-700'
-                              }`}
-                            >
-                              <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[10px] font-semibold ${
-                                payForm.booked_by === m.name ? 'bg-emerald-200 text-emerald-700' : 'bg-slate-100 text-slate-500'
-                              }`}>
-                                {(m.name || '?')[0].toUpperCase()}
-                              </div>
-                              <div className="flex-1 min-w-0 text-left">
-                                <p className="font-medium truncate">{m.name}</p>
-                                {(m.phone || m.team) && (
-                                  <p className="text-[10px] text-slate-400 truncate">
-                                    {[m.phone, m.team].filter(Boolean).join(' · ')}
-                                  </p>
-                                )}
-                              </div>
-                              {payForm.booked_by === m.name && (
-                                <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                              )}
-                            </button>
-                          ))
-                        )}
-                      </div>
-                      {payForm.booked_by && (
-                        <div className="border-t border-slate-100 p-1">
-                          <button type="button"
-                            onClick={() => { setPayForm(prev => ({ ...prev, booked_by: '' })); setPayBookedByOpen(false); }}
-                            className="w-full text-xs text-red-500 hover:bg-red-50 rounded-md py-1.5 px-2 text-left transition-colors">
-                            Clear selection
-                          </button>
-                        </div>
+                    </EntryField>
+                  </div>
+
+                  {(payForm.payment_type !== 'CASH' || payForm.cheque_no) && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {(payForm.payment_type === 'CHEQUE' || payForm.cheque_no) && (
+                        <EntryField label={<FieldLabel icon={Hash} color="bg-indigo-100 text-indigo-600">Cheque No</FieldLabel>}>
+                          <Input placeholder="Cheque number" value={payForm.cheque_no}
+                            onChange={(e) => setPayForm({ ...payForm, cheque_no: e.target.value })} />
+                        </EntryField>
+                      )}
+                      {payForm.payment_type !== 'CASH' && (
+                        <EntryField label={<FieldLabel icon={CreditCard} color="bg-blue-100 text-blue-600">Bank Details</FieldLabel>}>
+                          <Input placeholder="SBI-613266 / UNB-037191" value={payForm.bank_details}
+                            onChange={(e) => setPayForm({ ...payForm, bank_details: e.target.value.toUpperCase() })}
+                            list="pay-bank-suggestions-d" />
+                          <datalist id="pay-bank-suggestions-d">
+                            {autocomplete.bankDetails?.map((b) => <option key={b} value={b} />)}
+                          </datalist>
+                        </EntryField>
                       )}
                     </div>
                   )}
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {/* ── Booked By — inline dropdown (no Popover portal) ── */}
+                    <EntryField label={<FieldLabel icon={User} color="bg-teal-100 text-teal-600">Payment Booked By</FieldLabel>}>
+                      <div className="relative" ref={bookedByRef}>
+                        <button type="button"
+                          onClick={() => { setPayBookedByOpen(prev => !prev); setPayBookedBySearch(''); }}
+                          className="h-9 w-full flex items-center justify-between px-3 border rounded-md text-sm bg-white hover:bg-slate-50 transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1">
+                          {payForm.booked_by ? (
+                            <span className="flex items-center gap-1.5 truncate text-slate-800">
+                              <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                              {(() => { const m = autocomplete?.members?.find(x => x.name === payForm.booked_by); return m?.phone ? `${m.name} (${m.phone})` : payForm.booked_by; })()}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">Select person...</span>
+                          )}
+                          <ChevronsUpDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" />
+                        </button>
+
+                        {payBookedByOpen && (
+                          <div className="absolute z-[200] left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl animate-in fade-in-0 zoom-in-95 duration-100">
+                            {/* Search input */}
+                            <div className="flex items-center gap-2 border-b border-slate-100 px-3">
+                              <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                              <input
+                                ref={bookedByInputRef}
+                                type="text"
+                                placeholder="Search name or phone..."
+                                value={payBookedBySearch}
+                                onChange={(e) => setPayBookedBySearch(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Escape') { setPayBookedByOpen(false); }
+                                  if (e.key === 'Enter' && filteredBookedByMembers.length > 0) {
+                                    e.preventDefault();
+                                    const first = filteredBookedByMembers[0];
+                                    setPayForm(prev => ({ ...prev, booked_by: first.name }));
+                                    setPayBookedByOpen(false);
+                                    setPayBookedBySearch('');
+                                  }
+                                }}
+                                className="flex-1 h-9 text-sm outline-none bg-transparent placeholder:text-slate-400"
+                              />
+                              {payBookedBySearch && (
+                                <button type="button" onClick={() => setPayBookedBySearch('')} className="p-0.5 rounded hover:bg-slate-100">
+                                  <X className="w-3 h-3 text-slate-400" />
+                                </button>
+                              )}
+                            </div>
+                            {/* Scrollable list */}
+                            <div className="max-h-[180px] overflow-y-auto overscroll-contain p-1">
+                              {filteredBookedByMembers.length === 0 ? (
+                                <p className="py-4 text-center text-xs text-slate-400">No members found</p>
+                              ) : (
+                                filteredBookedByMembers.map((m) => (
+                                  <button
+                                    key={`booked-${m.name}-${m.phone || ''}`}
+                                    type="button"
+                                    onClick={() => {
+                                      setPayForm(prev => ({ ...prev, booked_by: prev.booked_by === m.name ? '' : m.name }));
+                                      setPayBookedByOpen(false);
+                                      setPayBookedBySearch('');
+                                    }}
+                                    className={`w-full flex items-center gap-2 text-xs px-2 py-1.5 rounded-md cursor-pointer transition-colors ${
+                                      payForm.booked_by === m.name ? 'bg-emerald-50 text-emerald-800' : 'hover:bg-slate-50 text-slate-700'
+                                    }`}
+                                  >
+                                    <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[10px] font-semibold ${
+                                      payForm.booked_by === m.name ? 'bg-emerald-200 text-emerald-700' : 'bg-slate-100 text-slate-500'
+                                    }`}>
+                                      {(m.name || '?')[0].toUpperCase()}
+                                    </div>
+                                    <div className="flex-1 min-w-0 text-left">
+                                      <p className="font-medium truncate">{m.name}</p>
+                                      {(m.phone || m.team) && (
+                                        <p className="text-[10px] text-slate-400 truncate">
+                                          {[m.phone, m.team].filter(Boolean).join(' · ')}
+                                        </p>
+                                      )}
+                                    </div>
+                                    {payForm.booked_by === m.name && (
+                                      <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                    )}
+                                  </button>
+                                ))
+                              )}
+                            </div>
+                            {payForm.booked_by && (
+                              <div className="border-t border-slate-100 p-1">
+                                <button type="button"
+                                  onClick={() => { setPayForm(prev => ({ ...prev, booked_by: '' })); setPayBookedByOpen(false); }}
+                                  className="w-full text-xs text-red-500 hover:bg-red-50 rounded-md py-1.5 px-2 text-left transition-colors">
+                                  Clear selection
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </EntryField>
+
+                    {/* ── Admin Approval ── */}
+                    {approvers.length > 0 && (
+                      <EntryField label={<FieldLabel icon={CheckCircle2 } color="bg-amber-100 text-amber-600">Assign For Approval</FieldLabel>}>
+                        <Select value={payForm.assigned_admin_id?.toString() || '_none'}
+                          onValueChange={(val) => setPayForm({ ...payForm, assigned_admin_id: val === '_none' ? null : parseInt(val) })}>
+                          <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Select admin" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="_none">— Auto-assign or none —</SelectItem>
+                            {approvers.map((admin) => (
+                              <SelectItem key={admin.id} value={String(admin.id)}>
+                                {admin.full_name || admin.name || admin.email || `Admin #${admin.id}`}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </EntryField>
+                    )}
+                  </div>
+
+                  {/* ── Narration ── */}
+                  <EntryField label={<FieldLabel icon={MessageSquare} color="bg-slate-100 text-slate-500">Narration</FieldLabel>}>
+                    <Textarea placeholder={payMode === 'refund' ? 'REFUND, RETURN A19 DG, TRF TO A38...' : 'REGISTRY, BOOKING, INSTALLMENT...'}
+                      value={payForm.narration}
+                      onChange={(e) => setPayForm({ ...payForm, narration: e.target.value.toUpperCase() })}
+                      rows={2} className="text-sm resize-none" />
+                  </EntryField>
                 </div>
-              </EntryField>
+              </div>
 
-              {/* ── Narration ── */}
-              <EntryField label="Narration">
-                <Textarea placeholder={payMode === 'refund' ? 'REFUND, RETURN A19 DG, TRF TO A38...' : 'REGISTRY, BOOKING, INSTALLMENT...'}
-                  value={payForm.narration}
-                  onChange={(e) => setPayForm({ ...payForm, narration: e.target.value.toUpperCase() })}
-                  rows={2} className="text-sm resize-none" />
-              </EntryField>
+              {/* ── Voucher — full width ── */}
+              <VoucherUpload
+                value={payForm.voucher_url}
+                onChange={(url) => setPayForm({ ...payForm, voucher_url: url })}
+                onUploadingChange={setVoucherUploading}
+                disabled={paySubmitting}
+              />
 
-              {/* ── Voucher ── */}
-              <EntryField label="Voucher / Receipt">
-                <VoucherUpload value={payForm.voucher_url} onChange={(url) => setPayForm({ ...payForm, voucher_url: url })} />
-              </EntryField>
+              {/* hidden submit keeps Enter-to-submit working; visible button lives in the footer below */}
+              <button type="submit" hidden aria-hidden="true" tabIndex={-1} />
+            </form>
+          </div>
 
-              {/* ── Admin Approval ── */}
-              {approvers.length > 0 && (
-                <EntryField label="Assign For Approval">
-                  <Select value={payForm.assigned_admin_id?.toString() || '_none'}
-                    onValueChange={(val) => setPayForm({ ...payForm, assigned_admin_id: val === '_none' ? null : parseInt(val) })}>
-                    <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Select admin" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="_none">— Auto-assign or none —</SelectItem>
-                      {approvers.map((admin) => (
-                        <SelectItem key={admin.id} value={String(admin.id)}>
-                          {admin.full_name || admin.name || admin.email || `Admin #${admin.id}`}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </EntryField>
-              )}
-        </form>
-      </EntryDialog>
+          <div className="shrink-0 flex items-center justify-between gap-2.5 border-t border-slate-100 bg-slate-50/60 px-5 py-3 sm:px-6">
+            <p className="hidden sm:block text-[11px] text-slate-400">
+              Enter: next field · Shift+Tab: previous · Esc: close
+            </p>
+            <div className="flex items-center gap-2.5">
+              <Button type="button" variant="outline" onClick={() => setPayOpen(false)} disabled={paySubmitting} className="h-10 rounded-full px-5">
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={() => document.getElementById('pay-form')?.requestSubmit()}
+                disabled={paySubmitting || voucherUploading}
+                className={cn(
+                  'h-10 rounded-full px-5 text-white',
+                  payMode === 'refund' ? 'bg-red-600 hover:bg-red-700' : 'bg-emerald-600 hover:bg-emerald-700'
+                )}
+              >
+                {paySubmitting ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : null}
+                {paySubmitting ? 'Recording...' : payMode === 'refund' ? 'Record Refund' : 'Record Payment'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* ── Confirm ── */}
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>

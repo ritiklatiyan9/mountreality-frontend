@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ArrowRight, Building2, Menu, X } from "lucide-react";
 
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
 const LINKS = [
@@ -9,8 +10,10 @@ const LINKS = [
   { to: "/pricing", label: "Pricing" },
 ];
 
-/** Shared marketing-site header — used by the landing hero and the pricing page. */
-export default function PublicNav({ active }: { active?: string }) {
+/** Shared marketing-site header — used by the landing hero and the pricing page.
+ * Pass `dark` on a black-background page (e.g. Pricing) so text/buttons stay
+ * legible; the default (light) styling is unchanged for every other caller. */
+export default function PublicNav({ active, dark = false }: { active?: string; dark?: boolean }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const navigate = useNavigate();
@@ -54,7 +57,7 @@ export default function PublicNav({ active }: { active?: string }) {
         <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-blue-600 shadow-lg shrink-0">
           <Building2 className="h-4.5 w-4.5 text-primary-foreground" />
         </span>
-        <span className="text-base font-bold tracking-tight text-foreground">
+        <span className={cn("text-base font-bold tracking-tight", dark ? "text-white" : "text-foreground")}>
           Mount<span className="text-primary">Reality</span>
         </span>
       </Link>
@@ -62,11 +65,13 @@ export default function PublicNav({ active }: { active?: string }) {
       <div
         id="menu"
         ref={menuRef}
-        className={[
-          "max-md:fixed max-md:inset-0 max-md:z-30 max-md:flex max-md:flex-col max-md:items-center max-md:justify-center max-md:gap-8 max-md:bg-background/95 max-md:backdrop-blur max-md:transition-opacity max-md:duration-300",
-          "flex items-center gap-8 font-medium text-foreground",
+        className={cn(
+          "max-md:fixed max-md:inset-0 max-md:z-30 max-md:flex max-md:flex-col max-md:items-center max-md:justify-center max-md:gap-8 max-md:backdrop-blur max-md:transition-opacity max-md:duration-300",
+          dark ? "max-md:bg-slate-950/95" : "max-md:bg-background/95",
+          "flex items-center gap-8 font-medium",
+          dark ? "text-slate-200" : "text-foreground",
           menuOpen ? "max-md:opacity-100" : "max-md:pointer-events-none max-md:opacity-0",
-        ].join(" ")}
+        )}
         aria-hidden={!menuOpen}
       >
         {LINKS.map((link) => (
@@ -81,7 +86,7 @@ export default function PublicNav({ active }: { active?: string }) {
         ))}
 
         <div className="flex flex-col items-center gap-3 md:hidden">
-          <Button variant="outline" className="w-44" onClick={() => goTo("/login")}>
+          <Button variant="outline" className={cn("w-44", dark && "border-slate-600 bg-slate-800 text-white hover:bg-slate-700")} onClick={() => goTo("/login")}>
             Sign In
           </Button>
           <Button className="w-44" onClick={() => goTo("/signup")}>
@@ -91,7 +96,7 @@ export default function PublicNav({ active }: { active?: string }) {
 
         <button
           onClick={() => setMenuOpen(false)}
-          className="md:hidden absolute top-4 right-4 rounded-md bg-secondary p-2 text-foreground hover:bg-secondary/70 transition"
+          className={cn("md:hidden absolute top-4 right-4 rounded-md p-2 transition", dark ? "bg-slate-800 text-white hover:bg-slate-700" : "bg-secondary text-foreground hover:bg-secondary/70")}
           aria-label="Close menu"
         >
           <X className="h-5 w-5" />
@@ -99,7 +104,7 @@ export default function PublicNav({ active }: { active?: string }) {
       </div>
 
       <div className="hidden md:flex items-center gap-2">
-        <Button variant="outline" size="sm" onClick={() => goTo("/login")}>
+        <Button variant="outline" size="sm" className={cn(dark && "border-slate-600 bg-slate-800 text-white hover:bg-slate-700")} onClick={() => goTo("/login")}>
           Sign In
         </Button>
         <Button size="sm" onClick={() => goTo("/signup")}>
@@ -109,7 +114,7 @@ export default function PublicNav({ active }: { active?: string }) {
 
       <button
         onClick={() => setMenuOpen(true)}
-        className="md:hidden rounded-md bg-secondary p-2 text-foreground hover:bg-secondary/70 transition"
+        className={cn("md:hidden rounded-md p-2 transition", dark ? "bg-slate-800 text-white hover:bg-slate-700" : "bg-secondary text-foreground hover:bg-secondary/70")}
         aria-label="Open menu"
       >
         <Menu className="h-5 w-5" />

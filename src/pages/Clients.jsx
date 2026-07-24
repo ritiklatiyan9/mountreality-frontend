@@ -30,7 +30,7 @@ import {
   AlertCircle, Loader2, Calendar, CreditCard, Briefcase,
   Shield, Hash, Heart, UserCheck, Tractor, Handshake,
   Store, HelpCircle, FileText, Upload, Trash, GraduationCap,
-  BadgeCheck, UserCog, Clock, IndianRupee, Contact, FileCheck, ArrowUpDown, UserPlus
+  BadgeCheck, UserCog, Clock, IndianRupee, Contact, FileCheck, ArrowUpDown, UserPlus, Tag
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -51,6 +51,8 @@ const BLOOD_OPTIONS = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 const STATUS_OPTIONS = ['ACTIVE', 'INACTIVE', 'BLOCKED'];
 const MARITAL_OPTIONS = ['SINGLE', 'MARRIED', 'DIVORCED', 'WIDOWED'];
 const EMPLOYMENT_TYPE_OPTIONS = ['FULL-TIME', 'PART-TIME', 'CONTRACT', 'INTERN', 'PROBATION', 'FREELANCE'];
+const ROLE_OPTIONS = ['OWNER', 'PARTNER', 'DIRECTOR', 'MANAGER', 'STAFF', 'CONSULTANT', 'REPRESENTATIVE', 'OTHER'];
+const CATEGORY_ICON_MAP = { UserCheck, Tractor, Users, Handshake, Store, UserCog, HelpCircle, Tag };
 
 const STATUS_COLORS = {
   ACTIVE: 'bg-emerald-100 text-emerald-700',
@@ -94,7 +96,7 @@ const isKycIncomplete = (m) => {
 };
 
 const EMPTY_FORM = {
-  member_type: 'CLIENT', full_name: '', father_name: '', gender: '', date_of_birth: '',
+  member_type: 'CLIENT', role: '', full_name: '', father_name: '', gender: '', date_of_birth: '',
   blood_group: '', phone: '', alt_phone: '', email: '', whatsapp: '',
   address: '', city: '', state: '', pincode: '',
   aadhar_no: '', pan_no: '', voter_id: '',
@@ -150,7 +152,8 @@ export const Clients = () => {
   const [siteRegistrationMember, setSiteRegistrationMember] = useState(null);
   const [quickCreateOpen, setQuickCreateOpen] = useState(false);
   const [quickCreateSubmitting, setQuickCreateSubmitting] = useState(false);
-  const [quickCreateForm, setQuickCreateForm] = useState({ full_name: '', phone: '' });
+  const [quickCreateForm, setQuickCreateForm] = useState({ full_name: '', phone: '', role: '', member_type: '' });
+  const [quickCreateCategories, setQuickCreateCategories] = useState([]);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -211,6 +214,14 @@ export const Clients = () => {
     loadInitial();
   }, [siteId, loadInitial]);
 
+  // Live category list (org-wide, admin-managed via "User Categories") — used
+  // by the quick-add dialog's Category field instead of a hardcoded list.
+  useEffect(() => {
+    api.get('/member-categories')
+      .then((res) => setQuickCreateCategories(res.data.categories || []))
+      .catch((err) => console.error('Failed to load member categories:', err));
+  }, []);
+
   // ── Form Handlers ──
   const resetForm = () => {
     setForm({ ...EMPTY_FORM });
@@ -224,7 +235,7 @@ export const Clients = () => {
     setMessage({ type: '', text: '' });
   };
 
-  const resetQuickCreateForm = () => setQuickCreateForm({ full_name: '', phone: '' });
+  const resetQuickCreateForm = () => setQuickCreateForm({ full_name: '', phone: '', role: '', member_type: '' });
 
   const handleOpenCreate = () => {
     resetQuickCreateForm();
@@ -254,6 +265,8 @@ export const Clients = () => {
         site_id: siteId,
         full_name: fullName,
         phone,
+        ...(quickCreateForm.role ? { role: quickCreateForm.role } : {}),
+        ...(quickCreateForm.member_type ? { member_type: quickCreateForm.member_type } : {}),
       };
       const { data } = await api.post('/members', payload);
       setQuickCreateOpen(false);
@@ -278,6 +291,7 @@ export const Clients = () => {
     }
     setForm({
       member_type: m.member_type || 'CLIENT',
+      role: m.role || '',
       full_name: m.full_name || '',
       father_name: m.father_name || '',
       gender: m.gender || '',
@@ -739,7 +753,7 @@ export const Clients = () => {
               <p className="text-[10px] text-slate-400">JPG/PNG, max 5MB</p>
             </div>
             <div className="flex-1 space-y-3">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-3">
                 <div className="space-y-1.5">
                   <Label className="text-xs font-medium">Member Type</Label>
                   <Select value={form.member_type} onValueChange={(v) => setForm({ ...form, member_type: v })}>
@@ -747,6 +761,18 @@ export const Clients = () => {
                     <SelectContent>
                       {MEMBER_TYPES.map(t => (
                         <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium">Role</Label>
+                  <Select value={form.role || 'none'} onValueChange={(v) => setForm({ ...form, role: v === 'none' ? '' : v })}>
+                    <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="Select role" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Not Specified</SelectItem>
+                      {ROLE_OPTIONS.map(r => (
+                        <SelectItem key={r} value={r}>{r}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -1540,6 +1566,26 @@ export const Clients = () => {
           </DialogHeader>
           <form onSubmit={handleQuickCreate} className="space-y-4">
             <div className="space-y-1.5">
+              <Label htmlFor="quick-member-category">Category</Label>
+              <Select
+                value={quickCreateForm.member_type || 'none'}
+                onValueChange={(v) => setQuickCreateForm((previous) => ({ ...previous, member_type: v === 'none' ? '' : v }))}
+              >
+                <SelectTrigger id="quick-member-category" className="h-9 text-xs"><SelectValue placeholder="Select category" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Not Specified</SelectItem>
+                  {quickCreateCategories.map((cat) => (
+                    <SelectItem key={cat.id} value={cat.slug}>
+                      <span className="flex items-center gap-2">
+                        {(() => { const I = CATEGORY_ICON_MAP[cat.icon] || Tag; return <I className="w-3.5 h-3.5" />; })()}
+                        {cat.name}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
               <Label htmlFor="quick-member-name">Member Name</Label>
               <Input
                 id="quick-member-name"
@@ -1558,6 +1604,21 @@ export const Clients = () => {
                 onChange={(event) => setQuickCreateForm((previous) => ({ ...previous, phone: event.target.value }))}
                 required
               />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="quick-member-role">Role</Label>
+              <Select
+                value={quickCreateForm.role || 'none'}
+                onValueChange={(v) => setQuickCreateForm((previous) => ({ ...previous, role: v === 'none' ? '' : v }))}
+              >
+                <SelectTrigger id="quick-member-role" className="h-9 text-xs"><SelectValue placeholder="Select role" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Not Specified</SelectItem>
+                  {ROLE_OPTIONS.map(r => (
+                    <SelectItem key={r} value={r}>{r}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" size="sm" onClick={() => setQuickCreateOpen(false)} disabled={quickCreateSubmitting}>Cancel</Button>

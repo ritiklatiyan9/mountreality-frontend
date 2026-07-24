@@ -18,18 +18,25 @@ import api from '@/api/api';
  * - value: string|null (current voucher URL)
  * - onChange: (url: string|null) => void
  * - disabled: boolean
+ * - onUploadingChange: (uploading: boolean) => void — lets the parent block
+ *   form submission until the upload (file or camera) has finished, since
+ *   onChange only fires once the URL comes back from the server.
+ * - label: string (default 'Voucher / Receipt') — field label text.
  */
-export default function VoucherUpload({ value, onChange, disabled = false }) {
+export default function VoucherUpload({ value, onChange, disabled = false, onUploadingChange, label = 'Voucher / Receipt' }) {
   const openDoc = useDocViewer();
   const [uploading, setUploading] = useState(false);
   const [preview, setPreview] = useState(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [photo, setPhoto] = useState(null);
+  const [error, setError] = useState(null);
 
   const uploadFile = async (file) => {
     if (!file) return;
+    setError(null);
     setPreview(URL.createObjectURL(file));
     setUploading(true);
+    onUploadingChange?.(true);
     try {
       const fd = new FormData();
       fd.append('file', file);
@@ -37,11 +44,13 @@ export default function VoucherUpload({ value, onChange, disabled = false }) {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       onChange(res.data.url || res.data.fileUrl);
-    } catch {
+    } catch (err) {
       onChange(null);
       setPreview(null);
+      setError(err?.response?.data?.message || 'Upload failed — please try again.');
     } finally {
       setUploading(false);
+      onUploadingChange?.(false);
     }
   };
 
@@ -60,16 +69,17 @@ export default function VoucherUpload({ value, onChange, disabled = false }) {
   const handleRemove = () => {
     onChange(null);
     setPreview(null);
+    setError(null);
   };
 
   const displayUrl = value || preview;
 
   return (
     <div className="space-y-2">
-      <label className="text-sm font-medium text-gray-700">Voucher / Receipt</label>
+      <label className="text-sm font-medium text-gray-700">{label}</label>
       {displayUrl ? (
         <div className="relative inline-block">
-          <button type="button" onClick={() => openDoc({ url: displayUrl, title: 'Voucher / Receipt' })}>
+          <button type="button" onClick={() => openDoc({ url: displayUrl, title: label })}>
             <img
               src={displayUrl}
               alt="Voucher"
@@ -125,6 +135,8 @@ export default function VoucherUpload({ value, onChange, disabled = false }) {
           </Button>
         </div>
       )}
+
+      {error && <p className="text-xs text-red-600">{error}</p>}
 
       {/* Live camera proof */}
       <Dialog open={cameraOpen} onOpenChange={(v) => { if (!v) { setCameraOpen(false); setPhoto(null); } }}>

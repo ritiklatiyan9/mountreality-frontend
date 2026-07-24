@@ -25,12 +25,13 @@ const BLOOD_OPTIONS = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 const STATUS_OPTIONS = ['ACTIVE', 'INACTIVE', 'BLOCKED'];
 const MARITAL_OPTIONS = ['SINGLE', 'MARRIED', 'DIVORCED', 'WIDOWED'];
 const EMPLOYMENT_TYPE_OPTIONS = ['FULL-TIME', 'PART-TIME', 'CONTRACT', 'INTERN', 'PROBATION', 'FREELANCE'];
+const ROLE_OPTIONS = ['OWNER', 'PARTNER', 'DIRECTOR', 'MANAGER', 'STAFF', 'CONSULTANT', 'REPRESENTATIVE', 'OTHER'];
 const IRRIGATION_OPTIONS = ['CANAL', 'TUBEWELL', 'RAINFED', 'DRIP', 'SPRINKLER', 'OTHER'];
 
 const ICON_MAP = { UserCheck, Tractor, Users, Handshake, Store, UserCog, HelpCircle, Tag };
 
 const EMPTY_FORM = {
-    member_type: '', full_name: '', father_name: '', gender: '', date_of_birth: '',
+    member_type: '', role: '', full_name: '', father_name: '', gender: '', date_of_birth: '',
     blood_group: '', phone: '', alt_phone: '', email: '', whatsapp: '',
     address: '', city: '', state: '', pincode: '',
     aadhar_no: '', pan_no: '', voter_id: '',
@@ -296,7 +297,7 @@ export const RegisterUser = () => {
 
                             {/* Category + Name */}
                             <div className="flex-1 space-y-3">
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                                     <div className="space-y-1.5">
                                         <Label className="text-xs font-medium">User Category <span className="text-red-500">*</span></Label>
                                         <Select value={form.member_type || 'none'} onValueChange={(v) => setForm({ ...form, member_type: v === 'none' ? '' : v })}>
@@ -313,6 +314,16 @@ export const RegisterUser = () => {
                                                         </span>
                                                     </SelectItem>
                                                 ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <Label className="text-xs font-medium">Role</Label>
+                                        <Select value={form.role || 'none'} onValueChange={(v) => setForm({ ...form, role: v === 'none' ? '' : v })}>
+                                            <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="Select role" /></SelectTrigger>
+                                            <SelectContent position="popper" className="max-h-60">
+                                                <SelectItem value="none">Not Specified</SelectItem>
+                                                {ROLE_OPTIONS.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
                                             </SelectContent>
                                         </Select>
                                     </div>

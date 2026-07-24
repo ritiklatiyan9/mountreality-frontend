@@ -1,6 +1,6 @@
-import { createElement, useState } from 'react';
+import { useState } from 'react';
 import {
-  ArrowDownLeft, ArrowUpRight, ArrowRight, ChevronLeft, Loader2,
+  ArrowDownLeft, ArrowUpRight, ChevronLeft, Loader2, Eye,
   Calendar, Banknote, Landmark, FileText, User, MapPin,
   NotebookPen, Tag, Users, MessageSquare, ArrowLeftRight,
 } from 'lucide-react';
@@ -17,23 +17,12 @@ import {
 } from './ui/select';
 import CreditDebitTabs from './CreditDebitTabs';
 import {
-  EntryRow, EntryField, getParticularsForMode,
+  EntryRow, EntryField, FieldLabel, getParticularsForMode,
   EntryPersonPicker, useEntryPersonOptions, mapPersonToPayload,
 } from './EntryModal';
+import VoucherUpload from './VoucherUpload';
 import { MAC_APP_ICONS } from './macAppIcons';
 import { cn } from '@/lib/utils';
-
-/** Small colored circular icon badge used in front of every field label — the
- * "premium" accent the dashboard Quick Entry modal asked for. Purely local to
- * this file; the shared EntryField/EntryModal kit is untouched. */
-const FieldLabel = ({ icon, color, children }) => (
-  <span className="flex items-center gap-1.5">
-    <span className={cn('flex h-5 w-5 shrink-0 items-center justify-center rounded-full', color)}>
-      {createElement(icon, { className: 'w-3 h-3' })}
-    </span>
-    {children}
-  </span>
-);
 
 const MODE_META = {
   CASH: { icon: Banknote, label: 'Cash', solid: 'bg-emerald-600', tint: 'bg-emerald-100 text-emerald-600' },
@@ -80,6 +69,7 @@ const blankForm = () => ({
   commission_plot_id: '',
   commission_id: '',
   reference_no: '',
+  voucher_url: '',
 });
 
 export default function QuickEntry() {
@@ -97,6 +87,7 @@ export default function QuickEntry() {
   const [mappedPerson, setMappedPerson] = useState(null);
   const [commissionAgents, setCommissionAgents] = useState([]);
   const [loadingAgents, setLoadingAgents] = useState(false);
+  const [voucherUploading, setVoucherUploading] = useState(false);
   const { approvers: personApprovers, members: personMembers, addMember: addPersonMember } = useEntryPersonOptions(siteId);
 
   const visibleModules = MODULES.filter((m) =>
@@ -111,6 +102,7 @@ export default function QuickEntry() {
     setBanner(null);
     setMappedPerson(null);
     setCommissionAgents([]);
+    setVoucherUploading(false);
     setOpen(true);
   };
 
@@ -121,6 +113,7 @@ export default function QuickEntry() {
     setSubmitting(false);
     setMappedPerson(null);
     setCommissionAgents([]);
+    setVoucherUploading(false);
   };
 
   const pickModule = async (key) => {
@@ -237,6 +230,10 @@ export default function QuickEntry() {
 
   const handleSubmit = async () => {
     if (!canSubmit || submitting) return;
+    if (voucherUploading) {
+      setBanner({ type: 'error', text: 'Please wait for the evidence photo to finish uploading.' });
+      return;
+    }
     setSubmitting(true);
     setBanner(null);
     try {
@@ -249,6 +246,7 @@ export default function QuickEntry() {
           amount: signed,
           cheque_no: isCheque ? form.cheque_no.trim() : undefined,
           remarks: form.remarks.trim() || null,
+          voucher_url: form.voucher_url || null,
           ...mapPersonToPayload(mappedPerson),
         });
       } else if (moduleKey === 'cashflow') {
@@ -260,6 +258,7 @@ export default function QuickEntry() {
           cash_type: form.mode.toLowerCase(),
           cheque_no: isCheque ? form.cheque_no.trim() || null : null,
           remarks: form.remarks.trim() || null,
+          voucher_url: form.voucher_url || null,
         });
       } else if (moduleKey === 'vendor') {
         await api.post(`/vendors/commitments/${form.vendor_commitment_id}/payments`, {
@@ -270,6 +269,7 @@ export default function QuickEntry() {
           reference_no: form.reference_no.trim() || (isCheque ? form.cheque_no.trim() : null),
           cheque_no: isCheque ? (form.reference_no.trim() || form.cheque_no.trim() || null) : null,
           note: form.description.trim() || form.remarks.trim() || null,
+          voucher_url: form.voucher_url || null,
           ...mapPersonToPayload(mappedPerson),
         });
       } else if (moduleKey === 'expense') {
@@ -283,6 +283,7 @@ export default function QuickEntry() {
           ...debitCredit,
           remark: form.remarks.trim(),
           category: form.category.trim(),
+          voucher_url: form.voucher_url || null,
           ...mapPersonToPayload(mappedPerson),
         });
       } else if (moduleKey === 'daybook') {
@@ -294,6 +295,10 @@ export default function QuickEntry() {
           ...debitCredit,
           payment_mode: form.particular,
           remarks: form.remarks.trim(),
+          from_entity: form.from_entity.trim() || null,
+          to_entity: form.to_entity.trim() || null,
+          category: form.category.trim() || null,
+          voucher_url: form.voucher_url || null,
           ...mapPersonToPayload(mappedPerson),
         });
       } else if (moduleKey === 'plot') {
@@ -306,6 +311,7 @@ export default function QuickEntry() {
           amount: signed,
           cheque_no: isCheque ? form.cheque_no.trim() || null : null,
           narration: form.remarks.trim() || null,
+          voucher_url: form.voucher_url || null,
           ...mapPersonToPayload(mappedPerson),
         });
       } else if (moduleKey === 'plot_commission') {
@@ -319,6 +325,7 @@ export default function QuickEntry() {
           payment_mode: form.mode,
           cheque_no: isCheque ? form.cheque_no.trim() || null : null,
           remarks: form.remarks.trim() || null,
+          voucher_url: form.voucher_url || null,
           ...mapPersonToPayload(mappedPerson),
         });
       }
@@ -333,7 +340,7 @@ export default function QuickEntry() {
   const mod = MODULES.find((m) => m.key === moduleKey);
   const ModIcon = mod ? MAC_APP_ICONS[mod.appKey] : null;
 
-  const entitySelect = (label, listKey, idField, toOption, icon, color, onSelect) => {
+  const entitySelect = (label, listKey, idField, toOption, icon, color, onSelect, placeholderText) => {
     const opts = (options[listKey] || []).map((it) => ({ value: String(it.id), ...toOption(it) }));
     return (
       <EntryField label={<FieldLabel icon={icon} color={color}>{label}</FieldLabel>} required>
@@ -344,7 +351,7 @@ export default function QuickEntry() {
         ) : (
           <Select value={form[idField] || undefined} onValueChange={(v) => { setF({ [idField]: v }); onSelect?.(v); }}>
             <SelectTrigger className={INPUT_ROUNDED}>
-              <SelectValue placeholder={`Select ${label.toLowerCase()}`} />
+              <SelectValue placeholder={placeholderText || `Select ${label.toLowerCase()}`} />
             </SelectTrigger>
             <SelectContent>
               {opts.map((o) => (
@@ -410,16 +417,29 @@ export default function QuickEntry() {
               {isCredit ? <ArrowDownLeft className="w-5 h-5" /> : <ArrowUpRight className="w-5 h-5" />}
             </div>
             <div className="min-w-0 flex-1">
-              <DialogTitle className="text-base font-semibold text-slate-900">Quick Entry</DialogTitle>
+              <DialogTitle className="text-base font-semibold text-slate-900">
+                {isCredit ? 'Record a Receipt' : 'Record a Payment'}
+              </DialogTitle>
               <DialogDescription className="text-xs text-slate-500 mt-0.5 truncate">
-                {mod ? mod.label : 'Choose where to record this entry'}
+                {mod ? `${mod.label} · complete the details below` : 'Choose where to record this entry'}
               </DialogDescription>
             </div>
+            {mod && (
+              <button
+                type="button"
+                onClick={() => { setModuleKey(null); setBanner(null); }}
+                className="shrink-0 flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 hover:bg-slate-50 transition-colors"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+                {ModIcon ? <ModIcon className="w-4 h-4 rounded-[3px]" /> : null}
+                Change module
+              </button>
+            )}
             <span className={cn(
               'shrink-0 rounded-full px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-white',
               isCredit ? 'bg-emerald-600' : 'bg-red-600'
             )}>
-              {isCredit ? 'Credit' : 'Debit'}
+              {isCredit ? 'Credit · In' : 'Debit · Out'}
             </span>
           </div>
 
@@ -460,56 +480,46 @@ export default function QuickEntry() {
                 </div>
               )
             ) : (
-              <div className="space-y-2.5">
-                <div className="flex items-center justify-between gap-3">
-                  <button
-                    type="button"
-                    onClick={() => { setModuleKey(null); setBanner(null); }}
-                    className="flex shrink-0 items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-slate-900 transition-colors"
-                  >
-                    <ChevronLeft className="w-3.5 h-3.5" />
-                    {ModIcon ? <ModIcon className="w-4.5 h-4.5 rounded-[4px]" /> : null}
-                    Modules
-                  </button>
-                  <CreditDebitTabs value={direction} onChange={changeDirection} />
-                </div>
+              <div className="space-y-3">
+                <div className="grid gap-4 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+                  {/* ── Left column: direction, amount, date, mode ── */}
+                  <div className="space-y-3">
+                    <CreditDebitTabs value={direction} onChange={changeDirection} />
 
-                <div className="grid gap-3 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
-                  {/* Amount — a clear, direction-tinted control without using extra vertical space. */}
-                  <div>
-                    <label className={cn('mb-1.5 block text-[11px] font-semibold uppercase tracking-wide', isCredit ? 'text-emerald-600' : 'text-red-600')}>
-                      Amount {isCredit ? '· Credit' : '· Debit'}
-                    </label>
-                    <div className="relative">
-                      <span className={cn(
-                        'pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold text-white shadow-sm',
-                        isCredit ? 'bg-emerald-600 shadow-emerald-600/25' : 'bg-red-600 shadow-red-600/25'
-                      )}>₹</span>
-                      <input
-                        type="number"
-                        step="0.01"
-                        inputMode="decimal"
-                        placeholder="Enter amount"
-                        value={form.amount}
-                        onChange={(e) => setF({ amount: e.target.value })}
-                        required
-                        className={cn(
-                          'h-[78px] w-full rounded-2xl border-2 bg-white pl-14 pr-4 text-2xl font-bold text-slate-900 transition-shadow placeholder:text-base placeholder:font-normal placeholder:text-slate-400 outline-none',
-                          isCredit
-                            ? 'border-emerald-200 focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100'
-                            : 'border-red-200 focus:border-red-400 focus:ring-4 focus:ring-red-100'
-                        )}
-                      />
+                    <div>
+                      <label className={cn('mb-1.5 block text-[11px] font-semibold uppercase tracking-wide', isCredit ? 'text-emerald-600' : 'text-red-600')}>
+                        Amount Paid
+                      </label>
+                      <div className="relative">
+                        <span className={cn(
+                          'pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold text-white shadow-sm',
+                          isCredit ? 'bg-emerald-600 shadow-emerald-600/25' : 'bg-red-600 shadow-red-600/25'
+                        )}>₹</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          inputMode="decimal"
+                          placeholder="0.00"
+                          value={form.amount}
+                          onChange={(e) => setF({ amount: e.target.value })}
+                          required
+                          className={cn(
+                            'h-[78px] w-full rounded-2xl border-2 bg-white pl-14 pr-4 text-2xl font-bold text-slate-900 transition-shadow placeholder:text-base placeholder:font-normal placeholder:text-slate-400 outline-none',
+                            isCredit
+                              ? 'border-emerald-200 focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100'
+                              : 'border-red-200 focus:border-red-400 focus:ring-4 focus:ring-red-100'
+                          )}
+                        />
+                      </div>
                     </div>
-                  </div>
 
-                  <div className="grid gap-3 sm:grid-cols-[0.72fr_1.28fr]">
                     <EntryField label={<FieldLabel icon={Calendar} color="bg-sky-100 text-sky-600">Date</FieldLabel>} required>
                       <Input type="date" value={form.date} onChange={(e) => setF({ date: e.target.value })} required className={INPUT_ROUNDED} />
                       {isCheque && moduleKey !== 'vendor' && (
                         <Input placeholder="Cheque number" value={form.cheque_no} onChange={(e) => setF({ cheque_no: e.target.value })} className={INPUT_ROUNDED} />
                       )}
                     </EntryField>
+
                     <EntryField label={<FieldLabel icon={Landmark} color="bg-violet-100 text-violet-600">Payment Mode</FieldLabel>} required>
                       <div className="flex gap-1.5">
                         {['CASH', 'BANK', 'CHEQUE'].map((m) => {
@@ -536,170 +546,197 @@ export default function QuickEntry() {
                       </div>
                     </EntryField>
                   </div>
-                </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  {moduleKey === 'farmer' && entitySelect('Farmer', 'farmers', 'farmer_id', (f) => ({ label: f.name, sublabel: f.phone || f.mobile || undefined }), User, 'bg-teal-100 text-teal-600')}
-                  {moduleKey === 'cashflow' && entitySelect('Ledger', 'months', 'month_id', (m) => ({
-                    label: m.ledger_name || [m.month, m.year].filter(Boolean).join('/') || `#${m.id}`,
-                  }), NotebookPen, 'bg-teal-100 text-teal-600')}
-                  {moduleKey === 'vendor' && entitySelect('Vendor commitment', 'vendorCommitments', 'vendor_commitment_id', (c) => ({
-                    label: c.vendor_name || c.vendor_member_name || `Commitment #${c.id}`,
-                    sublabel: [c.work_title, c.remaining_amount != null ? `Due ₹${Number(c.remaining_amount).toLocaleString('en-IN')}` : null].filter(Boolean).join(' · ') || undefined,
-                  }), User, 'bg-orange-100 text-orange-600')}
-                  {moduleKey === 'plot' && entitySelect('Plot', 'plots', 'plot_id', (p) => ({
-                    label: p.plot_no ? `Plot ${p.plot_no}` : `#${p.id}`,
-                    sublabel: p.buyer_name || undefined,
-                  }), MapPin, 'bg-teal-100 text-teal-600', handlePlotSelected)}
-                  {moduleKey === 'plot_commission' && entitySelect('Plot', 'plotCommissions', 'commission_plot_id', (p) => ({
-                    label: p.plot_no ? `Plot ${p.plot_no}` : `#${p.plot_id}`,
-                    sublabel: p.buyer_name || undefined,
-                  }), MapPin, 'bg-teal-100 text-teal-600', handleCommissionPlotSelected)}
-                  {moduleKey === 'plot_commission' && (
-                    <EntryField label={<FieldLabel icon={User} color="bg-amber-100 text-amber-600">Agent</FieldLabel>} required>
-                      {loadingAgents ? (
-                        <div className={cn(INPUT_ROUNDED, 'border border-slate-200 bg-slate-50 flex items-center px-3 text-sm text-slate-400 gap-2')}>
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading…
-                        </div>
-                      ) : (
-                        <Select
-                          value={form.commission_id || undefined}
-                          onValueChange={handleCommissionAgentSelected}
-                          disabled={!form.commission_plot_id || commissionAgents.length === 0}
-                        >
-                          <SelectTrigger className={INPUT_ROUNDED}>
-                            <SelectValue placeholder={form.commission_plot_id ? 'Select agent' : 'Pick a plot first'} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {commissionAgents.map((a) => (
-                              <SelectItem key={a.commission_id} value={String(a.commission_id)}>
-                                {a.agent_name}
-                                {a.agent_phone ? <span className="text-slate-400"> · {a.agent_phone}</span> : null}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                  {/* ── Right column: particular, paid from/to, category, map to person, remarks ── */}
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      {moduleKey !== 'vendor' && moduleKey !== 'plot_commission' && (
+                        <EntryField label={<FieldLabel icon={Tag} color="bg-indigo-100 text-indigo-600">Particular</FieldLabel>}>
+                          {form.mode === 'CHEQUE' ? (
+                            <div className={cn(INPUT_ROUNDED, 'flex items-center border border-teal-200 bg-teal-50 px-3 text-sm font-semibold text-teal-700')}>
+                              CHEQUE
+                            </div>
+                          ) : (
+                            <Select value={form.particular || undefined} onValueChange={(v) => setF({ particular: v })}>
+                              <SelectTrigger className={INPUT_ROUNDED}>
+                                <SelectValue placeholder="Select particular" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {getParticularsForMode(form.mode).map((opt) => (
+                                  <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          )}
+                        </EntryField>
                       )}
-                    </EntryField>
-                  )}
-                  {moduleKey !== 'vendor' && moduleKey !== 'plot_commission' && (
-                    <EntryField label={<FieldLabel icon={Tag} color="bg-indigo-100 text-indigo-600">Particular</FieldLabel>}>
-                      {form.mode === 'CHEQUE' ? (
-                        <div className={cn(INPUT_ROUNDED, 'flex items-center border border-teal-200 bg-teal-50 px-3 text-sm font-semibold text-teal-700')}>
-                          CHEQUE
-                        </div>
-                      ) : (
-                        <Select value={form.particular || undefined} onValueChange={(v) => setF({ particular: v })}>
-                          <SelectTrigger className={INPUT_ROUNDED}>
-                            <SelectValue placeholder="Select particular" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {getParticularsForMode(form.mode).map((opt) => (
-                              <SelectItem key={opt} value={opt}>{opt}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                      {(moduleKey === 'expense' || moduleKey === 'daybook') && (
+                        <EntryField label={<FieldLabel icon={ArrowLeftRight} color="bg-orange-100 text-orange-600">Paid from</FieldLabel>}>
+                          <Input placeholder="e.g. OFFICE CASH" value={form.from_entity} onChange={(e) => setF({ from_entity: e.target.value })} className={INPUT_ROUNDED} />
+                        </EntryField>
                       )}
-                    </EntryField>
-                  )}
-                </div>
+                    </div>
 
-                {(moduleKey === 'vendor' || moduleKey === 'daybook') && (
-                  <div className={cn('grid gap-3', moduleKey === 'vendor' ? 'sm:grid-cols-2' : '')}>
-                    <EntryField label={<FieldLabel icon={FileText} color="bg-slate-100 text-slate-600">{moduleKey === 'vendor' ? 'Payment note' : 'Particular / Description'}</FieldLabel>} required={moduleKey === 'daybook'}>
-                      <Input
-                        placeholder={moduleKey === 'vendor' ? 'What is this payment for?' : direction === 'credit' ? 'e.g. PAYMENT RECEIVED' : 'e.g. PAYMENT MADE'}
-                        value={form.description}
-                        onChange={(e) => setF({ description: e.target.value })}
-                        className={INPUT_ROUNDED}
-                      />
-                    </EntryField>
-                    {moduleKey === 'vendor' && (
-                      <EntryField label={<FieldLabel icon={FileText} color="bg-indigo-100 text-indigo-600">Reference / Cheque no.</FieldLabel>}>
-                        <Input placeholder="Optional reference" value={form.reference_no} onChange={(e) => setF({ reference_no: e.target.value })} className={INPUT_ROUNDED} />
-                      </EntryField>
+                    <div className="grid grid-cols-2 gap-3">
+                      {moduleKey === 'farmer' && entitySelect('Paid to', 'farmers', 'farmer_id', (f) => ({ label: f.name, sublabel: f.phone || f.mobile || undefined }), User, 'bg-teal-100 text-teal-600', undefined, 'Select farmer')}
+                      {moduleKey === 'cashflow' && entitySelect('Paid to', 'months', 'month_id', (m) => ({
+                        label: m.ledger_name || [m.month, m.year].filter(Boolean).join('/') || `#${m.id}`,
+                      }), NotebookPen, 'bg-teal-100 text-teal-600', undefined, 'Select ledger')}
+                      {moduleKey === 'vendor' && entitySelect('Paid to', 'vendorCommitments', 'vendor_commitment_id', (c) => ({
+                        label: c.vendor_name || c.vendor_member_name || `Commitment #${c.id}`,
+                        sublabel: [c.work_title, c.remaining_amount != null ? `Due ₹${Number(c.remaining_amount).toLocaleString('en-IN')}` : null].filter(Boolean).join(' · ') || undefined,
+                      }), User, 'bg-orange-100 text-orange-600', undefined, 'Select vendor commitment')}
+                      {moduleKey === 'plot' && entitySelect('Paid to', 'plots', 'plot_id', (p) => ({
+                        label: p.plot_no ? `Plot ${p.plot_no}` : `#${p.id}`,
+                        sublabel: p.buyer_name || undefined,
+                      }), MapPin, 'bg-teal-100 text-teal-600', handlePlotSelected, 'Select plot')}
+                      {moduleKey === 'plot_commission' && entitySelect('Paid to', 'plotCommissions', 'commission_plot_id', (p) => ({
+                        label: p.plot_no ? `Plot ${p.plot_no}` : `#${p.plot_id}`,
+                        sublabel: p.buyer_name || undefined,
+                      }), MapPin, 'bg-teal-100 text-teal-600', handleCommissionPlotSelected, 'Select plot')}
+                      {(moduleKey === 'expense' || moduleKey === 'daybook') && (
+                        <EntryField label={<FieldLabel icon={User} color="bg-cyan-100 text-cyan-600">Paid to</FieldLabel>}>
+                          <Input placeholder="Person or business" value={form.to_entity} onChange={(e) => setF({ to_entity: e.target.value })} className={INPUT_ROUNDED} />
+                        </EntryField>
+                      )}
+
+                      {moduleKey === 'plot_commission' && (
+                        <EntryField label={<FieldLabel icon={User} color="bg-amber-100 text-amber-600">Agent</FieldLabel>} required>
+                          {loadingAgents ? (
+                            <div className={cn(INPUT_ROUNDED, 'border border-slate-200 bg-slate-50 flex items-center px-3 text-sm text-slate-400 gap-2')}>
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading…
+                            </div>
+                          ) : (
+                            <Select
+                              value={form.commission_id || undefined}
+                              onValueChange={handleCommissionAgentSelected}
+                              disabled={!form.commission_plot_id || commissionAgents.length === 0}
+                            >
+                              <SelectTrigger className={INPUT_ROUNDED}>
+                                <SelectValue placeholder={form.commission_plot_id ? 'Select agent' : 'Pick a plot first'} />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {commissionAgents.map((a) => (
+                                  <SelectItem key={a.commission_id} value={String(a.commission_id)}>
+                                    {a.agent_name}
+                                    {a.agent_phone ? <span className="text-slate-400"> · {a.agent_phone}</span> : null}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          )}
+                        </EntryField>
+                      )}
+
+                      {moduleKey === 'expense' && (
+                        <EntryField label={<FieldLabel icon={Tag} color="bg-pink-100 text-pink-600">Category</FieldLabel>}>
+                          {loadingOpts && options.categories === null ? (
+                            <div className={cn(INPUT_ROUNDED, 'border border-slate-200 bg-slate-50 flex items-center px-3 text-sm text-slate-400 gap-2')}>
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading…
+                            </div>
+                          ) : (
+                            <Select value={form.category || undefined} onValueChange={(v) => setF({ category: v })}>
+                              <SelectTrigger className={INPUT_ROUNDED}>
+                                <SelectValue placeholder="Select…" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {(options.categories || []).map((c) => (
+                                  <SelectItem key={c} value={c}>{c}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          )}
+                        </EntryField>
+                      )}
+                      {moduleKey === 'daybook' && (
+                        <EntryField label={<FieldLabel icon={Tag} color="bg-pink-100 text-pink-600">Category</FieldLabel>}>
+                          <Input placeholder="Optional category" value={form.category} onChange={(e) => setF({ category: e.target.value })} className={INPUT_ROUNDED} />
+                        </EntryField>
+                      )}
+                    </div>
+
+                    {(moduleKey === 'vendor' || moduleKey === 'daybook') && (
+                      <div className={cn('grid gap-3', moduleKey === 'vendor' ? 'sm:grid-cols-2' : '')}>
+                        <EntryField label={<FieldLabel icon={FileText} color="bg-slate-100 text-slate-600">{moduleKey === 'vendor' ? 'Payment note' : 'Particular / Description'}</FieldLabel>} required={moduleKey === 'daybook'}>
+                          <Input
+                            placeholder={moduleKey === 'vendor' ? 'What is this payment for?' : direction === 'credit' ? 'e.g. PAYMENT RECEIVED' : 'e.g. PAYMENT MADE'}
+                            value={form.description}
+                            onChange={(e) => setF({ description: e.target.value })}
+                            className={INPUT_ROUNDED}
+                          />
+                        </EntryField>
+                        {moduleKey === 'vendor' && (
+                          <EntryField label={<FieldLabel icon={FileText} color="bg-indigo-100 text-indigo-600">Reference / Cheque no.</FieldLabel>}>
+                            <Input placeholder="Optional reference" value={form.reference_no} onChange={(e) => setF({ reference_no: e.target.value })} className={INPUT_ROUNDED} />
+                          </EntryField>
+                        )}
+                      </div>
                     )}
-                  </div>
-                )}
 
-                {moduleKey === 'expense' && (
-                  <div className="grid grid-cols-3 gap-3">
-                    <EntryField label={<FieldLabel icon={ArrowLeftRight} color="bg-orange-100 text-orange-600">From</FieldLabel>}>
-                      <Input placeholder="e.g. OFFICE CASH" value={form.from_entity} onChange={(e) => setF({ from_entity: e.target.value })} className={INPUT_ROUNDED} />
-                    </EntryField>
-                    <EntryField label={<FieldLabel icon={User} color="bg-cyan-100 text-cyan-600">To</FieldLabel>}>
-                      <Input placeholder="Paid to / received from" value={form.to_entity} onChange={(e) => setF({ to_entity: e.target.value })} className={INPUT_ROUNDED} />
-                    </EntryField>
-                    <EntryField label={<FieldLabel icon={Tag} color="bg-pink-100 text-pink-600">Category</FieldLabel>}>
-                      {loadingOpts && options.categories === null ? (
-                        <div className={cn(INPUT_ROUNDED, 'border border-slate-200 bg-slate-50 flex items-center px-3 text-sm text-slate-400 gap-2')}>
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading…
-                        </div>
-                      ) : (
-                        <Select value={form.category || undefined} onValueChange={(v) => setF({ category: v })}>
-                          <SelectTrigger className={INPUT_ROUNDED}>
-                            <SelectValue placeholder="Select…" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {(options.categories || []).map((c) => (
-                              <SelectItem key={c} value={c}>{c}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                    <div className="grid grid-cols-2 gap-3">
+                      {moduleKey !== 'cashflow' && (
+                        <EntryField
+                          label={<FieldLabel icon={Users} color="bg-fuchsia-100 text-fuchsia-600">Map to person</FieldLabel>}
+                          hint="Optional — mirrors this entry into their Personal Ledger"
+                        >
+                          <EntryPersonPicker
+                            siteId={siteId}
+                            value={mappedPerson}
+                            onChange={setMappedPerson}
+                            approvers={personApprovers}
+                            members={personMembers}
+                            onMemberCreated={addPersonMember}
+                            openUp
+                          />
+                        </EntryField>
                       )}
-                    </EntryField>
+
+                      <EntryField label={<FieldLabel icon={MessageSquare} color="bg-slate-100 text-slate-500">Remarks</FieldLabel>}>
+                        <Textarea
+                          rows={2}
+                          placeholder="Optional note"
+                          value={form.remarks}
+                          onChange={(e) => setF({ remarks: e.target.value })}
+                          className="rounded-xl"
+                        />
+                      </EntryField>
+                    </div>
                   </div>
-                )}
+                </div>
 
-                <EntryRow>
-                  {moduleKey !== 'cashflow' && (
-                    <EntryField
-                      label={<FieldLabel icon={Users} color="bg-fuchsia-100 text-fuchsia-600">Map to User / Client</FieldLabel>}
-                      hint="Optional — mirrors this entry into their Personal Ledger"
-                    >
-                      <EntryPersonPicker
-                        siteId={siteId}
-                        value={mappedPerson}
-                        onChange={setMappedPerson}
-                        approvers={personApprovers}
-                        members={personMembers}
-                        onMemberCreated={addPersonMember}
-                        openUp
-                      />
-                    </EntryField>
-                  )}
-
-                  <EntryField label={<FieldLabel icon={MessageSquare} color="bg-slate-100 text-slate-500">Remarks</FieldLabel>}>
-                    <Textarea
-                      rows={2}
-                      placeholder="Optional note"
-                      value={form.remarks}
-                      onChange={(e) => setF({ remarks: e.target.value })}
-                      className="rounded-xl"
-                    />
-                  </EntryField>
-                </EntryRow>
+                <VoucherUpload
+                  label="Evidence Photo · Optional"
+                  value={form.voucher_url}
+                  onChange={(url) => setF({ voucher_url: url || '' })}
+                  onUploadingChange={setVoucherUploading}
+                  disabled={submitting}
+                />
               </div>
             )}
           </div>
 
           {mod && (
-            <div className="shrink-0 flex items-center justify-end gap-2.5 border-t border-slate-100 bg-slate-50/60 px-5 py-3 sm:px-6">
-              <Button type="button" variant="outline" onClick={close} disabled={submitting} className="h-10 rounded-full px-5">
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                onClick={handleSubmit}
-                disabled={submitting || !canSubmit}
-                className={cn(
-                  'h-10 rounded-full px-5 text-white',
-                  isCredit ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-600 hover:bg-red-700'
-                )}
-              >
-                {submitting ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <ArrowRight className="h-4 w-4 mr-1.5" />}
-                Record Entry
-              </Button>
+            <div className="shrink-0 flex items-center justify-between gap-2.5 border-t border-slate-100 bg-slate-50/60 px-5 py-3 sm:px-6">
+              <p className="hidden sm:block text-[11px] text-slate-400">
+                Enter: next field · Shift+Tab: previous · Esc: close
+              </p>
+              <div className="flex items-center gap-2.5">
+                <Button type="button" variant="outline" onClick={close} disabled={submitting} className="h-10 rounded-full px-5">
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  onClick={handleSubmit}
+                  disabled={submitting || !canSubmit || voucherUploading}
+                  className={cn(
+                    'h-10 rounded-full px-5 text-white',
+                    isCredit ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-600 hover:bg-red-700'
+                  )}
+                >
+                  {submitting ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Eye className="h-4 w-4 mr-1.5" />}
+                  Review payment
+                </Button>
+              </div>
             </div>
           )}
         </DialogContent>

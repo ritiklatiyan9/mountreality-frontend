@@ -37,7 +37,7 @@ import {
   LayoutDashboard,
   // Upgraded icons
   Sprout, HandCoins, Briefcase, Library, UsersRound, ShoppingBag, NotebookPen,
-  Sparkles, SearchX, QrCode, FileSearch, CircleDollarSign, Crown,
+  Sparkles, SearchX, QrCode, FileSearch, CircleDollarSign, Crown, TrendingUp,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Separator } from './ui/separator';
@@ -69,6 +69,7 @@ const PATH_APP_KEY = {
   '/plot-registry/documents': 'registry_documents',
   '/excel/files': 'excel',
   '/reports': 'reports',
+  '/finance-forecast': 'finance_forecast',
   '/sites': 'sites',
   '/sub-admins': 'sub_admins',
   '/pending-approvals': 'pending_approvals',
@@ -501,6 +502,7 @@ const Layout = () => {
       { path: '/construction', label: 'Construction', icon: HardHat, module: 'construction' },
       { path: '/inventory', label: 'Inventory', icon: Boxes, module: 'inventory' },
       { path: '/reports', label: 'Reports', icon: BarChart3, module: 'reports' },
+      { path: '/finance-forecast', label: 'Finance Forecast', icon: TrendingUp, module: 'finance_forecast' },
     ].filter(item => hasPermission(item.module, 'read'));
   }, [hasPermission]);
 
@@ -986,7 +988,7 @@ const Layout = () => {
   };
 
   return (
-    <div className="flex h-screen bg-white print:flex-col print:h-auto">
+    <div className="flex h-screen overflow-hidden bg-white print:flex-col print:h-auto print:overflow-visible">
       {/* ── Mobile Sidebar Overlay ── */}
       {mobileMenuOpen && (
         <div className="fixed inset-0 z-50 md:hidden print:hidden">

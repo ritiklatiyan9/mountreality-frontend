@@ -6,7 +6,7 @@ import { ApolloClient, InMemoryCache, HttpLink, from } from '@apollo/client';
 import { setContext } from '@apollo/client/link/context';
 
 const httpLink = new HttpLink({
-  uri: `${import.meta.env.VITE_API_URL || 'https://rgaccountbackend.onrender.com'}/graphql`,
+  uri: `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/graphql`,
 });
 
 const authLink = setContext((_, { headers }) => {

@@ -39,13 +39,20 @@ import {
 } from '../components/ui/command';
 import {
   Tractor, Plus, Edit2, Trash2, AlertCircle, Check,
-  Search, Eye, IndianRupee, Percent, Phone, MapPin, Loader2,
-  Camera, Clock, Send, Users, Banknote, Building2, ArrowUpDown, UserPlus,
+  Search, Eye, IndianRupee, Phone, MapPin, Loader2,
+  Camera, Clock, Send, Users, Banknote, Building2, ArrowUpDown,
   ChevronsUpDown, X, Calculator,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useRowSelection } from '../hooks/useRowSelection';
 import BulkActionsBar from '../components/BulkActionsBar';
+
+const LAND_UNITS = [
+  { value: 'BIGHA', label: 'Bigha' },
+  { value: 'YARD', label: 'Yard' },
+  { value: 'SQMT', label: 'Mtr Sq' },
+];
+const landUnitLabel = (unit) => LAND_UNITS.find((u) => u.value === unit)?.label || 'Bigha';
 
 const Farmers = () => {
   const { currentSite, isAdmin, canManage } = useAuth();
@@ -89,9 +96,11 @@ const Farmers = () => {
     bank_reference: '',
     bank_ifsc: '',
     land_size_bigha: '',
+    land_size_unit: 'BIGHA',
     land_rate: '',
     commission_percentage: '',
     commission_amount: '',
+    commission_paid_to_broker: '',
     land_payment: '',
     _autoPaymentApplied: '',
   });
@@ -143,7 +152,7 @@ const Farmers = () => {
   }, [fetchFarmers, fetchFarmerMembers, queryFromUrl]);
 
   const resetForm = () => {
-    setFormData({ name: '', phone: '', address: '', total_amount: '', notes: '', status: 'active', member_id: null, payment_mode: 'CASH', cash_amount: '', bank_amount: '', bank_name: '', bank_account_no: '', bank_reference: '', bank_ifsc: '', land_size_bigha: '', land_rate: '', commission_percentage: '', commission_amount: '', land_payment: '', _autoPaymentApplied: '' });
+    setFormData({ name: '', phone: '', address: '', total_amount: '', notes: '', status: 'active', member_id: null, payment_mode: 'CASH', cash_amount: '', bank_amount: '', bank_name: '', bank_account_no: '', bank_reference: '', bank_ifsc: '', land_size_bigha: '', land_size_unit: 'BIGHA', land_rate: '', commission_percentage: '', commission_amount: '', commission_paid_to_broker: '', land_payment: '', _autoPaymentApplied: '' });
     setEditingId(null);
     setMessage({ type: '', text: '' });
     setProofPhoto(null);
@@ -180,9 +189,11 @@ const Farmers = () => {
       bank_reference: farmer.bank_reference || '',
       bank_ifsc: farmer.bank_ifsc || '',
       land_size_bigha: farmer.land_size_bigha || '',
+      land_size_unit: farmer.land_size_unit || 'BIGHA',
       land_rate: farmer.land_rate || '',
       commission_percentage: farmer.commission_percentage || '',
       commission_amount: farmer.commission_amount || '',
+      commission_paid_to_broker: farmer.commission_paid_to_broker || '',
     });
     setSelectedMemberId(farmer.member_id || null);
     setEditingId(farmer.id);
@@ -203,16 +214,13 @@ const Farmers = () => {
       else newForm.payment_mode = 'CASH';
     }
 
-    // Auto-calculate land_payment = land_size_bigha × land_rate (display only)
-    // and commission_amount = commission_percentage% × land_payment.
-    // Note: these never touch cash_amount / bank_amount — the user fills
-    // Payment Breakdown independently.
-    if (field === 'land_size_bigha' || field === 'land_rate' || field === 'commission_percentage') {
+    // Auto-calculate land_payment = land_size_bigha × land_rate (display only).
+    // Never touches cash_amount / bank_amount — the user fills Payment
+    // Breakdown independently.
+    if (field === 'land_size_bigha' || field === 'land_rate') {
       const size = parseFloat(field === 'land_size_bigha' ? value : newForm.land_size_bigha) || 0;
       const rate = parseFloat(field === 'land_rate' ? value : newForm.land_rate) || 0;
-      const pct = parseFloat(field === 'commission_percentage' ? value : newForm.commission_percentage) || 0;
       newForm.land_payment = (size > 0 && rate > 0) ? (size * rate).toFixed(2) : '';
-      newForm.commission_amount = (size > 0 && rate > 0 && pct > 0) ? ((pct / 100) * rate * size).toFixed(2) : '';
     }
 
     setFormData(newForm);
@@ -235,9 +243,11 @@ const Farmers = () => {
         site_id: siteId,
         member_id: formData.member_id || null,
         land_size_bigha: formData.land_size_bigha !== '' ? parseFloat(formData.land_size_bigha) : null,
+        land_size_unit: formData.land_size_unit || 'BIGHA',
         land_rate: formData.land_rate !== '' ? parseFloat(formData.land_rate) : null,
         commission_percentage: formData.commission_percentage !== '' ? parseFloat(formData.commission_percentage) : null,
         commission_amount: formData.commission_amount !== '' ? parseFloat(formData.commission_amount) : null,
+        commission_paid_to_broker: formData.commission_paid_to_broker !== '' ? parseFloat(formData.commission_paid_to_broker) : null,
       };
 
       // Sub-admin editing: submit edit request instead of direct update
@@ -499,14 +509,9 @@ const Farmers = () => {
               deleting={bulkDeleting}
             />
             {canManage && (
-              <>
-                <Button size="sm" variant="outline" onClick={() => navigate('/register-user')} className="text-blue-600 border-blue-200 hover:bg-blue-50">
-                  <UserPlus className="w-4 h-4 mr-1.5" /> Register User
-                </Button>
-                <Button size="sm" onClick={handleOpenCreate}>
-                  <Plus className="w-4 h-4 mr-1.5" /> Register Farmer
-                </Button>
-              </>
+              <Button size="sm" onClick={handleOpenCreate}>
+                <Plus className="w-4 h-4 mr-1.5" /> Register Farmer
+              </Button>
             )}
           </div>
         )}
@@ -538,7 +543,7 @@ const Farmers = () => {
                   <div className="rounded-xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-3 sm:p-4 space-y-3">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-[11px] font-semibold text-slate-700 flex items-center gap-1.5 uppercase tracking-wider">
-                        <Users className="w-3.5 h-3.5 text-emerald-600" /> Registered Member
+                        <Users className="w-3.5 h-3.5 text-emerald-600" /> Map Farmer
                       </p>
                       <span className="text-[10px] text-slate-400">Required</span>
                     </div>
@@ -700,18 +705,29 @@ const Farmers = () => {
                     <span className="text-[10px] text-slate-400 italic">Optional</span>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <div className="space-y-1">
-                      <Label className="text-[11px] text-slate-600">Size (Bigha)</Label>
-                      <Input
-                        className="h-9 text-sm"
-                        type="number" step="0.01" placeholder="0.00"
-                        value={formData.land_size_bigha}
-                        onChange={(e) => handleFormChange('land_size_bigha', e.target.value)}
-                      />
+                      <Label className="text-[11px] text-slate-600">Size</Label>
+                      <div className="flex gap-1">
+                        <Input
+                          className="h-9 text-sm"
+                          type="number" step="0.01" placeholder="0.00"
+                          value={formData.land_size_bigha}
+                          onChange={(e) => handleFormChange('land_size_bigha', e.target.value)}
+                        />
+                        <Select
+                          value={formData.land_size_unit}
+                          onValueChange={(v) => handleFormChange('land_size_unit', v)}
+                        >
+                          <SelectTrigger className="h-9 w-24 shrink-0 text-sm"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {LAND_UNITS.map((u) => <SelectItem key={u.value} value={u.value}>{u.label}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
                     </div>
                     <div className="space-y-1">
-                      <Label className="text-[11px] text-slate-600">Rate / Bigha (₹)</Label>
+                      <Label className="text-[11px] text-slate-600">Rate / {landUnitLabel(formData.land_size_unit)} (₹)</Label>
                       <Input
                         className="h-9 text-sm"
                         type="number" step="0.01" placeholder="0"
@@ -719,57 +735,28 @@ const Farmers = () => {
                         onChange={(e) => handleFormChange('land_rate', e.target.value)}
                       />
                     </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <div className="space-y-1">
-                      <Label className="text-[11px] text-slate-600">Commission (%)</Label>
+                      <Label className="text-[11px] text-slate-600">Commission Paid to Broker (₹)</Label>
                       <Input
                         className="h-9 text-sm"
-                        type="number" step="0.01" min="0" max="100" placeholder="0"
-                        value={formData.commission_percentage}
-                        onChange={(e) => handleFormChange('commission_percentage', e.target.value)}
+                        type="number" step="0.01" placeholder="0"
+                        value={formData.commission_paid_to_broker}
+                        onChange={(e) => handleFormChange('commission_paid_to_broker', e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[11px] text-slate-600">Total Amount (₹)</Label>
+                      <Input
+                        className="h-9 text-sm bg-slate-50 font-semibold text-emerald-700"
+                        readOnly
+                        value={formData.land_payment ? formatCurrency(formData.land_payment) : ''}
+                        placeholder="Size × Rate"
                       />
                     </div>
                   </div>
-
-                  {/* Computed summary box — shows both Payment (Land×Rate) and Commission.
-                      Values are display-only and never auto-populate Payment Breakdown. */}
-                  {(formData.land_payment || formData.commission_amount) && (
-                    <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-slate-200">
-                        <div className="px-3 py-2 flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className="inline-flex w-7 h-7 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 shrink-0">
-                              <IndianRupee className="w-3.5 h-3.5" />
-                            </span>
-                            <div className="min-w-0">
-                              <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Payment</p>
-                              <p className="text-[10px] text-slate-400 truncate">
-                                {formData.land_size_bigha || 0} × ₹{formatCurrency(formData.land_rate || 0)}
-                              </p>
-                            </div>
-                          </div>
-                          <span className="text-sm font-bold text-emerald-700 tabular-nums">
-                            ₹{formatCurrency(formData.land_payment || 0)}
-                          </span>
-                        </div>
-                        <div className="px-3 py-2 flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className="inline-flex w-7 h-7 items-center justify-center rounded-full bg-amber-100 text-amber-700 shrink-0">
-                              <Percent className="w-3.5 h-3.5" />
-                            </span>
-                            <div className="min-w-0">
-                              <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Commission</p>
-                              <p className="text-[10px] text-slate-400 truncate">
-                                {formData.commission_percentage || 0}% of Payment
-                              </p>
-                            </div>
-                          </div>
-                          <span className="text-sm font-bold text-amber-700 tabular-nums">
-                            ₹{formatCurrency(formData.commission_amount || 0)}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
                 </div>
 
                 {/* ── Section 3: Payment Breakdown ── */}

@@ -5,9 +5,10 @@ import api from '../api/api';
 import VoucherUpload, { VoucherThumbnail } from '../components/VoucherUpload';
 import CreditDebitTabs from '../components/CreditDebitTabs';
 import {
-  EntryDialog, EntryFooter, EntryRow, EntryField, EntryAmount, EntryModeChips,
+  EntryRow, EntryField, EntryAmount, EntryModeChips, FieldLabel,
   EntryPersonPicker, useEntryPersonOptions, mapPersonToPayload,
 } from '../components/EntryModal';
+import { cn } from '@/lib/utils';
 import { classifyPaymentMode, BUCKETS, BUCKET_LABELS, NON_CASH_BUCKETS } from '../utils/paymentMode';
 import QRCode from 'qrcode';
 import ChequeStatusControl from '../components/ChequeStatusControl';
@@ -23,7 +24,7 @@ import { Badge } from '../components/ui/badge';
 import { Textarea } from '../components/ui/textarea';
 import { Separator } from '../components/ui/separator';
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '../components/ui/dialog';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -36,10 +37,10 @@ import {
 } from '../components/ui/tooltip';
 import {
   Plus, Edit2, Trash2, AlertCircle, Check, Search, Loader2,
-  IndianRupee, ChevronDown, Building2, ArrowUpRight, ArrowDownRight,
+  IndianRupee, ChevronDown, Building2, ArrowUpRight, ArrowDownRight, ArrowDownLeft,
   Download, Printer, BookOpen, BarChart3, Hash, MapPin,
   Filter, X, ChevronRight, ChevronLeft, Calendar as CalendarIcon, Activity, Users, FileText,
-  Camera, ArrowUpDown, PenLine,
+  Camera, ArrowUpDown, PenLine, Tag, ArrowLeftRight, User, MessageSquare, Landmark,
 } from 'lucide-react';
 import SignaturePad from '../components/SignaturePad';
 import { printCashReceipt } from '../lib/cashReceipt';
@@ -275,6 +276,7 @@ const DayBook = () => {
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState(blankForm());
   const [mappedPerson, setMappedPerson] = useState(null);
+  const [voucherUploading, setVoucherUploading] = useState(false);
   const { approvers: personApprovers, members: personMembers, addMember: addPersonMember } = useEntryPersonOptions(siteId);
   const [genDir, setGenDir] = useState('debit'); // generic-entry direction tab; maps to debit/credit payload fields
   const [receiptEntry, setReceiptEntry] = useState(null);
@@ -514,7 +516,7 @@ const DayBook = () => {
     : 'Overall activity';
 
   /* ── Form Helpers ── */
-  const resetForm = () => { setForm(blankForm(selectedDate)); setGenDir('debit'); setEditingId(null); setMessage({ type: '', text: '' }); clearProofPhoto(); setMappedPerson(null); };
+  const resetForm = () => { setForm(blankForm(selectedDate)); setGenDir('debit'); setEditingId(null); setMessage({ type: '', text: '' }); clearProofPhoto(); setMappedPerson(null); setVoucherUploading(false); };
   const openCreate = () => { resetForm(); setDialogOpen(true); };
   const isEditingExpense = editingId && typeof editingId === 'string' && editingId.startsWith('expense_');
   const isEditingFarmerPayment = editingId && typeof editingId === 'string' && editingId.startsWith('fp_');
@@ -529,6 +531,14 @@ const DayBook = () => {
   const isEditingDbPlotPayment = editingId && typeof editingId === 'number' && form.entry_type === 'PLOT PAYMENT';
   // Generic types show the Credit/Debit tabs; specialized types (incl. EXPENSE) pin the direction, so tabs are hidden.
   const isGenericEntry = !['FARMER PAYMENT', 'PLOT COMMISSION', 'CASH FLOW', 'FIRM TRANSACTION', 'PLOT PAYMENT', 'EXPENSE'].includes(form.entry_type);
+  // The 5 dual-write types render as one self-contained block in the dialog's right column.
+  const isSpecializedType = ['FARMER PAYMENT', 'PLOT COMMISSION', 'CASH FLOW', 'FIRM TRANSACTION', 'PLOT PAYMENT'].includes(form.entry_type);
+  // Display-only direction for the dialog header's icon/badge color — never sent to the backend.
+  const dbDisplayDirection = form.entry_type === 'PLOT PAYMENT' ? 'credit'
+    : (form.entry_type === 'FARMER PAYMENT' || form.entry_type === 'PLOT COMMISSION') ? 'debit'
+    : (form.entry_type === 'CASH FLOW' || form.entry_type === 'FIRM TRANSACTION')
+      ? (((parseFloat(form.credit) || 0) > 0 && !(parseFloat(form.debit) || 0)) ? 'credit' : 'debit')
+      : genDir;
   const openEdit = (e) => {
     setForm({
       date: e.date ? toISO(e.date) : '', particular: e.particular || '',
@@ -596,7 +606,12 @@ const DayBook = () => {
   };
 
   const handleSubmit = async (ev) => {
-    ev.preventDefault(); setMessage({ type: '', text: '' }); setSubmitting(true);
+    ev.preventDefault();
+    if (voucherUploading) {
+      setMessage({ type: 'error', text: 'Please wait for the evidence photo to finish uploading.' });
+      return;
+    }
+    setMessage({ type: '', text: '' }); setSubmitting(true);
     try {
       const isFarmerPayment = form.entry_type === 'FARMER PAYMENT';
       const isCommission = form.entry_type === 'PLOT COMMISSION';
@@ -1970,716 +1985,762 @@ const DayBook = () => {
       </Dialog>
 
       {/* ═══════════════════════ DIALOG ═══════════════════════ */}
-      <EntryDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        title={editingId && !canUpdate
-          ? (isEditingExpense ? 'Request Expense Edit' : (isEditingFarmerPayment || isEditingDbFarmerPayment) ? 'Request Farmer Payment Edit' : (isEditingCommission || isEditingDbCommission) ? 'Request Commission Edit' : (isEditingCashFlow || isEditingDbCashFlow) ? 'Request Cash Flow Edit' : (isEditingFirmTxn || isEditingDbFirmTxn) ? 'Request Firm Txn Edit' : (isEditingPlotPayment || isEditingDbPlotPayment) ? 'Request Plot Payment Edit' : 'Request Entry Edit')
-          : editingId ? (isEditingExpense ? 'Edit Expense' : (isEditingFarmerPayment || isEditingDbFarmerPayment) ? 'Edit Farmer Payment' : (isEditingCommission || isEditingDbCommission) ? 'Edit Commission' : (isEditingCashFlow || isEditingDbCashFlow) ? 'Edit Cash Flow Entry' : (isEditingFirmTxn || isEditingDbFirmTxn) ? 'Edit Firm Transaction' : (isEditingPlotPayment || isEditingDbPlotPayment) ? 'Edit Plot Payment' : 'Edit Entry') : 'New Day Book Entry'}
-        description="Day Book"
-        footer={
-          <EntryFooter
-            onCancel={() => setDialogOpen(false)}
-            onSubmit={() => document.getElementById('daybook-entry-form')?.requestSubmit()}
-            submitting={submitting}
-            submitLabel={submitting
-              ? (editingId && !isAdmin ? 'Submitting Request…' : editingId ? 'Saving…' : 'Creating…')
-              : (editingId && !isAdmin ? 'Submit Edit Request' : editingId ? 'Update' : 'Create')}
-            submitClassName={editingId && !isAdmin ? 'bg-amber-600 hover:bg-amber-700' : 'bg-emerald-600 hover:bg-emerald-700'}
-          />
-        }
-      >
-          <form id="daybook-entry-form" onSubmit={handleSubmit} className="space-y-4">
-            {message.text && (
-              <div className={`flex items-center gap-2 px-3 py-2.5 rounded-lg text-xs font-medium ${message.type === 'success' ? 'bg-emerald-50 border border-emerald-200 text-emerald-700' : 'bg-red-50 border border-red-200 text-red-700'
-                }`}>
-                {message.type === 'success' ? <Check className="w-3.5 h-3.5 shrink-0" /> : <AlertCircle className="w-3.5 h-3.5 shrink-0" />}
-                {message.text}
-              </div>
-            )}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="sm:max-w-5xl max-h-[96vh] gap-0 p-0 flex flex-col overflow-hidden rounded-3xl border-slate-200/90 bg-white shadow-2xl shadow-slate-900/10">
+          <div className="shrink-0 flex items-center gap-3 border-b border-slate-100 bg-gradient-to-r from-slate-50 via-white to-slate-50 px-5 py-3 sm:px-6">
+            <div className={cn(
+              'flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-white shadow-sm',
+              dbDisplayDirection === 'credit' ? 'bg-emerald-600 shadow-emerald-600/25' : 'bg-red-600 shadow-red-600/25'
+            )}>
+              {dbDisplayDirection === 'credit' ? <ArrowDownLeft className="w-5 h-5" /> : <ArrowUpRight className="w-5 h-5" />}
+            </div>
+            <div className="min-w-0 flex-1">
+              <DialogTitle className="text-base font-semibold text-slate-900">
+                {editingId && !canUpdate
+                  ? (isEditingExpense ? 'Request Expense Edit' : (isEditingFarmerPayment || isEditingDbFarmerPayment) ? 'Request Farmer Payment Edit' : (isEditingCommission || isEditingDbCommission) ? 'Request Commission Edit' : (isEditingCashFlow || isEditingDbCashFlow) ? 'Request Cash Flow Edit' : (isEditingFirmTxn || isEditingDbFirmTxn) ? 'Request Firm Txn Edit' : (isEditingPlotPayment || isEditingDbPlotPayment) ? 'Request Plot Payment Edit' : 'Request Entry Edit')
+                  : editingId ? (isEditingExpense ? 'Edit Expense' : (isEditingFarmerPayment || isEditingDbFarmerPayment) ? 'Edit Farmer Payment' : (isEditingCommission || isEditingDbCommission) ? 'Edit Commission' : (isEditingCashFlow || isEditingDbCashFlow) ? 'Edit Cash Flow Entry' : (isEditingFirmTxn || isEditingDbFirmTxn) ? 'Edit Firm Transaction' : (isEditingPlotPayment || isEditingDbPlotPayment) ? 'Edit Plot Payment' : 'Edit Entry') : 'New Day Book Entry'}
+              </DialogTitle>
+              <DialogDescription className="text-xs text-slate-500 mt-0.5 truncate">
+                Day Book entry · complete the details below
+              </DialogDescription>
+            </div>
+            <span className={cn(
+              'shrink-0 rounded-full px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-white',
+              dbDisplayDirection === 'credit' ? 'bg-emerald-600' : 'bg-red-600'
+            )}>
+              {dbDisplayDirection === 'credit' ? 'Credit · In' : 'Debit · Out'}
+            </span>
+          </div>
 
-            {/* Direction — generic entries only; specialized types pin their own side */}
-            {isGenericEntry && (
-              <CreditDebitTabs
-                value={genDir}
-                onChange={(d) => {
-                  setGenDir(d);
-                  setForm({ ...form, credit: d === 'credit' ? (form.credit || form.debit) : '', debit: d === 'debit' ? (form.debit || form.credit) : '' });
-                }}
-              />
-            )}
-
-            {/* Date + Entry Type */}
-            <EntryRow>
-              <EntryField label="Date" required>
-                <Input
-                  type="date"
-                  value={isAdmin ? form.date : (editingId ? form.date : TODAY)}
-                  onChange={isAdmin ? ((e) => setForm({ ...form, date: e.target.value })) : undefined}
-                  readOnly={!isAdmin}
-                  disabled={!isAdmin}
-                  required
-                  className="h-9 text-sm"
-                />
-              </EntryField>
-              <EntryField label="Entry Type" required>
-                <Select value={form.entry_type} onValueChange={(v) => {
-                  const u = { entry_type: v };
-                  if (v === 'EXPENSE') u.credit = '';
-                  if (v === 'FARMER PAYMENT') { u.credit = ''; u.category = ''; }
-                  if (v === 'PLOT COMMISSION') { u.credit = ''; u.category = 'COMMISSION'; }
-                  if (v === 'CASH FLOW') { u.category = 'CASH FLOW'; }
-                  if (v === 'FIRM TRANSACTION') { u.category = 'FIRM'; }
-                  if (v === 'PLOT PAYMENT') { u.category = 'PLOT PAYMENT'; }
-                  if (v !== 'FARMER PAYMENT') { u.farmer_id = ''; u.interest_rate = ''; u.interest_amount = ''; }
-                  if (v !== 'PLOT COMMISSION') { u.plot_no = ''; u.plot_size = ''; u.plot_rate = ''; u.father_name = ''; u.commission_person = ''; }
-                  if (v !== 'CASH FLOW') { u.ledger_name = ''; u.ledger_type = 'site'; u.cf_key = ''; }
-                  if (v !== 'FIRM TRANSACTION') { u.firm_id = ''; u.firm_name = ''; u.firm_purpose = ''; u.firm_remark = ''; u.firm_cheque_no = ''; }
-                  if (v !== 'PLOT PAYMENT') { u.pp_plot_id = ''; u.pp_payment_from = ''; u.pp_payment_type = 'CASH'; u.pp_bank_details = ''; u.pp_narration = ''; u.pp_received_by = ''; }
-                  if (v !== 'FARMER PAYMENT' && v !== 'PLOT COMMISSION') { u.by_note = ''; }
-                  setForm({ ...form, ...u });
-                }}>
-                  <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {(ENTRY_TYPES.includes(form.entry_type) ? ENTRY_TYPES : [form.entry_type, ...ENTRY_TYPES]).map(t => (
-                      <SelectItem key={t} value={t}>
-                        <span className="flex items-center gap-2">
-                          <span className={`w-2 h-2 rounded-full ${(TYPE_STYLE[t] || TYPE_STYLE.GENERAL).dot}`} />
-                          {t}
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </EntryField>
-            </EntryRow>
-
-            {/* Map to person — create only; specialized types dual-write and ignore this */}
-            {!editingId && form.entry_type !== 'FARMER PAYMENT' && form.entry_type !== 'PLOT COMMISSION' && form.entry_type !== 'CASH FLOW' && form.entry_type !== 'FIRM TRANSACTION' && form.entry_type !== 'PLOT PAYMENT' && (
-              <EntryField label="Map to User / Client" hint="Optional — mirrors this entry into their Personal Ledger">
-                <EntryPersonPicker
-                  siteId={siteId}
-                  value={mappedPerson}
-                  onChange={setMappedPerson}
-                  approvers={personApprovers}
-                  members={personMembers}
-                  onMemberCreated={addPersonMember}
-                />
-              </EntryField>
-            )}
-
-            {/* Amount — standard types only; specialized sections pin their own */}
-            {form.entry_type !== 'FARMER PAYMENT' && form.entry_type !== 'PLOT COMMISSION' && form.entry_type !== 'CASH FLOW' && form.entry_type !== 'FIRM TRANSACTION' && form.entry_type !== 'PLOT PAYMENT' && (
-              <>
-                {form.entry_type === 'EXPENSE' ? (
-                  <EntryAmount label="Debit Amount (₹)" direction="debit" required={false}
-                    inputProps={{ step: '0.01', min: undefined, placeholder: '0.00', value: form.debit, onChange: (e) => setForm({ ...form, debit: e.target.value }) }} />
-                ) : (
-                  <EntryAmount label="Amount (₹)" direction={genDir} required={false}
-                    inputProps={{ step: '0.01', min: undefined, placeholder: '0.00', value: genDir === 'credit' ? form.credit : form.debit, onChange: (e) => setForm({ ...form, [genDir]: e.target.value }) }} />
-                )}
-
-                {/* EXPENSE notice */}
-                {form.entry_type === 'EXPENSE' && (
-                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-[11px] font-semibold text-red-700">
-                    <ArrowUpRight className="w-3.5 h-3.5 shrink-0" />
-                    This entry will also appear in the Expenses module
-                  </div>
-                )}
-              </>
-            )}
-
-            {/* Particular / Purpose */}
-            <EntryField label={form.entry_type === 'FARMER PAYMENT' ? 'Payment Description' : form.entry_type === 'PLOT COMMISSION' ? 'Commission Description' : form.entry_type === 'CASH FLOW' ? 'Particular / Description' : form.entry_type === 'FIRM TRANSACTION' ? 'Transaction Description' : form.entry_type === 'PLOT PAYMENT' ? 'Payment Description' : form.entry_type === 'EXPENSE' ? 'Expense Purpose / Description' : 'Particular / Description'} required>
-              <Input value={form.particular} onChange={(e) => setForm({ ...form, particular: e.target.value.toUpperCase() })} placeholder={form.entry_type === 'FARMER PAYMENT' ? 'FARMER PAYMENT - RAJU, ADV FARMER…' : form.entry_type === 'PLOT COMMISSION' ? 'COMMISSION - PLOT A1, BROKERAGE…' : form.entry_type === 'PLOT PAYMENT' ? 'PLOT PAYMENT - A1 BUYER NAME…' : form.entry_type === 'EXPENSE' ? 'PEPSI, CEMENT, BRICKS, SALARY…' : 'Enter description…'} required className="h-9 text-sm" list="db-plist" />
-              <datalist id="db-plist">{autocomplete.particulars?.map((p, i) => <option key={i} value={p} />)}</datalist>
-            </EntryField>
-
-            {/* ── FARMER PAYMENT FIELDS ── */}
-            {form.entry_type === 'FARMER PAYMENT' && (
-              <div className="rounded-lg border border-slate-200 p-3 space-y-3">
-                <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Farmer Payment</p>
-                <EntryRow>
-                {/* Farmer Select */}
-                <EntryField label="Select Farmer" required>
-                  <Select value={form.farmer_id} onValueChange={(v) => {
-                    const farmer = farmers.find(f => String(f.id) === v);
-                    setForm({
-                      ...form,
-                      farmer_id: v,
-                      interest_rate: farmer?.interest_rate ? String(farmer.interest_rate) : form.interest_rate,
-                      to_entity: farmer?.name || form.to_entity,
-                      particular: form.particular || `FARMER PAYMENT - ${farmer?.name || ''}`,
-                    });
-                  }}>
-                    <SelectTrigger className="h-9 text-sm">
-                      <SelectValue placeholder="Choose a farmer…" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {farmers.filter(f => f.status === 'active').map(f => (
-                        <SelectItem key={f.id} value={String(f.id)}>
-                          <span className="flex items-center gap-2">
-                            <Users className="w-3.5 h-3.5 text-lime-600" />
-                            <span className="font-medium">{f.name}</span>
-                            {f.phone && <span className="text-slate-400 text-xs">({f.phone})</span>}
-                            <span className="text-xs text-slate-400 ml-auto">Paid: {fmt(f.total_paid || 0)}</span>
-                          </span>
-                        </SelectItem>
-                      ))}
-                      {farmers.filter(f => f.status === 'active').length === 0 && (
-                        <div className="px-3 py-2 text-xs text-slate-400">No active farmers for this site</div>
-                      )}
-                    </SelectContent>
-                  </Select>
-                </EntryField>
-
-                {/* Payment Mode (Farmer-specific options) */}
-                <EntryField label="Payment Mode" required>
-                  <Select value={form.payment_mode} onValueChange={(v) => setForm({ ...form, payment_mode: v })}>
-                    <SelectTrigger className="h-9 text-sm">
-                      <SelectValue placeholder="Select payment method…" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {FARMER_PAY_MODES.map(m => (
-                        <SelectItem key={m} value={m}>{m}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </EntryField>
-                </EntryRow>
-
-                {/* Amount */}
-                <EntryAmount label="Payment Amount (₹)" direction="debit"
-                  inputProps={{
-                    step: '0.01', min: undefined, placeholder: '0.00', value: form.debit, required: true,
-                    onChange: (e) => {
-                      const amt = e.target.value;
-                      const ir = parseFloat(form.interest_rate) || 0;
-                      const ia = ir > 0 ? ((parseFloat(amt) || 0) * ir / 100).toFixed(2) : form.interest_amount;
-                      setForm({ ...form, debit: amt, interest_amount: ia });
-                    },
-                  }} />
-
-                {/* Interest Rate + Interest Amount */}
-                <EntryRow>
-                  <EntryField label="Interest Rate (%)">
-                    <Input type="number" step="0.01" placeholder="0.00" value={form.interest_rate}
-                      onChange={(e) => {
-                        const rate = e.target.value;
-                        const amt = parseFloat(form.debit) || 0;
-                        const ia = parseFloat(rate) > 0 ? (amt * parseFloat(rate) / 100).toFixed(2) : '0';
-                        setForm({ ...form, interest_rate: rate, interest_amount: ia });
-                      }}
-                      className="h-9 text-sm tabular-nums" />
-                  </EntryField>
-                  <EntryField label="Interest Amount (₹)">
-                    <Input type="number" step="0.01" placeholder="0.00" value={form.interest_amount}
-                      onChange={(e) => setForm({ ...form, interest_amount: e.target.value })}
-                      className="h-9 text-sm tabular-nums" />
-                  </EntryField>
-                </EntryRow>
-
-                {/* By Note */}
-                <EntryField label="By Note / Reference">
-                  <Input value={form.by_note} onChange={(e) => setForm({ ...form, by_note: e.target.value.toUpperCase() })} placeholder="CHQ NO 123456, REF TXN…" className="h-9 text-sm" />
-                </EntryField>
-
-                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-lime-50 border border-lime-200 text-[11px] font-semibold text-lime-700">
-                  <Users className="w-3.5 h-3.5 shrink-0" />
-                  This entry will also appear in the Farmer Payments module
+          <div className="flex-1 min-h-0 overflow-y-auto px-5 py-3 sm:px-6 md:overflow-visible">
+            <form id="daybook-entry-form" onSubmit={handleSubmit} className="space-y-3">
+              {message.text && (
+                <div className={`flex items-center gap-2 px-3 py-2.5 rounded-lg text-xs font-medium ${message.type === 'success' ? 'bg-emerald-50 border border-emerald-200 text-emerald-700' : 'bg-red-50 border border-red-200 text-red-700'
+                  }`}>
+                  {message.type === 'success' ? <Check className="w-3.5 h-3.5 shrink-0" /> : <AlertCircle className="w-3.5 h-3.5 shrink-0" />}
+                  {message.text}
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* ── PLOT COMMISSION FIELDS ── */}
-            {form.entry_type === 'PLOT COMMISSION' && (
-              <div className="rounded-lg border border-slate-200 p-3 space-y-3">
-                <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Plot Commission</p>
-                {/* Person Select (from Members/Users) with search */}
-                <EntryField label="Person / Particular" required>
-                  <Select value={form.commission_person} onValueChange={(v) => {
-                    const member = members.find(m => m.full_name === v);
-                    setForm({
-                      ...form,
-                      commission_person: v,
-                      particular: v,
-                      to_entity: v,
-                      father_name: member?.father_name || form.father_name,
-                    });
-                  }}>
-                    <SelectTrigger className="h-9 text-sm">
-                      <SelectValue placeholder="Select a person…" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <div className="px-2 pb-2 pt-1 sticky top-0 bg-white z-10">
-                        <div className="relative">
-                          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-                          <input
-                            type="text"
-                            placeholder="Search members…"
-                            value={memberSearch}
-                            onChange={(e) => setMemberSearch(e.target.value)}
-                            className="w-full h-8 pl-8 pr-3 text-sm border border-slate-200 rounded-md outline-none focus:ring-2 focus:ring-teal-300 focus:border-teal-300"
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                        </div>
-                      </div>
-                      {members
-                        .filter(m => {
-                          if (!memberSearch) return true;
-                          const s = memberSearch.toLowerCase();
-                          return m.full_name?.toLowerCase().includes(s) ||
-                            m.phone?.toLowerCase().includes(s) ||
-                            m.email?.toLowerCase().includes(s) ||
-                            m.member_type?.toLowerCase().includes(s);
-                        })
-                        .map(m => (
-                          <SelectItem key={m.id} value={m.full_name}>
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+                {/* ── Left column: entry type, date, direction, amount, mode ── */}
+                <div className="space-y-3">
+                  <EntryField label={<FieldLabel icon={Hash} color="bg-slate-100 text-slate-600">Entry Type</FieldLabel>} required>
+                    <Select value={form.entry_type} onValueChange={(v) => {
+                      const u = { entry_type: v };
+                      if (v === 'EXPENSE') u.credit = '';
+                      if (v === 'FARMER PAYMENT') { u.credit = ''; u.category = ''; }
+                      if (v === 'PLOT COMMISSION') { u.credit = ''; u.category = 'COMMISSION'; }
+                      if (v === 'CASH FLOW') { u.category = 'CASH FLOW'; }
+                      if (v === 'FIRM TRANSACTION') { u.category = 'FIRM'; }
+                      if (v === 'PLOT PAYMENT') { u.category = 'PLOT PAYMENT'; }
+                      if (v !== 'FARMER PAYMENT') { u.farmer_id = ''; u.interest_rate = ''; u.interest_amount = ''; }
+                      if (v !== 'PLOT COMMISSION') { u.plot_no = ''; u.plot_size = ''; u.plot_rate = ''; u.father_name = ''; u.commission_person = ''; }
+                      if (v !== 'CASH FLOW') { u.ledger_name = ''; u.ledger_type = 'site'; u.cf_key = ''; }
+                      if (v !== 'FIRM TRANSACTION') { u.firm_id = ''; u.firm_name = ''; u.firm_purpose = ''; u.firm_remark = ''; u.firm_cheque_no = ''; }
+                      if (v !== 'PLOT PAYMENT') { u.pp_plot_id = ''; u.pp_payment_from = ''; u.pp_payment_type = 'CASH'; u.pp_bank_details = ''; u.pp_narration = ''; u.pp_received_by = ''; }
+                      if (v !== 'FARMER PAYMENT' && v !== 'PLOT COMMISSION') { u.by_note = ''; }
+                      setForm({ ...form, ...u });
+                    }}>
+                      <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {(ENTRY_TYPES.includes(form.entry_type) ? ENTRY_TYPES : [form.entry_type, ...ENTRY_TYPES]).map(t => (
+                          <SelectItem key={t} value={t}>
                             <span className="flex items-center gap-2">
-                              <Users className="w-3.5 h-3.5 text-teal-600" />
-                              <span className="font-medium">{m.full_name}</span>
-                              {m.phone && <span className="text-slate-400 text-xs">({m.phone})</span>}
-                              <span className="text-[10px] text-slate-400 ml-auto">{m.member_type}</span>
+                              <span className={`w-2 h-2 rounded-full ${(TYPE_STYLE[t] || TYPE_STYLE.GENERAL).dot}`} />
+                              {t}
                             </span>
                           </SelectItem>
                         ))}
-                      {members.length === 0 && (
-                        <div className="px-3 py-2 text-xs text-slate-400">No members registered for this site</div>
-                      )}
-                    </SelectContent>
-                  </Select>
-                  <Input
-                    value={form.particular}
-                    onChange={(e) => setForm({ ...form, particular: e.target.value.toUpperCase(), commission_person: e.target.value.toUpperCase() })}
-                    placeholder="Or type name manually…"
-                    className="mt-1.5 h-9 text-sm"
-                  />
-                </EntryField>
-
-                {/* Father Name */}
-                <EntryField label="Father Name">
-                  <Input value={form.father_name} onChange={(e) => setForm({ ...form, father_name: e.target.value.toUpperCase() })} placeholder="S/O RAMESH CHAUDHARY…" className="h-9 text-sm" />
-                </EntryField>
-
-                {/* Plot No + Plot Size + Plot Rate */}
-                <div className="grid grid-cols-3 gap-3">
-                  <EntryField label="Plot No">
-                    <Input value={form.plot_no} onChange={(e) => setForm({ ...form, plot_no: e.target.value.toUpperCase() })} placeholder="A1, B12…" className="h-9 text-sm" />
-                  </EntryField>
-                  <EntryField label="Plot Size">
-                    <Input value={form.plot_size} onChange={(e) => setForm({ ...form, plot_size: e.target.value.toUpperCase() })} placeholder="1200 SQFT…" className="h-9 text-sm" />
-                  </EntryField>
-                  <EntryField label="Plot Rate">
-                    <Input value={form.plot_rate} onChange={(e) => setForm({ ...form, plot_rate: e.target.value.toUpperCase() })} placeholder="1500/SQFT…" className="h-9 text-sm" />
-                  </EntryField>
-                </div>
-
-                {/* Commission Amount */}
-                <EntryAmount label="Commission Amount (₹)" direction="debit"
-                  inputProps={{ step: '0.01', min: undefined, placeholder: '0.00', value: form.debit, required: true, onChange: (e) => setForm({ ...form, debit: e.target.value }) }} />
-
-                {/* By Note */}
-                <EntryField label="By Note / Reference">
-                  <Input value={form.by_note} onChange={(e) => setForm({ ...form, by_note: e.target.value.toUpperCase() })} placeholder="CHQ NO 123456, REF TXN…" className="h-9 text-sm" />
-                </EntryField>
-
-                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-teal-50 border border-teal-200 text-[11px] font-semibold text-teal-700">
-                  <Hash className="w-3.5 h-3.5 shrink-0" />
-                  This entry will also appear in the Plot Commissions module
-                </div>
-              </div>
-            )}
-
-            {/* ── CASH FLOW FIELDS ── */}
-            {form.entry_type === 'CASH FLOW' && (() => {
-              /* helper: build safe compound key for a ledger record */
-              const cfKey = (l) => `${l.id}`;
-              /* helper: display name for a ledger (handles null names) */
-              const cfLabel = (l) => l.ledger_name || `${l.ledger_type === 'person' ? 'Person' : 'Site'} Ledger`;
-              /* find selected ledger from the list */
-              const selectedCfLedger = cashflowLedgers.find(l => cfKey(l) === form.cf_key);
-              const selectedCfDisplay = selectedCfLedger
-                ? `${cfLabel(selectedCfLedger)} — ${MONTH_NAMES[selectedCfLedger.month]} ${selectedCfLedger.year}`
-                : null;
-
-              return (
-                <div className="rounded-lg border border-slate-200 p-3 space-y-3">
-                  <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Cash Flow</p>
-                  {/* Ledger Select — shows ALL month+ledger combinations */}
-                  <EntryField label="Cash Flow Ledger" required>
-                    <Select value={form.cf_key} onValueChange={(v) => {
-                      const ledger = cashflowLedgers.find(l => cfKey(l) === v);
-                      setForm({
-                        ...form,
-                        cf_key: v,
-                        ledger_name: ledger?.ledger_name || '',
-                        ledger_type: ledger?.ledger_type || 'site',
-                      });
-                    }}>
-                      <SelectTrigger className="h-9 text-sm">
-                        <SelectValue placeholder="Select a ledger…">
-                          {selectedCfDisplay && (
-                            <span className="flex items-center gap-2">
-                              <IndianRupee className="w-3.5 h-3.5 text-amber-600" />
-                              <span className="font-medium">{selectedCfDisplay}</span>
-                            </span>
-                          )}
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        {cashflowLedgers.map(l => {
-                          const monthLabel = MONTH_NAMES[l.month] || l.month;
-                          const displayName = cfLabel(l);
-                          return (
-                            <SelectItem key={cfKey(l)} value={cfKey(l)}>
-                              <span className="flex items-center gap-2">
-                                <IndianRupee className="w-3.5 h-3.5 text-amber-600" />
-                                <span className="font-medium">{displayName}</span>
-                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-semibold">{monthLabel} {l.year}</span>
-                                <span className="text-[10px] text-slate-400">{l.ledger_type === 'person' ? 'Person' : 'Site'}</span>
-                                <span className="text-[10px] text-slate-400 ml-auto">{l.entry_count || 0} entries</span>
-                              </span>
-                            </SelectItem>
-                          );
-                        })}
-                        {cashflowLedgers.length === 0 && (
-                          <div className="px-3 py-2 text-xs text-slate-400">No ledgers found. Create one in Cash Flow module first, or type a new name below.</div>
-                        )}
                       </SelectContent>
                     </Select>
+                  </EntryField>
+
+                  <EntryField label={<FieldLabel icon={CalendarIcon} color="bg-sky-100 text-sky-600">Date</FieldLabel>} required>
                     <Input
-                      value={form.ledger_name}
-                      onChange={(e) => setForm({ ...form, ledger_name: e.target.value.toUpperCase() })}
-                      placeholder="Or type a new ledger name…"
-                      className="mt-1.5 h-9 text-sm"
+                      type="date"
+                      value={isAdmin ? form.date : (editingId ? form.date : TODAY)}
+                      onChange={isAdmin ? ((e) => setForm({ ...form, date: e.target.value })) : undefined}
+                      readOnly={!isAdmin}
+                      disabled={!isAdmin}
+                      required
+                      className="h-9 text-sm"
                     />
                   </EntryField>
 
-                  {/* Ledger Type */}
-                  <EntryField label="Ledger Type">
-                    <Select value={form.ledger_type} onValueChange={(v) => setForm({ ...form, ledger_type: v })}>
-                      <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="site">Site Ledger</SelectItem>
-                        <SelectItem value="person">Person Ledger</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </EntryField>
-
-                  {/* Debit + Credit */}
-                  <EntryRow>
-                    <EntryField label="Debit (₹)">
-                      <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-red-500">DR</span>
-                        <Input type="number" step="0.01" placeholder="0.00" value={form.debit}
-                          onChange={(e) => setForm({ ...form, debit: e.target.value })}
-                          className="h-9 pl-9 text-sm tabular-nums border-red-200/50 focus-visible:ring-red-300" />
-                      </div>
-                    </EntryField>
-                    <EntryField label="Credit (₹)">
-                      <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-emerald-600">CR</span>
-                        <Input type="number" step="0.01" placeholder="0.00" value={form.credit}
-                          onChange={(e) => setForm({ ...form, credit: e.target.value })}
-                          className="h-9 pl-9 text-sm tabular-nums border-emerald-200/50 focus-visible:ring-emerald-300" />
-                      </div>
-                    </EntryField>
-                  </EntryRow>
-
-                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-[11px] font-semibold text-amber-700">
-                    <IndianRupee className="w-3.5 h-3.5 shrink-0" />
-                    {selectedCfLedger
-                      ? <>This entry will also appear in Cash Flow → <span className="underline">{cfLabel(selectedCfLedger)}</span> ({MONTH_NAMES[selectedCfLedger.month]} {selectedCfLedger.year})</>
-                      : form.ledger_name
-                        ? <>This entry will create a new Cash Flow ledger "{form.ledger_name}"</>
-                        : <>Select a ledger or type a new name above</>
-                    }
-                  </div>
-                </div>
-              );
-            })()}
-
-            {/* ── FIRM TRANSACTION FIELDS ── */}
-            {form.entry_type === 'FIRM TRANSACTION' && (
-              <div className="rounded-lg border border-slate-200 p-3 space-y-3">
-                <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Firm Transaction</p>
-                {/* Firm Select */}
-                <EntryField label="Select Firm" required>
-                  <Select value={form.firm_id} onValueChange={(v) => {
-                    const firm = firms.find(f => String(f.id) === v);
-                    setForm({
-                      ...form,
-                      firm_id: v,
-                      to_entity: firm?.name || form.to_entity,
-                      particular: form.particular || `FIRM TXN - ${firm?.name || ''}`,
-                    });
-                  }}>
-                    <SelectTrigger className="h-9 text-sm">
-                      <SelectValue placeholder="Choose a firm…" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {firms.map(f => (
-                        <SelectItem key={f.id} value={String(f.id)}>
-                          <span className="flex items-center gap-2">
-                            <Building2 className="w-3.5 h-3.5 text-indigo-600" />
-                            <span className="font-medium">{f.name}</span>
-                            <span className="text-xs text-slate-400 ml-auto">
-                              DR {fmt(f.total_debit || 0)} | CR {fmt(f.total_credit || 0)}
-                            </span>
-                          </span>
-                        </SelectItem>
-                      ))}
-                      {firms.length === 0 && (
-                        <div className="px-3 py-2 text-xs text-slate-400">No firms for this site. Create one in Firm Transactions module first.</div>
+                  {/* Direction, amount, mode — generic types + EXPENSE only; the 5 specialized
+                      types pin their own direction/amount/mode inside their own block below. */}
+                  {!isSpecializedType && (
+                    <>
+                      {isGenericEntry && (
+                        <CreditDebitTabs
+                          value={genDir}
+                          onChange={(d) => {
+                            setGenDir(d);
+                            setForm({ ...form, credit: d === 'credit' ? (form.credit || form.debit) : '', debit: d === 'debit' ? (form.debit || form.credit) : '' });
+                          }}
+                        />
                       )}
-                    </SelectContent>
-                  </Select>
-                </EntryField>
 
-                {/* Debit + Credit */}
-                <EntryRow>
-                  <EntryField label="Debit (₹)">
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-red-500">DR</span>
-                      <Input type="number" step="0.01" placeholder="0.00" value={form.debit}
-                        onChange={(e) => setForm({ ...form, debit: e.target.value })}
-                        className="h-9 pl-9 text-sm tabular-nums border-red-200/50 focus-visible:ring-red-300" />
-                    </div>
-                  </EntryField>
-                  <EntryField label="Credit (₹)">
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-emerald-600">CR</span>
-                      <Input type="number" step="0.01" placeholder="0.00" value={form.credit}
-                        onChange={(e) => setForm({ ...form, credit: e.target.value })}
-                        className="h-9 pl-9 text-sm tabular-nums border-emerald-200/50 focus-visible:ring-emerald-300" />
-                    </div>
-                  </EntryField>
-                </EntryRow>
-
-                {/* Name + Purpose */}
-                <EntryRow>
-                  <EntryField label="Name">
-                    <Input value={form.firm_name} onChange={(e) => setForm({ ...form, firm_name: e.target.value.toUpperCase() })} placeholder="PERSON NAME…" className="h-9 text-sm" />
-                  </EntryField>
-                  <EntryField label="Purpose">
-                    <Input value={form.firm_purpose} onChange={(e) => setForm({ ...form, firm_purpose: e.target.value.toUpperCase() })} placeholder="MATERIAL, LABOUR…" className="h-9 text-sm" />
-                  </EntryField>
-                </EntryRow>
-
-                {/* Remark + Cheque No */}
-                <EntryRow>
-                  <EntryField label="Remark">
-                    <Input value={form.firm_remark} onChange={(e) => setForm({ ...form, firm_remark: e.target.value.toUpperCase() })} placeholder="REMARK…" className="h-9 text-sm" />
-                  </EntryField>
-                  <EntryField label="Cheque No">
-                    <Input value={form.firm_cheque_no} onChange={(e) => setForm({ ...form, firm_cheque_no: e.target.value.toUpperCase() })} placeholder="CHQ 123456…" className="h-9 text-sm" />
-                  </EntryField>
-                </EntryRow>
-
-                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-indigo-50 border border-indigo-200 text-[11px] font-semibold text-indigo-700">
-                  <Building2 className="w-3.5 h-3.5 shrink-0" />
-                  This entry will also appear in the Firm Transactions module
-                </div>
-              </div>
-            )}
-
-            {/* ── PLOT PAYMENT FIELDS ── */}
-            {form.entry_type === 'PLOT PAYMENT' && (
-              <div className="rounded-lg border border-slate-200 p-3 space-y-3">
-                <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Plot Payment</p>
-                {/* Plot Select */}
-                <EntryField label="Select Plot" required>
-                  <Select value={form.pp_plot_id} onValueChange={(v) => {
-                    const plot = plots.find(p => String(p.id) === v);
-                    setForm({
-                      ...form,
-                      pp_plot_id: v,
-                      to_entity: plot ? `${plot.plot_no} - ${plot.buyer_name}` : form.to_entity,
-                      particular: form.particular || `PLOT PAYMENT - ${plot?.plot_no || ''} (${plot?.buyer_name || ''})`,
-                    });
-                  }}>
-                    <SelectTrigger className="h-9 text-sm">
-                      <SelectValue placeholder="Choose a plot…" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {plots.map(p => (
-                        <SelectItem key={p.id} value={String(p.id)}>
-                          <span className="flex items-center gap-2">
-                            <MapPin className="w-3.5 h-3.5 text-sky-700" />
-                            <span className="font-medium">{p.plot_no}{p.block ? ` (${p.block})` : ''}</span>
-                            <span className="text-xs text-slate-500 ml-1">{p.buyer_name || 'No buyer'}</span>
-                            <span className="text-xs text-slate-400 ml-auto">
-                              ₹{fmt(p.sale_price || 0)} | Rcvd ₹{fmt(p.total_received || 0)}
-                            </span>
-                          </span>
-                        </SelectItem>
-                      ))}
-                      {plots.length === 0 && (
-                        <div className="px-3 py-2 text-xs text-slate-400">No plots for this site. Create one in Plot Registry first.</div>
+                      {form.entry_type === 'EXPENSE' ? (
+                        <EntryAmount label="Debit Amount (₹)" direction="debit" required={false}
+                          inputProps={{ step: '0.01', min: undefined, placeholder: '0.00', value: form.debit, onChange: (e) => setForm({ ...form, debit: e.target.value }) }} />
+                      ) : (
+                        <EntryAmount label="Amount (₹)" direction={genDir} required={false}
+                          inputProps={{ step: '0.01', min: undefined, placeholder: '0.00', value: genDir === 'credit' ? form.credit : form.debit, onChange: (e) => setForm({ ...form, [genDir]: e.target.value }) }} />
                       )}
-                    </SelectContent>
-                  </Select>
-                </EntryField>
 
-                {/* Payment From + Amount */}
-                <EntryField label="Payment From" required>
-                  <Select value={form.pp_payment_from} onValueChange={(v) => {
-                    const pt = derivePaymentType(v);
-                    setForm({ ...form, pp_payment_from: v, pp_payment_type: pt });
-                  }}>
-                    <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Select…" /></SelectTrigger>
-                    <SelectContent>
-                      {PAYMENT_FROM_OPTIONS.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </EntryField>
-                <EntryAmount label="Amount (₹)" direction="credit"
-                  inputProps={{ step: '0.01', min: undefined, placeholder: '0.00', value: form.credit, onChange: (e) => setForm({ ...form, credit: e.target.value }) }} />
+                      {form.entry_type === 'EXPENSE' && (
+                        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-[11px] font-semibold text-red-700">
+                          <ArrowUpRight className="w-3.5 h-3.5 shrink-0" />
+                          This entry will also appear in the Expenses module
+                        </div>
+                      )}
 
-                {/* Bank Details (conditional) */}
-                {(form.pp_payment_type === 'BANK' || form.pp_payment_type === 'CHEQUE') && (
-                  <EntryField label={form.pp_payment_type === 'CHEQUE' ? 'Cheque No' : 'Bank Details'}>
-                    {form.pp_payment_type === 'CHEQUE' ? (
-                      <Input value={form.pp_cheque_no} onChange={(e) => setForm({ ...form, pp_cheque_no: e.target.value.toUpperCase() })} placeholder="CHQ 123456…" className="h-9 text-sm" />
-                    ) : (
-                      <Input value={form.pp_bank_details} onChange={(e) => setForm({ ...form, pp_bank_details: e.target.value.toUpperCase() })} placeholder="BANK NAME, CHQ NO, A/C NO…" className="h-9 text-sm" />
-                    )}
-                  </EntryField>
-                )}
+                      <EntryField label={<FieldLabel icon={Landmark} color="bg-violet-100 text-violet-600">Payment Mode</FieldLabel>}>
+                        <EntryModeChips
+                          value={form.payment_mode}
+                          modes={PAY_MODES}
+                          onChange={(m) => setForm({ ...form, payment_mode: form.payment_mode === m ? '' : m })}
+                        />
+                        <Input
+                          placeholder="Or type custom mode…"
+                          value={!PAY_MODES.includes(form.payment_mode) ? form.payment_mode : ''}
+                          onChange={(e) => setForm({ ...form, payment_mode: e.target.value.toUpperCase() })}
+                          className="mt-1.5 h-9 text-sm"
+                          list="db-mode-suggestions"
+                        />
+                        <datalist id="db-mode-suggestions">
+                          {autocomplete.paymentModes?.filter(m => !PAY_MODES.includes(m)).map((m, i) => <option key={i} value={m} />)}
+                        </datalist>
+                      </EntryField>
 
-                {/* Narration + Received By */}
-                <EntryRow>
-                  <EntryField label="Narration">
-                    <Input value={form.pp_narration} onChange={(e) => setForm({ ...form, pp_narration: e.target.value.toUpperCase() })} placeholder="NARRATION…" className="h-9 text-sm" />
-                  </EntryField>
-                  <EntryField label="Received By">
-                    <Input value={form.pp_received_by} onChange={(e) => setForm({ ...form, pp_received_by: e.target.value.toUpperCase() })} placeholder="NAME…" className="h-9 text-sm" />
-                  </EntryField>
-                </EntryRow>
-
-                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-sky-50 border border-sky-200 text-[11px] font-semibold text-sky-700">
-                  <MapPin className="w-3.5 h-3.5 shrink-0" />
-                  This entry will also appear in the Plot Payments module
+                      {form.payment_mode === 'CHEQUE' && (
+                        <EntryField label={<FieldLabel icon={FileText} color="bg-indigo-100 text-indigo-600">Cheque No</FieldLabel>}>
+                          <Input value={form.cheque_no} onChange={(e) => setForm({ ...form, cheque_no: e.target.value.toUpperCase() })} placeholder="CHQ 123456…" className="h-9 text-sm" />
+                        </EntryField>
+                      )}
+                    </>
+                  )}
                 </div>
-              </div>
-            )}
 
-            {/* From / To, Payment Mode, Category, Account, Branch — visible for standard types */}
-            {form.entry_type !== 'FARMER PAYMENT' && form.entry_type !== 'PLOT COMMISSION' && form.entry_type !== 'CASH FLOW' && form.entry_type !== 'FIRM TRANSACTION' && form.entry_type !== 'PLOT PAYMENT' && (
-              <>
-                {/* From / To entities */}
-                <EntryRow>
-                  <EntryField label="From Entity">
-                    <Input value={form.from_entity} onChange={(e) => setForm({ ...form, from_entity: e.target.value.toUpperCase() })} placeholder="GAYATRI ASSOCIATES, IDIB-001884…" className="h-9 text-sm" list="db-from" />
-                    <datalist id="db-from">{autocomplete.fromEntities?.map((f, i) => <option key={i} value={f} />)}</datalist>
-                  </EntryField>
-                  <EntryField label="To Entity">
-                    <Input value={form.to_entity} onChange={(e) => setForm({ ...form, to_entity: e.target.value.toUpperCase() })} placeholder="B11, A10, A5, B16…" className="h-9 text-sm" list="db-to" />
-                    <datalist id="db-to">{autocomplete.toEntities?.map((t, i) => <option key={i} value={t} />)}</datalist>
-                  </EntryField>
-                </EntryRow>
-
-                {/* Payment Mode */}
-                <EntryField label="Payment Mode">
-                  <EntryModeChips
-                    value={form.payment_mode}
-                    modes={PAY_MODES}
-                    onChange={(m) => setForm({ ...form, payment_mode: form.payment_mode === m ? '' : m })}
-                  />
-                  <Input
-                    placeholder="Or type custom mode…"
-                    value={!PAY_MODES.includes(form.payment_mode) ? form.payment_mode : ''}
-                    onChange={(e) => setForm({ ...form, payment_mode: e.target.value.toUpperCase() })}
-                    className="mt-1.5 h-9 text-sm"
-                    list="db-mode-suggestions"
-                  />
-                  <datalist id="db-mode-suggestions">
-                    {autocomplete.paymentModes?.filter(m => !PAY_MODES.includes(m)).map((m, i) => <option key={i} value={m} />)}
-                  </datalist>
-                </EntryField>
-
-                {/* Cheque No (conditional) */}
-                {form.payment_mode === 'CHEQUE' && (
-                  <EntryField label="Cheque No">
-                    <Input value={form.cheque_no} onChange={(e) => setForm({ ...form, cheque_no: e.target.value.toUpperCase() })} placeholder="CHQ 123456…" className="h-9 text-sm" />
-                  </EntryField>
-                )}
-
-                {/* Category + Account + Branch */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <EntryField label="Category">
-                    <Select value={form.category || '_none'} onValueChange={(v) => setForm({ ...form, category: v === '_none' ? '' : v })}>
-                      <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Select…" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="_none">— None —</SelectItem>
-                        {[...new Set([...CATEGORIES, ...(autocomplete.categories || [])])].sort().map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
+                {/* ── Right column: particular, type-specific content, admin/person/remarks ── */}
+                <div className="space-y-3">
+                  {/* Particular / Purpose — universal, every type (including specialized) */}
+                  <EntryField label={<FieldLabel icon={Tag} color="bg-indigo-100 text-indigo-600">{form.entry_type === 'FARMER PAYMENT' ? 'Payment Description' : form.entry_type === 'PLOT COMMISSION' ? 'Commission Description' : form.entry_type === 'CASH FLOW' ? 'Particular / Description' : form.entry_type === 'FIRM TRANSACTION' ? 'Transaction Description' : form.entry_type === 'PLOT PAYMENT' ? 'Payment Description' : form.entry_type === 'EXPENSE' ? 'Expense Purpose / Description' : 'Particular / Description'}</FieldLabel>} required>
+                    <Input value={form.particular} onChange={(e) => setForm({ ...form, particular: e.target.value.toUpperCase() })} placeholder={form.entry_type === 'FARMER PAYMENT' ? 'FARMER PAYMENT - RAJU, ADV FARMER…' : form.entry_type === 'PLOT COMMISSION' ? 'COMMISSION - PLOT A1, BROKERAGE…' : form.entry_type === 'PLOT PAYMENT' ? 'PLOT PAYMENT - A1 BUYER NAME…' : form.entry_type === 'EXPENSE' ? 'PEPSI, CEMENT, BRICKS, SALARY…' : 'Enter description…'} required className="h-9 text-sm" list="db-plist" />
+                    <datalist id="db-plist">{autocomplete.particulars?.map((p, i) => <option key={i} value={p} />)}</datalist>
                   </EntryField>
 
-                  <EntryField label="Account No">
-                    <Input value={form.account_no} onChange={(e) => setForm({ ...form, account_no: e.target.value.toUpperCase() })} placeholder="CNRB-077582, SBI-858615…" className="h-9 text-sm" list="db-acc" />
-                    <datalist id="db-acc">{autocomplete.accountNos?.map((a, i) => <option key={i} value={a} />)}</datalist>
-                  </EntryField>
-                  <EntryField label="Branch">
-                    <Input value={form.branch} onChange={(e) => setForm({ ...form, branch: e.target.value.toUpperCase() })} placeholder="MAIN, SADAR, CIVIL LINES…" className="h-9 text-sm" list="db-br" />
-                    <datalist id="db-br">{autocomplete.branches?.map((b, i) => <option key={i} value={b} />)}</datalist>
-                  </EntryField>
-                </div>
-              </>
-            )}
+                  {/* ── FARMER PAYMENT FIELDS ── */}
+                  {form.entry_type === 'FARMER PAYMENT' && (
+                    <div className="rounded-lg border border-slate-200 p-3 space-y-3">
+                      <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Farmer Payment</p>
+                      <EntryRow>
+                      {/* Farmer Select */}
+                      <EntryField label="Select Farmer" required>
+                        <Select value={form.farmer_id} onValueChange={(v) => {
+                          const farmer = farmers.find(f => String(f.id) === v);
+                          setForm({
+                            ...form,
+                            farmer_id: v,
+                            interest_rate: farmer?.interest_rate ? String(farmer.interest_rate) : form.interest_rate,
+                            to_entity: farmer?.name || form.to_entity,
+                            particular: form.particular || `FARMER PAYMENT - ${farmer?.name || ''}`,
+                          });
+                        }}>
+                          <SelectTrigger className="h-9 text-sm">
+                            <SelectValue placeholder="Choose a farmer…" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {farmers.filter(f => f.status === 'active').map(f => (
+                              <SelectItem key={f.id} value={String(f.id)}>
+                                <span className="flex items-center gap-2">
+                                  <Users className="w-3.5 h-3.5 text-lime-600" />
+                                  <span className="font-medium">{f.name}</span>
+                                  {f.phone && <span className="text-slate-400 text-xs">({f.phone})</span>}
+                                  <span className="text-xs text-slate-400 ml-auto">Paid: {fmt(f.total_paid || 0)}</span>
+                                </span>
+                              </SelectItem>
+                            ))}
+                            {farmers.filter(f => f.status === 'active').length === 0 && (
+                              <div className="px-3 py-2 text-xs text-slate-400">No active farmers for this site</div>
+                            )}
+                          </SelectContent>
+                        </Select>
+                      </EntryField>
 
-              {/* Assign To Admin */}
-              {(isAdmin || canManage) && approvers.length > 0 && (
-                <EntryField label="Assign To Admin">
-                  <Select value={form.assigned_admin_id?.toString() || '_none'} onValueChange={(v) => setForm({ ...form, assigned_admin_id: v === '_none' ? null : parseInt(v) })}>
-                    <SelectTrigger className="h-9">
-                      <SelectValue placeholder="Select approver..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="_none">— Auto-assign or no preference —</SelectItem>
-                      {approvers.map((app) => (
-                        <SelectItem key={app.id} value={app.id.toString()}>
-                          {app.full_name || app.name || app.email || `Admin #${app.id}`}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </EntryField>
-              )}
+                      {/* Payment Mode (Farmer-specific options) */}
+                      <EntryField label="Payment Mode" required>
+                        <Select value={form.payment_mode} onValueChange={(v) => setForm({ ...form, payment_mode: v })}>
+                          <SelectTrigger className="h-9 text-sm">
+                            <SelectValue placeholder="Select payment method…" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {FARMER_PAY_MODES.map(m => (
+                              <SelectItem key={m} value={m}>{m}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </EntryField>
+                      </EntryRow>
 
-            {/* Remarks */}
-            <EntryField label="Remarks / Notes">
-              <Textarea value={form.remarks} onChange={(e) => setForm({ ...form, remarks: e.target.value.toUpperCase() })} placeholder="ADJUST A19 DG, TRF TO A7, IN BANK…" rows={2} className="text-sm resize-none" />
-            </EntryField>
+                      {/* Amount */}
+                      <EntryAmount label="Payment Amount (₹)" direction="debit"
+                        inputProps={{
+                          step: '0.01', min: undefined, placeholder: '0.00', value: form.debit, required: true,
+                          onChange: (e) => {
+                            const amt = e.target.value;
+                            const ir = parseFloat(form.interest_rate) || 0;
+                            const ia = ir > 0 ? ((parseFloat(amt) || 0) * ir / 100).toFixed(2) : form.interest_amount;
+                            setForm({ ...form, debit: amt, interest_amount: ia });
+                          },
+                        }} />
 
-            {/* Voucher / camera proof — saved on the entry itself */}
-            <VoucherUpload
-              value={form.voucher_url || null}
-              onChange={(url) => setForm((f) => ({ ...f, voucher_url: url || '' }))}
-            />
+                      {/* Interest Rate + Interest Amount */}
+                      <EntryRow>
+                        <EntryField label="Interest Rate (%)">
+                          <Input type="number" step="0.01" placeholder="0.00" value={form.interest_rate}
+                            onChange={(e) => {
+                              const rate = e.target.value;
+                              const amt = parseFloat(form.debit) || 0;
+                              const ia = parseFloat(rate) > 0 ? (amt * parseFloat(rate) / 100).toFixed(2) : '0';
+                              setForm({ ...form, interest_rate: rate, interest_amount: ia });
+                            }}
+                            className="h-9 text-sm tabular-nums" />
+                        </EntryField>
+                        <EntryField label="Interest Amount (₹)">
+                          <Input type="number" step="0.01" placeholder="0.00" value={form.interest_amount}
+                            onChange={(e) => setForm({ ...form, interest_amount: e.target.value })}
+                            className="h-9 text-sm tabular-nums" />
+                        </EntryField>
+                      </EntryRow>
 
-            {/* Proof photo for sub-admin edit request - OPTIONAL */}
-            {editingId && !canUpdate && (
-              <div className="space-y-1.5">
-                <Label className="text-xs font-medium">Proof Photo <span className="text-slate-400">(optional)</span></Label>
-                <div className="flex items-center gap-3">
-                  <label className="cursor-pointer flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 hover:bg-slate-100 transition-colors">
-                    <Camera className="w-4 h-4 text-slate-600" />
-                    <span className="text-xs text-slate-700">{proofPhoto ? proofPhoto.name : 'Upload proof photo (optional)'}</span>
-                    <input type="file" accept="image/*" className="hidden" onChange={handleProofPhotoChange} />
-                  </label>
-                  {proofPreview && (
-                    <img src={proofPreview} alt="Proof" className="w-12 h-12 rounded-lg object-cover border" />
+                      {/* By Note */}
+                      <EntryField label="By Note / Reference">
+                        <Input value={form.by_note} onChange={(e) => setForm({ ...form, by_note: e.target.value.toUpperCase() })} placeholder="CHQ NO 123456, REF TXN…" className="h-9 text-sm" />
+                      </EntryField>
+
+                      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-lime-50 border border-lime-200 text-[11px] font-semibold text-lime-700">
+                        <Users className="w-3.5 h-3.5 shrink-0" />
+                        This entry will also appear in the Farmer Payments module
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── PLOT COMMISSION FIELDS ── */}
+                  {form.entry_type === 'PLOT COMMISSION' && (
+                    <div className="rounded-lg border border-slate-200 p-3 space-y-3">
+                      <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Plot Commission</p>
+                      {/* Person Select (from Members/Users) with search */}
+                      <EntryField label="Person / Particular" required>
+                        <Select value={form.commission_person} onValueChange={(v) => {
+                          const member = members.find(m => m.full_name === v);
+                          setForm({
+                            ...form,
+                            commission_person: v,
+                            particular: v,
+                            to_entity: v,
+                            father_name: member?.father_name || form.father_name,
+                          });
+                        }}>
+                          <SelectTrigger className="h-9 text-sm">
+                            <SelectValue placeholder="Select a person…" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <div className="px-2 pb-2 pt-1 sticky top-0 bg-white z-10">
+                              <div className="relative">
+                                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                                <input
+                                  type="text"
+                                  placeholder="Search members…"
+                                  value={memberSearch}
+                                  onChange={(e) => setMemberSearch(e.target.value)}
+                                  className="w-full h-8 pl-8 pr-3 text-sm border border-slate-200 rounded-md outline-none focus:ring-2 focus:ring-teal-300 focus:border-teal-300"
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                              </div>
+                            </div>
+                            {members
+                              .filter(m => {
+                                if (!memberSearch) return true;
+                                const s = memberSearch.toLowerCase();
+                                return m.full_name?.toLowerCase().includes(s) ||
+                                  m.phone?.toLowerCase().includes(s) ||
+                                  m.email?.toLowerCase().includes(s) ||
+                                  m.member_type?.toLowerCase().includes(s);
+                              })
+                              .map(m => (
+                                <SelectItem key={m.id} value={m.full_name}>
+                                  <span className="flex items-center gap-2">
+                                    <Users className="w-3.5 h-3.5 text-teal-600" />
+                                    <span className="font-medium">{m.full_name}</span>
+                                    {m.phone && <span className="text-slate-400 text-xs">({m.phone})</span>}
+                                    <span className="text-[10px] text-slate-400 ml-auto">{m.member_type}</span>
+                                  </span>
+                                </SelectItem>
+                              ))}
+                            {members.length === 0 && (
+                              <div className="px-3 py-2 text-xs text-slate-400">No members registered for this site</div>
+                            )}
+                          </SelectContent>
+                        </Select>
+                        <Input
+                          value={form.particular}
+                          onChange={(e) => setForm({ ...form, particular: e.target.value.toUpperCase(), commission_person: e.target.value.toUpperCase() })}
+                          placeholder="Or type name manually…"
+                          className="mt-1.5 h-9 text-sm"
+                        />
+                      </EntryField>
+
+                      {/* Father Name */}
+                      <EntryField label="Father Name">
+                        <Input value={form.father_name} onChange={(e) => setForm({ ...form, father_name: e.target.value.toUpperCase() })} placeholder="S/O RAMESH CHAUDHARY…" className="h-9 text-sm" />
+                      </EntryField>
+
+                      {/* Plot No + Plot Size + Plot Rate */}
+                      <div className="grid grid-cols-3 gap-3">
+                        <EntryField label="Plot No">
+                          <Input value={form.plot_no} onChange={(e) => setForm({ ...form, plot_no: e.target.value.toUpperCase() })} placeholder="A1, B12…" className="h-9 text-sm" />
+                        </EntryField>
+                        <EntryField label="Plot Size">
+                          <Input value={form.plot_size} onChange={(e) => setForm({ ...form, plot_size: e.target.value.toUpperCase() })} placeholder="1200 SQFT…" className="h-9 text-sm" />
+                        </EntryField>
+                        <EntryField label="Plot Rate">
+                          <Input value={form.plot_rate} onChange={(e) => setForm({ ...form, plot_rate: e.target.value.toUpperCase() })} placeholder="1500/SQFT…" className="h-9 text-sm" />
+                        </EntryField>
+                      </div>
+
+                      {/* Commission Amount */}
+                      <EntryAmount label="Commission Amount (₹)" direction="debit"
+                        inputProps={{ step: '0.01', min: undefined, placeholder: '0.00', value: form.debit, required: true, onChange: (e) => setForm({ ...form, debit: e.target.value }) }} />
+
+                      {/* By Note */}
+                      <EntryField label="By Note / Reference">
+                        <Input value={form.by_note} onChange={(e) => setForm({ ...form, by_note: e.target.value.toUpperCase() })} placeholder="CHQ NO 123456, REF TXN…" className="h-9 text-sm" />
+                      </EntryField>
+
+                      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-teal-50 border border-teal-200 text-[11px] font-semibold text-teal-700">
+                        <Hash className="w-3.5 h-3.5 shrink-0" />
+                        This entry will also appear in the Plot Commissions module
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── CASH FLOW FIELDS ── */}
+                  {form.entry_type === 'CASH FLOW' && (() => {
+                    /* helper: build safe compound key for a ledger record */
+                    const cfKey = (l) => `${l.id}`;
+                    /* helper: display name for a ledger (handles null names) */
+                    const cfLabel = (l) => l.ledger_name || `${l.ledger_type === 'person' ? 'Person' : 'Site'} Ledger`;
+                    /* find selected ledger from the list */
+                    const selectedCfLedger = cashflowLedgers.find(l => cfKey(l) === form.cf_key);
+                    const selectedCfDisplay = selectedCfLedger
+                      ? `${cfLabel(selectedCfLedger)} — ${MONTH_NAMES[selectedCfLedger.month]} ${selectedCfLedger.year}`
+                      : null;
+
+                    return (
+                      <div className="rounded-lg border border-slate-200 p-3 space-y-3">
+                        <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Cash Flow</p>
+                        {/* Ledger Select — shows ALL month+ledger combinations */}
+                        <EntryField label="Cash Flow Ledger" required>
+                          <Select value={form.cf_key} onValueChange={(v) => {
+                            const ledger = cashflowLedgers.find(l => cfKey(l) === v);
+                            setForm({
+                              ...form,
+                              cf_key: v,
+                              ledger_name: ledger?.ledger_name || '',
+                              ledger_type: ledger?.ledger_type || 'site',
+                            });
+                          }}>
+                            <SelectTrigger className="h-9 text-sm">
+                              <SelectValue placeholder="Select a ledger…">
+                                {selectedCfDisplay && (
+                                  <span className="flex items-center gap-2">
+                                    <IndianRupee className="w-3.5 h-3.5 text-amber-600" />
+                                    <span className="font-medium">{selectedCfDisplay}</span>
+                                  </span>
+                                )}
+                              </SelectValue>
+                            </SelectTrigger>
+                            <SelectContent>
+                              {cashflowLedgers.map(l => {
+                                const monthLabel = MONTH_NAMES[l.month] || l.month;
+                                const displayName = cfLabel(l);
+                                return (
+                                  <SelectItem key={cfKey(l)} value={cfKey(l)}>
+                                    <span className="flex items-center gap-2">
+                                      <IndianRupee className="w-3.5 h-3.5 text-amber-600" />
+                                      <span className="font-medium">{displayName}</span>
+                                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-semibold">{monthLabel} {l.year}</span>
+                                      <span className="text-[10px] text-slate-400">{l.ledger_type === 'person' ? 'Person' : 'Site'}</span>
+                                      <span className="text-[10px] text-slate-400 ml-auto">{l.entry_count || 0} entries</span>
+                                    </span>
+                                  </SelectItem>
+                                );
+                              })}
+                              {cashflowLedgers.length === 0 && (
+                                <div className="px-3 py-2 text-xs text-slate-400">No ledgers found. Create one in Cash Flow module first, or type a new name below.</div>
+                              )}
+                            </SelectContent>
+                          </Select>
+                          <Input
+                            value={form.ledger_name}
+                            onChange={(e) => setForm({ ...form, ledger_name: e.target.value.toUpperCase() })}
+                            placeholder="Or type a new ledger name…"
+                            className="mt-1.5 h-9 text-sm"
+                          />
+                        </EntryField>
+
+                        {/* Ledger Type */}
+                        <EntryField label="Ledger Type">
+                          <Select value={form.ledger_type} onValueChange={(v) => setForm({ ...form, ledger_type: v })}>
+                            <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="site">Site Ledger</SelectItem>
+                              <SelectItem value="person">Person Ledger</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </EntryField>
+
+                        {/* Debit + Credit */}
+                        <EntryRow>
+                          <EntryField label="Debit (₹)">
+                            <div className="relative">
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-red-500">DR</span>
+                              <Input type="number" step="0.01" placeholder="0.00" value={form.debit}
+                                onChange={(e) => setForm({ ...form, debit: e.target.value })}
+                                className="h-9 pl-9 text-sm tabular-nums border-red-200/50 focus-visible:ring-red-300" />
+                            </div>
+                          </EntryField>
+                          <EntryField label="Credit (₹)">
+                            <div className="relative">
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-emerald-600">CR</span>
+                              <Input type="number" step="0.01" placeholder="0.00" value={form.credit}
+                                onChange={(e) => setForm({ ...form, credit: e.target.value })}
+                                className="h-9 pl-9 text-sm tabular-nums border-emerald-200/50 focus-visible:ring-emerald-300" />
+                            </div>
+                          </EntryField>
+                        </EntryRow>
+
+                        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-[11px] font-semibold text-amber-700">
+                          <IndianRupee className="w-3.5 h-3.5 shrink-0" />
+                          {selectedCfLedger
+                            ? <>This entry will also appear in Cash Flow → <span className="underline">{cfLabel(selectedCfLedger)}</span> ({MONTH_NAMES[selectedCfLedger.month]} {selectedCfLedger.year})</>
+                            : form.ledger_name
+                              ? <>This entry will create a new Cash Flow ledger "{form.ledger_name}"</>
+                              : <>Select a ledger or type a new name above</>
+                          }
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* ── FIRM TRANSACTION FIELDS ── */}
+                  {form.entry_type === 'FIRM TRANSACTION' && (
+                    <div className="rounded-lg border border-slate-200 p-3 space-y-3">
+                      <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Firm Transaction</p>
+                      {/* Firm Select */}
+                      <EntryField label="Select Firm" required>
+                        <Select value={form.firm_id} onValueChange={(v) => {
+                          const firm = firms.find(f => String(f.id) === v);
+                          setForm({
+                            ...form,
+                            firm_id: v,
+                            to_entity: firm?.name || form.to_entity,
+                            particular: form.particular || `FIRM TXN - ${firm?.name || ''}`,
+                          });
+                        }}>
+                          <SelectTrigger className="h-9 text-sm">
+                            <SelectValue placeholder="Choose a firm…" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {firms.map(f => (
+                              <SelectItem key={f.id} value={String(f.id)}>
+                                <span className="flex items-center gap-2">
+                                  <Building2 className="w-3.5 h-3.5 text-indigo-600" />
+                                  <span className="font-medium">{f.name}</span>
+                                  <span className="text-xs text-slate-400 ml-auto">
+                                    DR {fmt(f.total_debit || 0)} | CR {fmt(f.total_credit || 0)}
+                                  </span>
+                                </span>
+                              </SelectItem>
+                            ))}
+                            {firms.length === 0 && (
+                              <div className="px-3 py-2 text-xs text-slate-400">No firms for this site. Create one in Firm Transactions module first.</div>
+                            )}
+                          </SelectContent>
+                        </Select>
+                      </EntryField>
+
+                      {/* Debit + Credit */}
+                      <EntryRow>
+                        <EntryField label="Debit (₹)">
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-red-500">DR</span>
+                            <Input type="number" step="0.01" placeholder="0.00" value={form.debit}
+                              onChange={(e) => setForm({ ...form, debit: e.target.value })}
+                              className="h-9 pl-9 text-sm tabular-nums border-red-200/50 focus-visible:ring-red-300" />
+                          </div>
+                        </EntryField>
+                        <EntryField label="Credit (₹)">
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-emerald-600">CR</span>
+                            <Input type="number" step="0.01" placeholder="0.00" value={form.credit}
+                              onChange={(e) => setForm({ ...form, credit: e.target.value })}
+                              className="h-9 pl-9 text-sm tabular-nums border-emerald-200/50 focus-visible:ring-emerald-300" />
+                          </div>
+                        </EntryField>
+                      </EntryRow>
+
+                      {/* Name + Purpose */}
+                      <EntryRow>
+                        <EntryField label="Name">
+                          <Input value={form.firm_name} onChange={(e) => setForm({ ...form, firm_name: e.target.value.toUpperCase() })} placeholder="PERSON NAME…" className="h-9 text-sm" />
+                        </EntryField>
+                        <EntryField label="Purpose">
+                          <Input value={form.firm_purpose} onChange={(e) => setForm({ ...form, firm_purpose: e.target.value.toUpperCase() })} placeholder="MATERIAL, LABOUR…" className="h-9 text-sm" />
+                        </EntryField>
+                      </EntryRow>
+
+                      {/* Remark + Cheque No */}
+                      <EntryRow>
+                        <EntryField label="Remark">
+                          <Input value={form.firm_remark} onChange={(e) => setForm({ ...form, firm_remark: e.target.value.toUpperCase() })} placeholder="REMARK…" className="h-9 text-sm" />
+                        </EntryField>
+                        <EntryField label="Cheque No">
+                          <Input value={form.firm_cheque_no} onChange={(e) => setForm({ ...form, firm_cheque_no: e.target.value.toUpperCase() })} placeholder="CHQ 123456…" className="h-9 text-sm" />
+                        </EntryField>
+                      </EntryRow>
+
+                      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-indigo-50 border border-indigo-200 text-[11px] font-semibold text-indigo-700">
+                        <Building2 className="w-3.5 h-3.5 shrink-0" />
+                        This entry will also appear in the Firm Transactions module
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── PLOT PAYMENT FIELDS ── */}
+                  {form.entry_type === 'PLOT PAYMENT' && (
+                    <div className="rounded-lg border border-slate-200 p-3 space-y-3">
+                      <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Plot Payment</p>
+                      {/* Plot Select */}
+                      <EntryField label="Select Plot" required>
+                        <Select value={form.pp_plot_id} onValueChange={(v) => {
+                          const plot = plots.find(p => String(p.id) === v);
+                          setForm({
+                            ...form,
+                            pp_plot_id: v,
+                            to_entity: plot ? `${plot.plot_no} - ${plot.buyer_name}` : form.to_entity,
+                            particular: form.particular || `PLOT PAYMENT - ${plot?.plot_no || ''} (${plot?.buyer_name || ''})`,
+                          });
+                        }}>
+                          <SelectTrigger className="h-9 text-sm">
+                            <SelectValue placeholder="Choose a plot…" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {plots.map(p => (
+                              <SelectItem key={p.id} value={String(p.id)}>
+                                <span className="flex items-center gap-2">
+                                  <MapPin className="w-3.5 h-3.5 text-sky-700" />
+                                  <span className="font-medium">{p.plot_no}{p.block ? ` (${p.block})` : ''}</span>
+                                  <span className="text-xs text-slate-500 ml-1">{p.buyer_name || 'No buyer'}</span>
+                                  <span className="text-xs text-slate-400 ml-auto">
+                                    ₹{fmt(p.sale_price || 0)} | Rcvd ₹{fmt(p.total_received || 0)}
+                                  </span>
+                                </span>
+                              </SelectItem>
+                            ))}
+                            {plots.length === 0 && (
+                              <div className="px-3 py-2 text-xs text-slate-400">No plots for this site. Create one in Plot Registry first.</div>
+                            )}
+                          </SelectContent>
+                        </Select>
+                      </EntryField>
+
+                      {/* Payment From + Amount */}
+                      <EntryField label="Payment From" required>
+                        <Select value={form.pp_payment_from} onValueChange={(v) => {
+                          const pt = derivePaymentType(v);
+                          setForm({ ...form, pp_payment_from: v, pp_payment_type: pt });
+                        }}>
+                          <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Select…" /></SelectTrigger>
+                          <SelectContent>
+                            {PAYMENT_FROM_OPTIONS.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </EntryField>
+                      <EntryAmount label="Amount (₹)" direction="credit"
+                        inputProps={{ step: '0.01', min: undefined, placeholder: '0.00', value: form.credit, onChange: (e) => setForm({ ...form, credit: e.target.value }) }} />
+
+                      {/* Bank Details (conditional) */}
+                      {(form.pp_payment_type === 'BANK' || form.pp_payment_type === 'CHEQUE') && (
+                        <EntryField label={form.pp_payment_type === 'CHEQUE' ? 'Cheque No' : 'Bank Details'}>
+                          {form.pp_payment_type === 'CHEQUE' ? (
+                            <Input value={form.pp_cheque_no} onChange={(e) => setForm({ ...form, pp_cheque_no: e.target.value.toUpperCase() })} placeholder="CHQ 123456…" className="h-9 text-sm" />
+                          ) : (
+                            <Input value={form.pp_bank_details} onChange={(e) => setForm({ ...form, pp_bank_details: e.target.value.toUpperCase() })} placeholder="BANK NAME, CHQ NO, A/C NO…" className="h-9 text-sm" />
+                          )}
+                        </EntryField>
+                      )}
+
+                      {/* Narration + Received By */}
+                      <EntryRow>
+                        <EntryField label="Narration">
+                          <Input value={form.pp_narration} onChange={(e) => setForm({ ...form, pp_narration: e.target.value.toUpperCase() })} placeholder="NARRATION…" className="h-9 text-sm" />
+                        </EntryField>
+                        <EntryField label="Received By">
+                          <Input value={form.pp_received_by} onChange={(e) => setForm({ ...form, pp_received_by: e.target.value.toUpperCase() })} placeholder="NAME…" className="h-9 text-sm" />
+                        </EntryField>
+                      </EntryRow>
+
+                      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-sky-50 border border-sky-200 text-[11px] font-semibold text-sky-700">
+                        <MapPin className="w-3.5 h-3.5 shrink-0" />
+                        This entry will also appear in the Plot Payments module
+                      </div>
+                    </div>
+                  )}
+
+                  {/* From / To, Category, Account, Branch — generic types + EXPENSE only */}
+                  {!isSpecializedType && (
+                    <>
+                      <EntryRow>
+                        <EntryField label={<FieldLabel icon={ArrowLeftRight} color="bg-orange-100 text-orange-600">From Entity</FieldLabel>}>
+                          <Input value={form.from_entity} onChange={(e) => setForm({ ...form, from_entity: e.target.value.toUpperCase() })} placeholder="GAYATRI ASSOCIATES, IDIB-001884…" className="h-9 text-sm" list="db-from" />
+                          <datalist id="db-from">{autocomplete.fromEntities?.map((f, i) => <option key={i} value={f} />)}</datalist>
+                        </EntryField>
+                        <EntryField label={<FieldLabel icon={User} color="bg-cyan-100 text-cyan-600">To Entity</FieldLabel>}>
+                          <Input value={form.to_entity} onChange={(e) => setForm({ ...form, to_entity: e.target.value.toUpperCase() })} placeholder="B11, A10, A5, B16…" className="h-9 text-sm" list="db-to" />
+                          <datalist id="db-to">{autocomplete.toEntities?.map((t, i) => <option key={i} value={t} />)}</datalist>
+                        </EntryField>
+                      </EntryRow>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <EntryField label={<FieldLabel icon={Tag} color="bg-pink-100 text-pink-600">Category</FieldLabel>}>
+                          <Select value={form.category || '_none'} onValueChange={(v) => setForm({ ...form, category: v === '_none' ? '' : v })}>
+                            <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Select…" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="_none">— None —</SelectItem>
+                              {[...new Set([...CATEGORIES, ...(autocomplete.categories || [])])].sort().map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        </EntryField>
+                        <EntryField label={<FieldLabel icon={Hash} color="bg-slate-100 text-slate-500">Account No</FieldLabel>}>
+                          <Input value={form.account_no} onChange={(e) => setForm({ ...form, account_no: e.target.value.toUpperCase() })} placeholder="CNRB-077582, SBI-858615…" className="h-9 text-sm" list="db-acc" />
+                          <datalist id="db-acc">{autocomplete.accountNos?.map((a, i) => <option key={i} value={a} />)}</datalist>
+                        </EntryField>
+                      </div>
+                      <EntryField label={<FieldLabel icon={MapPin} color="bg-teal-100 text-teal-600">Branch</FieldLabel>}>
+                        <Input value={form.branch} onChange={(e) => setForm({ ...form, branch: e.target.value.toUpperCase() })} placeholder="MAIN, SADAR, CIVIL LINES…" className="h-9 text-sm" list="db-br" />
+                        <datalist id="db-br">{autocomplete.branches?.map((b, i) => <option key={i} value={b} />)}</datalist>
+                      </EntryField>
+                    </>
+                  )}
+
+                  {/* Assign To Admin — universal */}
+                  {(isAdmin || canManage) && approvers.length > 0 && (
+                    <EntryField label={<FieldLabel icon={Users} color="bg-amber-100 text-amber-600">Assign To Admin</FieldLabel>}>
+                      <Select value={form.assigned_admin_id?.toString() || '_none'} onValueChange={(v) => setForm({ ...form, assigned_admin_id: v === '_none' ? null : parseInt(v) })}>
+                        <SelectTrigger className="h-9">
+                          <SelectValue placeholder="Select approver..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="_none">— Auto-assign or no preference —</SelectItem>
+                          {approvers.map((app) => (
+                            <SelectItem key={app.id} value={app.id.toString()}>
+                              {app.full_name || app.name || app.email || `Admin #${app.id}`}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </EntryField>
+                  )}
+
+                  {/* Map to person (create-only, non-specialized) paired with Remarks; else Remarks alone */}
+                  {!editingId && !isSpecializedType ? (
+                    <EntryRow>
+                      <EntryField
+                        label={<FieldLabel icon={Users} color="bg-fuchsia-100 text-fuchsia-600">Map to person</FieldLabel>}
+                        hint="Optional — mirrors this entry into their Personal Ledger"
+                      >
+                        <EntryPersonPicker
+                          siteId={siteId}
+                          value={mappedPerson}
+                          onChange={setMappedPerson}
+                          approvers={personApprovers}
+                          members={personMembers}
+                          onMemberCreated={addPersonMember}
+                        />
+                      </EntryField>
+                      <EntryField label={<FieldLabel icon={MessageSquare} color="bg-slate-100 text-slate-500">Remarks</FieldLabel>}>
+                        <Textarea value={form.remarks} onChange={(e) => setForm({ ...form, remarks: e.target.value.toUpperCase() })} placeholder="ADJUST A19 DG, TRF TO A7, IN BANK…" rows={2} className="text-sm resize-none" />
+                      </EntryField>
+                    </EntryRow>
+                  ) : (
+                    <EntryField label={<FieldLabel icon={MessageSquare} color="bg-slate-100 text-slate-500">Remarks</FieldLabel>}>
+                      <Textarea value={form.remarks} onChange={(e) => setForm({ ...form, remarks: e.target.value.toUpperCase() })} placeholder="ADJUST A19 DG, TRF TO A7, IN BANK…" rows={2} className="text-sm resize-none" />
+                    </EntryField>
                   )}
                 </div>
               </div>
-            )}
 
-            {/* hidden submit keeps Enter-to-submit working; visible button lives in EntryFooter */}
-            <button type="submit" hidden aria-hidden="true" tabIndex={-1} />
-          </form>
-      </EntryDialog>
+              {/* Voucher / camera proof — saved on the entry itself, full width */}
+              <VoucherUpload
+                label="Evidence Photo · Optional"
+                value={form.voucher_url || null}
+                onChange={(url) => setForm((f) => ({ ...f, voucher_url: url || '' }))}
+                onUploadingChange={setVoucherUploading}
+                disabled={submitting}
+              />
+
+              {/* Proof photo for sub-admin edit request - OPTIONAL */}
+              {editingId && !canUpdate && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium">Proof Photo <span className="text-slate-400">(optional)</span></Label>
+                  <div className="flex items-center gap-3">
+                    <label className="cursor-pointer flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 hover:bg-slate-100 transition-colors">
+                      <Camera className="w-4 h-4 text-slate-600" />
+                      <span className="text-xs text-slate-700">{proofPhoto ? proofPhoto.name : 'Upload proof photo (optional)'}</span>
+                      <input type="file" accept="image/*" className="hidden" onChange={handleProofPhotoChange} />
+                    </label>
+                    {proofPreview && (
+                      <img src={proofPreview} alt="Proof" className="w-12 h-12 rounded-lg object-cover border" />
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* hidden submit keeps Enter-to-submit working; visible button lives in the footer below */}
+              <button type="submit" hidden aria-hidden="true" tabIndex={-1} />
+            </form>
+          </div>
+
+          <div className="shrink-0 flex items-center justify-between gap-2.5 border-t border-slate-100 bg-slate-50/60 px-5 py-3 sm:px-6">
+            <p className="hidden sm:block text-[11px] text-slate-400">
+              Enter: next field · Shift+Tab: previous · Esc: close
+            </p>
+            <div className="flex items-center gap-2.5">
+              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} disabled={submitting} className="h-10 rounded-full px-5">
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={() => document.getElementById('daybook-entry-form')?.requestSubmit()}
+                disabled={submitting || voucherUploading}
+                className={cn(
+                  'h-10 rounded-full px-5 text-white',
+                  editingId && !isAdmin ? 'bg-amber-600 hover:bg-amber-700' : 'bg-emerald-600 hover:bg-emerald-700'
+                )}
+              >
+                {submitting ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : null}
+                {submitting
+                  ? (editingId && !isAdmin ? 'Submitting Request…' : editingId ? 'Saving…' : 'Creating…')
+                  : (editingId && !isAdmin ? 'Submit Edit Request' : editingId ? 'Update' : 'Create')}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
