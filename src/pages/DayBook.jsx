@@ -1447,8 +1447,10 @@ const DayBook = () => {
       )}
 
       {/* ─── Ledger Table ─── */}
-      <section className="-mx-4 sm:-mx-6">
-        <div className="flex items-center justify-between border-y border-slate-200 bg-slate-50 px-4 py-2.5 sm:px-6">
+      {/* Bleeds the ledger to the page edge — must negate main's gutter at its
+          own breakpoints, or it overhangs and forces a horizontal scroll. */}
+      <section className="-mx-4 md:-mx-6">
+        <div className="flex items-center justify-between border-y border-slate-200 bg-slate-50 px-4 py-2.5 md:px-6">
           <span className="text-xs font-semibold text-slate-600 uppercase tracking-wider">
             {isRangeStatement ? statementPeriodLabel : fmtDate(selectedDate)} — {isRangeStatement ? 'Consolidated Statement' : 'Cash Working'} {hasFilter && <span className="font-normal normal-case text-slate-400">({filtered.length} of {entries.length} entries)</span>}
           </span>

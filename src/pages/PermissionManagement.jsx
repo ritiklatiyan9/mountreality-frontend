@@ -43,6 +43,8 @@ import {
   UserCog,
   Users,
   Wallet,
+  Gavel,
+  CalendarClock,
 } from 'lucide-react';
 
 const MODULE_CONFIG = [
@@ -66,6 +68,10 @@ const MODULE_CONFIG = [
   { key: 'chat', label: 'Internal Chat', description: 'Team messages and conversations', icon: MessageSquare },
   { key: 'excel', label: 'Native Documents', description: 'Spreadsheet files and editor', icon: Sheet },
   { key: 'reports', label: 'Reports', description: 'Read-only reporting workspace', icon: FileText, accessOnly: true },
+  { key: 'compliance', label: 'Compliance Control', description: 'Compliance register, calendar, licences, inspections, and evidence', icon: CalendarClock, restricted: true },
+  { key: 'legal', label: 'Legal Matters', description: 'Sensitive legal cases, notices, hearings, replies, and exposure', icon: Gavel, restricted: true },
+  { key: 'compliance_templates', label: 'Compliance Templates', description: 'Configure recurring obligations and reusable checklists', icon: ClipboardList, restricted: true },
+  { key: 'compliance_settings', label: 'Compliance Administration', description: 'Authorities, approvals, audit trail, reminders, and workflow settings', icon: ShieldCheck, restricted: true },
   { key: 'finance_forecast', label: 'Finance Forecast', description: 'Predictive cash-flow forecast and diagnostics', icon: TrendingUp, accessOnly: true },
   { key: 'settings', label: 'Settings', description: 'Personal and workspace preferences', icon: Settings, accessOnly: true },
 ];

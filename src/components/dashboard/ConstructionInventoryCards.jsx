@@ -2,25 +2,36 @@ import { createElement } from 'react';
 import { useQuery } from '@apollo/client/react';
 import { useNavigate } from 'react-router-dom';
 import {
-  AlertTriangle, ArrowUpRight, Boxes, HardHat, IndianRupee, PackageOpen,
-  Scale, TrendingUp, Truck,
+  AlertTriangle, ArrowUpRight, Boxes, HardHat, PackageOpen, Truck,
 } from 'lucide-react';
 import { GET_CONSTRUCTION_DASHBOARD, GET_INVENTORY_DASHBOARD } from '../../graphql/queries';
 import { useAuth } from '../../context/AuthContext';
+import { CurrencyValue, ErrorState, SkeletonBlock, StatusPill } from './primitives';
+import { money, moneyCompact } from '@/lib/utils';
 
-const compactINR = new Intl.NumberFormat('en-IN', { notation: 'compact', maximumFractionDigits: 1 });
-const money = (value) => `₹${compactINR.format(Number(value) || 0)}`;
-
-const Signal = ({ icon, tone, label, value, onClick }) => (
-  <button type="button" onClick={onClick} className="group flex w-full items-center gap-3 py-3 text-left">
-    <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${tone}`}>{createElement(icon, { className: 'h-4 w-4' })}</span>
-    <span className="min-w-0 flex-1"><span className="block text-[10px] text-slate-400">{label}</span><span className="mt-0.5 block text-sm font-semibold text-slate-800">{value}</span></span>
-    <ArrowUpRight className="h-3.5 w-3.5 text-slate-300 transition-colors group-hover:text-slate-600" />
+/* One row inside the shared surface — no card, no coloured tile. */
+const Signal = ({ icon, label, value, attention, onClick }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className="group flex w-full items-center gap-3 py-3 text-left transition-colors hover:bg-mr-surface-2/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue"
+  >
+    <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border ${
+      attention ? 'border-mr-coral-ink/15 bg-mr-coral-soft text-mr-coral-ink' : 'border-mr-line text-mr-muted'
+    }`}>
+      {createElement(icon, { className: 'h-4 w-4', strokeWidth: 1.9, 'aria-hidden': 'true' })}
+    </span>
+    <span className="min-w-0 flex-1">
+      <span className="block text-[12px] text-mr-muted">{label}</span>
+      <span className="mt-0.5 block text-[14px] font-medium text-mr-text">{value}</span>
+    </span>
+    <ArrowUpRight className="h-4 w-4 text-mr-faint transition-colors group-hover:text-mr-text" strokeWidth={1.9} aria-hidden="true" />
   </button>
 );
 
-const LoadingLine = () => <div className="h-10 animate-pulse rounded-xl bg-slate-100" />;
-
+/* ── Delivery operations ─────────────────────────────────────────────
+   Construction progress and material readiness in one surface. Both
+   halves keep their own permission gate and their own query. ── */
 export default function ConstructionInventoryCards({ siteId }) {
   const { hasPermission } = useAuth();
   const navigate = useNavigate();
@@ -37,45 +48,116 @@ export default function ConstructionInventoryCards({ siteId }) {
   const budget = Number(construction?.totalBudget) || 0;
   const actual = Number(construction?.totalActualCost) || 0;
   const spent = budget > 0 ? Math.round((actual / budget) * 100) : 0;
+  const overBudget = spent > 100;
 
   return (
-    <section className="overflow-hidden rounded-[28px] border border-slate-200/80 bg-white shadow-sm shadow-slate-900/[0.03]">
-      <header className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-        <div className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-50 text-amber-600"><HardHat className="h-4.5 w-4.5" /></span><div><h2 className="text-sm font-semibold text-slate-950">Delivery operations</h2><p className="text-[10px] text-slate-400">Project execution and material readiness in one board</p></div></div>
-        <span className="hidden rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold text-emerald-700 sm:inline">Live signals</span>
-      </header>
+    <section
+      aria-labelledby="mr-delivery-title"
+      className="overflow-hidden rounded-panel border border-mr-line bg-mr-surface"
+    >
+      <div className="border-b border-mr-line px-5 py-4 sm:px-6">
+        <h2 id="mr-delivery-title" className="text-[15px] font-semibold tracking-[-0.01em] text-mr-text">Delivery operations</h2>
+        <p className="mt-0.5 text-[12px] text-mr-muted">Project execution and material readiness</p>
+      </div>
 
-      <div className={`grid ${canConstruction && canInventory ? 'lg:grid-cols-2' : 'grid-cols-1'} divide-y divide-slate-100 lg:divide-x lg:divide-y-0`}>
+      <div className={`grid ${canConstruction && canInventory ? 'lg:grid-cols-2' : 'grid-cols-1'} divide-y divide-mr-line lg:divide-x lg:divide-y-0`}>
         {canConstruction && (
-          <article className="p-5">
-            <div className="flex items-center justify-between"><div><p className="text-xs font-semibold text-slate-700">Construction delivery</p><p className="mt-0.5 text-[10px] text-slate-400">Average progress across active work</p></div><button type="button" onClick={() => navigate('/construction')} className="text-[10px] font-semibold text-blue-600 hover:text-blue-700">Open projects</button></div>
-            {constructionQuery.loading ? <div className="mt-5 space-y-3"><LoadingLine /><LoadingLine /><LoadingLine /></div> : constructionQuery.error ? <p className="py-12 text-center text-xs text-red-500">Construction signals could not be loaded.</p> : (
-              <div className="mt-5 grid gap-5 sm:grid-cols-[150px_minmax(0,1fr)]">
-                <button type="button" onClick={() => navigate('/construction')} className="relative mx-auto h-36 w-36">
-                  <svg viewBox="0 0 42 42" className="h-full w-full -rotate-90" aria-hidden="true"><circle cx="21" cy="21" r="15.9" fill="none" stroke="#f1f5f9" strokeWidth="3" /><circle cx="21" cy="21" r="15.9" fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round" pathLength="100" strokeDasharray={`${progress} ${100 - progress}`} /></svg>
-                  <span className="absolute inset-0 flex flex-col items-center justify-center"><TrendingUp className="h-4 w-4 text-emerald-500" /><span className="mt-1 text-2xl font-bold tracking-tight text-slate-950">{progress}%</span><span className="text-[9px] text-slate-400">work complete</span></span>
-                </button>
-                <div className="divide-y divide-slate-100">
-                  <Signal icon={HardHat} tone="bg-emerald-50 text-emerald-600" label="Active projects" value={construction?.activeProjects ?? 0} onClick={() => navigate('/construction?status=ACTIVE')} />
-                  <Signal icon={AlertTriangle} tone="bg-rose-50 text-rose-600" label="Delayed projects" value={construction?.delayedProjects ?? 0} onClick={() => navigate('/construction?status=DELAYED')} />
-                  <Signal icon={PackageOpen} tone="bg-amber-50 text-amber-600" label="Pending material requests" value={construction?.pendingMaterialRequests ?? 0} onClick={() => navigate('/construction')} />
-                </div>
+          <article className="p-5 sm:p-6">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-[13px] font-semibold text-mr-text">Construction delivery</h3>
+                <p className="mt-0.5 text-[12px] text-mr-muted">Average progress across active work</p>
               </div>
+              <button type="button" onClick={() => navigate('/construction')} className="rounded-full px-2 py-1 text-[12px] font-semibold text-mr-blue transition-colors hover:bg-mr-blue-soft">
+                Open projects
+              </button>
+            </div>
+
+            {constructionQuery.loading ? (
+              <div className="mt-5 space-y-3">
+                {[0, 1, 2].map((i) => <SkeletonBlock key={i} className="h-11 w-full" />)}
+              </div>
+            ) : constructionQuery.error ? (
+              <ErrorState title="Construction signals could not be loaded" onRetry={() => constructionQuery.refetch()} />
+            ) : (
+              <>
+                <div className="mt-5 grid gap-5 sm:grid-cols-[128px_minmax(0,1fr)]">
+                  <button
+                    type="button"
+                    onClick={() => navigate('/construction')}
+                    className="relative mx-auto h-32 w-32 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue"
+                    aria-label={`${progress}% of active construction work complete`}
+                  >
+                    <svg viewBox="0 0 42 42" className="h-full w-full -rotate-90" aria-hidden="true">
+                      <circle cx="21" cy="21" r="15.9" fill="none" stroke="rgba(16,17,20,0.08)" strokeWidth="2.4" />
+                      <circle cx="21" cy="21" r="15.9" fill="none" stroke="#101114" strokeWidth="2.4" strokeLinecap="round" pathLength="100" strokeDasharray={`${progress} ${100 - progress}`} />
+                    </svg>
+                    <span className="absolute inset-0 flex flex-col items-center justify-center">
+                      <span className="text-[26px] font-semibold tracking-[-0.04em] text-mr-text">{progress}%</span>
+                      <span className="text-[12px] text-mr-faint">complete</span>
+                    </span>
+                  </button>
+                  <div className="divide-y divide-mr-line">
+                    <Signal icon={HardHat} label="Active projects" value={construction?.activeProjects ?? 0} onClick={() => navigate('/construction?status=ACTIVE')} />
+                    <Signal icon={AlertTriangle} label="Delayed projects" value={construction?.delayedProjects ?? 0} attention={(construction?.delayedProjects ?? 0) > 0} onClick={() => navigate('/construction?status=DELAYED')} />
+                    <Signal icon={PackageOpen} label="Pending material requests" value={construction?.pendingMaterialRequests ?? 0} onClick={() => navigate('/construction')} />
+                  </div>
+                </div>
+
+                <div className="mt-5 border-t border-mr-line pt-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-[12px]">
+                    <span className="text-mr-muted">Budget consumption</span>
+                    <span className="flex items-center gap-2">
+                      <span className="font-medium text-mr-text" title={`${money(actual)} of ${money(budget)}`}>
+                        {moneyCompact(actual)} of {moneyCompact(budget)}
+                      </span>
+                      {overBudget && <StatusPill tone="negative">Over budget · {spent}%</StatusPill>}
+                    </span>
+                  </div>
+                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-mr-surface-2">
+                    <div
+                      className={`h-full rounded-full transition-[width] duration-500 ${overBudget ? 'bg-mr-coral' : 'bg-mr-ink'}`}
+                      style={{ width: `${Math.min(spent, 100)}%` }}
+                    />
+                  </div>
+                </div>
+              </>
             )}
-            {!constructionQuery.loading && !constructionQuery.error && <div className="mt-5 border-t border-slate-100 pt-4"><div className="flex items-center justify-between text-[10px]"><span className="inline-flex items-center gap-1 text-slate-500"><Scale className="h-3.5 w-3.5" /> Budget consumption</span><span className={`font-semibold ${spent > 100 ? 'text-rose-600' : 'text-slate-700'}`}>{money(actual)} of {money(budget)}{spent > 100 ? ` · ${spent}%` : ''}</span></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100"><div className={`h-full rounded-full ${spent > 100 ? 'bg-rose-500' : 'bg-blue-500'}`} style={{ width: `${Math.min(spent, 100)}%` }} /></div></div>}
           </article>
         )}
 
         {canInventory && (
-          <article className="p-5">
-            <div className="flex items-center justify-between"><div><p className="text-xs font-semibold text-slate-700">Inventory readiness</p><p className="mt-0.5 text-[10px] text-slate-400">Stock value, risk and incoming supply</p></div><button type="button" onClick={() => navigate('/inventory')} className="text-[10px] font-semibold text-blue-600 hover:text-blue-700">Open inventory</button></div>
-            {inventoryQuery.loading ? <div className="mt-5 space-y-3"><LoadingLine /><LoadingLine /><LoadingLine /></div> : inventoryQuery.error ? <p className="py-12 text-center text-xs text-red-500">Inventory signals could not be loaded.</p> : (
+          <article className="p-5 sm:p-6">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-[13px] font-semibold text-mr-text">Inventory readiness</h3>
+                <p className="mt-0.5 text-[12px] text-mr-muted">Stock value, risk and incoming supply</p>
+              </div>
+              <button type="button" onClick={() => navigate('/inventory')} className="rounded-full px-2 py-1 text-[12px] font-semibold text-mr-blue transition-colors hover:bg-mr-blue-soft">
+                Open inventory
+              </button>
+            </div>
+
+            {inventoryQuery.loading ? (
+              <div className="mt-5 space-y-3">
+                {[0, 1, 2].map((i) => <SkeletonBlock key={i} className="h-11 w-full" />)}
+              </div>
+            ) : inventoryQuery.error ? (
+              <ErrorState title="Inventory signals could not be loaded" onRetry={() => inventoryQuery.refetch()} />
+            ) : (
               <>
-                <button type="button" onClick={() => navigate('/inventory')} className="mt-5 flex w-full items-end justify-between border-b border-slate-100 pb-5 text-left"><span><span className="block text-[10px] text-slate-400">Current inventory value</span><span className="mt-1 block text-3xl font-bold tracking-[-0.04em] text-slate-950">{money(inventory?.totalValue)}</span></span><span className="flex h-12 w-12 items-center justify-center rounded-full bg-indigo-50 text-indigo-600"><IndianRupee className="h-5 w-5" /></span></button>
-                <div className="divide-y divide-slate-100">
-                  <Signal icon={AlertTriangle} tone="bg-rose-50 text-rose-600" label="Low-stock materials" value={`${inventory?.lowStockCount ?? 0} need attention`} onClick={() => navigate('/inventory?low=1')} />
-                  <Signal icon={Truck} tone="bg-indigo-50 text-indigo-600" label="Pending vendor deliveries" value={`${inventory?.pendingVendorDeliveries ?? 0} expected`} onClick={() => navigate('/vendors/inventory')} />
-                  <Signal icon={Boxes} tone="bg-cyan-50 text-cyan-600" label="Stock control" value="Review material ledger" onClick={() => navigate('/inventory')} />
+                <button
+                  type="button"
+                  onClick={() => navigate('/inventory')}
+                  className="mt-5 w-full border-b border-mr-line pb-5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue"
+                >
+                  <span className="block text-[12px] text-mr-muted">Current inventory value</span>
+                  <CurrencyValue value={inventory?.totalValue} size="lg" className="mt-1" compactAbove={1e5} />
+                </button>
+                <div className="divide-y divide-mr-line">
+                  <Signal icon={AlertTriangle} label="Low-stock materials" value={`${inventory?.lowStockCount ?? 0} need attention`} attention={(inventory?.lowStockCount ?? 0) > 0} onClick={() => navigate('/inventory?low=1')} />
+                  <Signal icon={Truck} label="Pending vendor deliveries" value={`${inventory?.pendingVendorDeliveries ?? 0} expected`} onClick={() => navigate('/vendors/inventory')} />
+                  <Signal icon={Boxes} label="Stock control" value="Review material ledger" onClick={() => navigate('/inventory')} />
                 </div>
               </>
             )}

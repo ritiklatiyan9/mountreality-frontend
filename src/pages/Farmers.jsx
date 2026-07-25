@@ -1,4 +1,9 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { money, moneyCompact } from '@/lib/utils';
+
+/* Farmer status → semantic pill tone, shared by the table and the mobile list. */
+const STATUS_TONE = { active: 'positive', completed: 'info', inactive: 'neutral' };
+import { CurrencyValue, EmptyState, SkeletonBlock, StatusPill } from '../components/dashboard/primitives';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/api';
@@ -41,7 +46,7 @@ import {
   Tractor, Plus, Edit2, Trash2, AlertCircle, Check,
   Search, Eye, IndianRupee, Phone, MapPin, Loader2,
   Camera, Clock, Send, Users, Banknote, Building2, ArrowUpDown,
-  ChevronsUpDown, X, Calculator,
+  ChevronsUpDown, X, Calculator, Landmark, CheckCircle2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useRowSelection } from '../hooks/useRowSelection';
@@ -454,15 +459,6 @@ const Farmers = () => {
 
   const visibleFarmerIds = useMemo(() => filteredFarmers.map((f) => f.id), [filteredFarmers]);
 
-  const statusBadge = (status) => {
-    const map = {
-      active: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-      completed: 'bg-blue-50 text-blue-700 border-blue-200',
-      inactive: 'bg-slate-50 text-slate-500 border-slate-200',
-    };
-    return map[status] || '';
-  };
-
   const formatCurrency = (val) => {
     const num = parseFloat(val) || 0;
     return num.toLocaleString('en-IN', { maximumFractionDigits: 2 });
@@ -476,12 +472,16 @@ const Farmers = () => {
   // Cash vs bank flow. cash_paid + bank_paid = total_paid (reconciles).
   const totalCashPaid = farmers.reduce((s, f) => s + (parseFloat(f.cash_paid) || 0), 0);
   const totalBankPaid = farmers.reduce((s, f) => s + (parseFloat(f.bank_paid) || 0), 0);
+  const settledPct = totalAmount > 0 ? Math.min(100, Math.round((totalPaid / totalAmount) * 100)) : 0;
 
   if (!currentSite) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 text-center">
-        <Tractor className="w-10 h-10 text-slate-200 mb-3" />
-        <p className="text-sm text-slate-500">Select a site to manage farmers</p>
+      <div className="rounded-panel border border-mr-line bg-mr-surface">
+        <EmptyState
+          icon={Tractor}
+          title="Select a site to manage farmers"
+          description="Farmer payments are recorded per site. Pick one from the site switcher to continue."
+        />
       </div>
     );
   }
@@ -489,13 +489,17 @@ const Farmers = () => {
   return (
     <div className="w-full space-y-6 print:space-y-0 print:max-w-full print:m-0">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 print:hidden">
-        <div>
-          <h1 className="text-xl font-semibold text-slate-900">Farmer Payments</h1>
-          <p className="text-sm text-slate-500 mt-0.5">Manage farmer land payments &amp; installments</p>
+      <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center print:hidden">
+        <div className="min-w-0">
+          <h1 className="text-[clamp(1.5rem,2.6vw,2rem)] font-semibold leading-tight tracking-[-0.03em] text-mr-text">
+            Farmer payments
+          </h1>
+          <p className="mt-1 text-[13px] text-mr-muted">
+            Land payments and installments{currentSite?.name ? ` · ${currentSite.name}` : ''}
+          </p>
         </div>
         {(canManage || selection.count > 0) && (
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex flex-wrap items-center gap-2">
             <BulkActionsBar
               count={selection.count}
               onClear={selection.clear}
@@ -509,8 +513,11 @@ const Farmers = () => {
               deleting={bulkDeleting}
             />
             {canManage && (
-              <Button size="sm" onClick={handleOpenCreate}>
-                <Plus className="w-4 h-4 mr-1.5" /> Register Farmer
+              <Button
+                onClick={handleOpenCreate}
+                className="h-10 rounded-full bg-mr-ink px-4 text-[13px] font-semibold text-white hover:bg-mr-ink-2"
+              >
+                <Plus className="mr-1.5 h-4 w-4" strokeWidth={2} /> Register farmer
               </Button>
             )}
           </div>
@@ -884,251 +891,345 @@ const Farmers = () => {
           </Dialog>
       </div>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-4 gap-4 print:hidden">
-        <Card className="shadow-none border-slate-200">
-          <CardContent className="p-4">
-            <p className="text-[11px] uppercase tracking-wider text-slate-400 font-medium">Total Farmers</p>
-            <p className="text-2xl font-semibold text-slate-900 mt-1">{totalFarmers}</p>
-          </CardContent>
-        </Card>
-        <Card className="shadow-none border-slate-200">
-          <CardContent className="p-4">
-            <p className="text-[11px] uppercase tracking-wider text-slate-400 font-medium">Total Amount</p>
-            <p className="text-2xl font-semibold text-slate-900 mt-1">₹{formatCurrency(totalAmount)}</p>
-          </CardContent>
-        </Card>
-        <Card className="shadow-none border-slate-200">
-          <CardContent className="p-4">
-            <p className="text-[11px] uppercase tracking-wider text-slate-400 font-medium">Total Paid</p>
-            <p className="text-2xl font-semibold text-emerald-600 mt-1">₹{formatCurrency(totalPaid)}</p>
-          </CardContent>
-        </Card>
-        <Card className="shadow-none border-slate-200">
-          <CardContent className="p-4">
-            <p className="text-[11px] uppercase tracking-wider text-slate-400 font-medium">Remaining</p>
-            <p className="text-2xl font-semibold text-amber-600 mt-1">₹{formatCurrency(totalRemaining)}</p>
-          </CardContent>
-        </Card>
-      </div>
+      {/* ── Payment position — one connected surface, not six cards ── */}
+      <section
+        aria-labelledby="mr-farmers-summary"
+        className="grid overflow-hidden rounded-panel border border-mr-line bg-mr-surface print:hidden lg:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)]"
+      >
+        {/* Dominant: what is still owed */}
+        <div
+          className="relative flex flex-col justify-between gap-5 border-b border-mr-line p-6 sm:p-7 lg:border-b-0 lg:border-r"
+          style={{
+            background: totalRemaining > 0
+              ? 'radial-gradient(115% 85% at 0% 100%, rgba(255,176,46,.28) 0%, rgba(255,255,255,0) 68%)'
+              : 'radial-gradient(115% 85% at 0% 100%, rgba(185,255,69,.40) 0%, rgba(255,255,255,0) 68%)',
+          }}
+        >
+          <div className="relative">
+            <h2 id="mr-farmers-summary" className="text-[12px] font-medium text-mr-muted">Outstanding to farmers</h2>
+            <CurrencyValue
+              value={totalRemaining}
+              size="xl"
+              tone={totalRemaining > 0 ? 'default' : 'positive'}
+              className="mt-2"
+            />
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <StatusPill tone={totalRemaining > 0 ? 'attention' : 'positive'}>
+                {totalRemaining > 0 ? 'Payments pending' : 'Fully settled'}
+              </StatusPill>
+              <StatusPill>{totalFarmers} farmer{totalFarmers === 1 ? '' : 's'}</StatusPill>
+            </div>
+          </div>
 
-      {/* Payment Flow — Cash vs Bank. Cash + Bank always equals Total Paid;
-          rendered as two bigger cards with the same visual language as the
-          Day Book Cash/Bank flow cards so users transfer intuition. */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 print:hidden">
-        <div className="relative overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50 via-green-50 to-teal-50 p-4">
-          <svg className="absolute -bottom-3 -right-3 w-28 h-28 text-emerald-100 opacity-60" viewBox="0 0 100 100" fill="currentColor">
-            <path d="M100 100C100 44.8 55.2 0 0 0v20c33.1 0 60 26.9 60 60h20z" />
-            <path d="M100 100C100 66.9 73.1 40 40 40v20c22.1 0 40 17.9 40 40h20z" opacity="0.5" />
-          </svg>
-          <div className="relative flex items-start justify-between">
-            <div className="min-w-0">
-              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Cash Paid to Farmers</p>
-              <p className="text-2xl font-extrabold text-emerald-700 mt-1.5 tabular-nums leading-none truncate">
-                ₹{formatCurrency(totalCashPaid)}
-              </p>
-              <p className="text-[11px] text-slate-500 mt-1.5">
-                {totalPaid > 0 ? `${Math.round((totalCashPaid / totalPaid) * 100)}% of total paid` : 'No payments yet'}
-                {' · '}Mode: CASH + SPLIT cash leg
-              </p>
+          {/* Settlement progress — real paid ÷ committed, no invented trend */}
+          <div className="relative">
+            <div className="flex items-baseline justify-between gap-3 text-[12px]">
+              <span className="text-mr-muted">Settled so far</span>
+              <span className="font-semibold text-mr-text" title={`${money(totalPaid)} of ${money(totalAmount)}`}>
+                {moneyCompact(totalPaid)} of {moneyCompact(totalAmount)}
+              </span>
             </div>
-            <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center shrink-0 text-emerald-600">
-              <Banknote className="w-5 h-5" />
+            <div
+              className="mt-2 h-2 overflow-hidden rounded-full bg-mr-surface-2"
+              role="img"
+              aria-label={`${settledPct}% of committed farmer payments settled`}
+            >
+              <div
+                className="h-full rounded-full bg-mr-lime-ink transition-[width] duration-500"
+                style={{ width: `${settledPct}%` }}
+              />
             </div>
+            <p className="mt-1.5 text-[12px] text-mr-faint">{settledPct}% of committed amount paid</p>
           </div>
         </div>
 
-        <div className="relative overflow-hidden rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50 via-blue-50 to-sky-50 p-4">
-          <svg className="absolute -bottom-3 -right-3 w-28 h-28 text-indigo-100 opacity-60" viewBox="0 0 100 100" fill="currentColor">
-            <path d="M100 100C100 44.8 55.2 0 0 0v20c33.1 0 60 26.9 60 60h20z" />
-            <path d="M100 100C100 66.9 73.1 40 40 40v20c22.1 0 40 17.9 40 40h20z" opacity="0.5" />
-          </svg>
-          <div className="relative flex items-start justify-between">
-            <div className="min-w-0">
-              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Bank Paid to Farmers</p>
-              <p className="text-2xl font-extrabold text-indigo-700 mt-1.5 tabular-nums leading-none truncate">
-                ₹{formatCurrency(totalBankPaid)}
-              </p>
-              <p className="text-[11px] text-slate-500 mt-1.5">
-                {totalPaid > 0 ? `${Math.round((totalBankPaid / totalPaid) * 100)}% of total paid` : 'No payments yet'}
-                {' · '}RTGS / NEFT / IMPS / UPI / Cheque / Bank
-              </p>
+        {/* Supporting figures — hairline separated, no floating boxes */}
+        <div className="-mb-px -mr-px grid sm:grid-cols-2 [&>*]:border-b [&>*]:border-r [&>*]:border-mr-line">
+          {[
+            { label: 'Total committed', value: totalAmount, hint: 'Agreed land payment value', accent: 'bg-mr-blue-soft text-mr-blue', icon: Landmark },
+            { label: 'Total paid', value: totalPaid, hint: `${totalFarmers} farmer${totalFarmers === 1 ? '' : 's'}`, accent: 'bg-mr-lime-soft text-mr-lime-ink', icon: CheckCircle2, tone: 'positive' },
+            { label: 'Paid in cash', value: totalCashPaid, hint: totalPaid > 0 ? `${Math.round((totalCashPaid / totalPaid) * 100)}% of paid · cash + split leg` : 'No payments yet', accent: 'bg-mr-aqua-soft text-mr-aqua-ink', icon: Banknote },
+            { label: 'Paid via bank', value: totalBankPaid, hint: totalPaid > 0 ? `${Math.round((totalBankPaid / totalPaid) * 100)}% of paid · NEFT, UPI, cheque` : 'No payments yet', accent: 'bg-mr-blue-soft text-mr-blue', icon: Building2 },
+          ].map((metric) => (
+            <div key={metric.label} className="flex flex-col gap-1.5 px-5 py-5">
+              <span className="flex items-center gap-2.5 text-[12px] font-medium text-mr-muted">
+                <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${metric.accent}`}>
+                  <metric.icon className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
+                </span>
+                {metric.label}
+              </span>
+              <CurrencyValue value={metric.value} size="lg" tone={metric.tone} />
+              <span className="text-[12px] text-mr-faint">{metric.hint}</span>
             </div>
-            <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center shrink-0 text-indigo-600">
-              <Building2 className="w-5 h-5" />
-            </div>
-          </div>
+          ))}
         </div>
-      </div>
+      </section>
 
-      {/* Filters */}
-      <div className="flex items-center gap-3 print:hidden">
-        <div className="relative flex-1 max-w-xs">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+      {/* ── Filters ── */}
+      <div className="flex flex-wrap items-center gap-3 print:hidden">
+        <div className="relative min-w-0 flex-1 sm:max-w-xs">
+          <label htmlFor="mr-farmer-search" className="sr-only">Search farmers</label>
+          <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-mr-faint" strokeWidth={1.9} aria-hidden="true" />
           <Input
-            placeholder="Search farmers..."
+            id="mr-farmer-search"
+            placeholder="Search name, phone or address…"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-9 h-9"
+            className="h-10 rounded-full border-mr-line bg-mr-surface-2 pl-10 text-[13px] focus-visible:border-mr-blue focus-visible:bg-mr-surface focus-visible:ring-2 focus-visible:ring-mr-blue/25"
           />
         </div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-36 h-9"><SelectValue placeholder="Status" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All</SelectItem>
-            <SelectItem value="active">Active</SelectItem>
-            <SelectItem value="completed">Completed</SelectItem>
-            <SelectItem value="inactive">Inactive</SelectItem>
-          </SelectContent>
-        </Select>
-        <span className="text-xs text-slate-400 ml-auto">{filteredFarmers.length} farmer{filteredFarmers.length !== 1 ? 's' : ''}</span>
+
+        {/* Status becomes a segmented pill — same control as the dashboard period filter */}
+        <div role="radiogroup" aria-label="Filter by status" className="mr-rail flex items-center gap-0.5 overflow-x-auto rounded-full border border-mr-line bg-mr-surface-2 p-1">
+          {[
+            { key: 'all', label: 'All' },
+            { key: 'active', label: 'Active' },
+            { key: 'completed', label: 'Completed' },
+            { key: 'inactive', label: 'Inactive' },
+          ].map((option) => (
+            <button
+              key={option.key}
+              type="button"
+              role="radio"
+              aria-checked={statusFilter === option.key}
+              onClick={() => setStatusFilter(option.key)}
+              className={`whitespace-nowrap rounded-full px-3 py-1.5 text-[12px] font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue focus-visible:ring-offset-1 ${
+                statusFilter === option.key ? 'bg-mr-ink text-white' : 'text-mr-muted hover:text-mr-text'
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setSortOrder((prev) => (prev === 'desc' ? 'asc' : 'desc'))}
+          className="inline-flex h-10 items-center gap-1.5 rounded-full border border-mr-line px-3.5 text-[12px] font-medium text-mr-muted transition-colors hover:bg-mr-surface-2 hover:text-mr-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue"
+        >
+          <ArrowUpDown className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden="true" />
+          {sortOrder === 'desc' ? 'Newest first' : 'Oldest first'}
+        </button>
+
+        <span className="ml-auto text-[12px] text-mr-muted">
+          {filteredFarmers.length} farmer{filteredFarmers.length === 1 ? '' : 's'}
+        </span>
       </div>
 
-      {/* Table */}
-      <Card className="shadow-none border-slate-200 print:shadow-none print:border-0 print:rounded-none print:w-screen print:-mx-3 print:md:-mx-6">
-        <CardContent className="p-0 print:p-0 print:overflow-x-auto">
-          {loading ? (
-            <div className="flex items-center justify-center py-16">
-              <div className="w-5 h-5 border-2 border-slate-200 border-t-slate-600 rounded-full animate-spin" />
-            </div>
-          ) : filteredFarmers.length === 0 ? (
-            <div className="text-center py-16">
-              <Tractor className="w-8 h-8 text-slate-200 mx-auto mb-2" />
-              <p className="text-sm text-slate-500">No farmers found</p>
-              <p className="text-xs text-slate-400 mt-0.5">Register your first farmer to get started</p>
-            </div>
-          ) : (
-            <Table className="print:w-full print:border-collapse">
-              <TableHeader>
-                <TableRow className="hover:bg-transparent print:border-b-2 print:border-slate-800">
-                  <TableHead className="text-xs w-8 print:hidden">
-                    <Checkbox
-                      checked={
-                        selection.isAllSelected(visibleFarmerIds)
-                          ? true
-                          : (selection.count > 0 && visibleFarmerIds.some((id) => selection.isSelected(id)))
-                            ? 'indeterminate'
-                            : false
-                      }
-                      onCheckedChange={() => selection.toggleAll(visibleFarmerIds)}
-                      aria-label="Select all"
-                    />
-                  </TableHead>
-                  <TableHead className="text-xs print:text-xs print:font-bold print:py-2">
-                    <Button variant="ghost" size="sm" onClick={() => setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc')} className="h-6 px-1 text-xs font-semibold -ml-1 print:bg-transparent print:p-0 print:hover:bg-transparent">
-                      Farmer <ArrowUpDown className="w-3 h-3 ml-1 print:hidden" />
-                    </Button>
-                  </TableHead>
-                  <TableHead className="text-xs print:text-xs print:font-bold print:py-2">Total Amount</TableHead>
-                  <TableHead className="text-xs print:text-xs print:font-bold print:py-2">Paid</TableHead>
-                  <TableHead className="text-xs print:text-xs print:font-bold print:py-2">Remaining</TableHead>
-                  <TableHead className="text-xs print:hidden">Payments</TableHead>
-                  <TableHead className="text-xs print:text-xs print:font-bold print:py-2">Status</TableHead>
-                  <TableHead className="text-xs text-right print:hidden">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredFarmers.map((farmer) => {
-                  const paid = parseFloat(farmer.total_paid) || 0;
-                  const total = parseFloat(farmer.total_amount) || 0;
-                  const remaining = total - paid;
-                  const progressPct = total > 0 ? Math.min((paid / total) * 100, 100) : 0;
+      {/* ── Farmer list ── */}
+      <section className="overflow-hidden rounded-panel border border-mr-line bg-mr-surface print:rounded-none print:border-0">
+        {loading ? (
+          <div className="space-y-3 p-5 sm:p-6">
+            {[0, 1, 2, 3, 4].map((i) => <SkeletonBlock key={i} className="h-14 w-full" />)}
+          </div>
+        ) : filteredFarmers.length === 0 ? (
+          <EmptyState
+            icon={Tractor}
+            title={searchQuery || statusFilter !== 'all' ? 'No farmers match this filter' : 'No farmers yet'}
+            description={searchQuery || statusFilter !== 'all'
+              ? 'Try a different search term or clear the status filter.'
+              : 'Register your first farmer to start tracking land payments.'}
+            action={canManage && !searchQuery && statusFilter === 'all' ? (
+              <Button
+                onClick={handleOpenCreate}
+                className="mt-1 h-10 rounded-full bg-mr-ink px-4 text-[13px] font-semibold text-white hover:bg-mr-ink-2"
+              >
+                <Plus className="mr-1.5 h-4 w-4" strokeWidth={2} /> Register farmer
+              </Button>
+            ) : null}
+          />
+        ) : (
+          <>
+            {/* Desktop table */}
+            <div className="hidden overflow-x-auto md:block print:block">
+              <Table className="print:w-full print:border-collapse">
+                <TableHeader>
+                  <TableRow className="border-mr-line hover:bg-transparent print:border-b-2 print:border-slate-800">
+                    <TableHead className="w-8 bg-mr-surface-2/70 print:hidden">
+                      <Checkbox
+                        checked={
+                          selection.isAllSelected(visibleFarmerIds)
+                            ? true
+                            : (selection.count > 0 && visibleFarmerIds.some((id) => selection.isSelected(id)))
+                              ? 'indeterminate'
+                              : false
+                        }
+                        onCheckedChange={() => selection.toggleAll(visibleFarmerIds)}
+                        aria-label="Select all farmers"
+                      />
+                    </TableHead>
+                    <TableHead className="bg-mr-surface-2/70 text-[12px] font-medium text-mr-muted print:bg-transparent print:font-bold">Farmer</TableHead>
+                    <TableHead className="bg-mr-surface-2/70 text-right text-[12px] font-medium text-mr-muted print:bg-transparent print:font-bold">Committed</TableHead>
+                    <TableHead className="bg-mr-surface-2/70 text-right text-[12px] font-medium text-mr-muted print:bg-transparent print:font-bold">Paid</TableHead>
+                    <TableHead className="bg-mr-surface-2/70 text-right text-[12px] font-medium text-mr-muted print:bg-transparent print:font-bold">Remaining</TableHead>
+                    <TableHead className="bg-mr-surface-2/70 text-[12px] font-medium text-mr-muted print:hidden">Progress</TableHead>
+                    <TableHead className="bg-mr-surface-2/70 text-[12px] font-medium text-mr-muted print:bg-transparent print:font-bold">Status</TableHead>
+                    <TableHead className="bg-mr-surface-2/70 text-right text-[12px] font-medium text-mr-muted print:hidden">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredFarmers.map((farmer) => {
+                    const paid = parseFloat(farmer.total_paid) || 0;
+                    const total = parseFloat(farmer.total_amount) || 0;
+                    const remaining = total - paid;
+                    const progressPct = total > 0 ? Math.min((paid / total) * 100, 100) : 0;
 
-                  return (
-                    <TableRow
-                      key={farmer.id}
-                      className="cursor-pointer hover:bg-slate-50/80 print:border-b print:border-slate-300 print:hover:bg-transparent"
-                      onClick={() => navigate(`/farmers/${farmer.id}`)}
-                    >
-                      <TableCell onClick={(e) => e.stopPropagation()} className="print:hidden">
-                        <Checkbox
-                          checked={selection.isSelected(farmer.id)}
-                          onCheckedChange={() => selection.toggle(farmer.id)}
-                          aria-label={`Select ${farmer.name}`}
-                        />
-                      </TableCell>
-                      <TableCell className="print:py-1.5 print:text-xs">
-                        <div>
-                          <p className="text-sm font-medium text-slate-800 print:text-xs print:font-semibold">{farmer.name}</p>
-                          <div className="flex items-center gap-2 mt-0.5 print:hidden">
-                            {farmer.phone && (
-                              <span className="text-[11px] text-slate-400 flex items-center gap-0.5">
-                                <Phone className="w-3 h-3" /> {farmer.phone}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell className="print:py-1.5 print:text-xs print:text-right print:font-semibold">
-                        <span className="text-sm font-medium text-slate-700 print:text-xs">₹{formatCurrency(total)}</span>
-                      </TableCell>
-                      <TableCell className="print:py-1.5 print:text-xs print:text-right">
-                        <div>
-                          <span className="text-sm text-emerald-600 print:text-xs print:font-semibold">₹{formatCurrency(paid)}</span>
-                          <div className="w-20 h-1.5 bg-slate-100 rounded-full mt-1 print:hidden">
-                            <div
-                              className="h-full bg-emerald-500 rounded-full transition-all"
-                              style={{ width: `${progressPct}%` }}
-                            />
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell className="print:py-1.5 print:text-xs print:text-right">
-                        <span className={`text-sm font-medium ${remaining > 0 ? 'text-amber-600' : 'text-emerald-600'} print:text-xs`}>
-                          ₹{formatCurrency(remaining)}
-                        </span>
-                      </TableCell>
-                      <TableCell className="print:hidden">
-                        <Badge variant="outline" className="text-[10px]">
-                          {farmer.payment_count || 0} installment{farmer.payment_count != 1 ? 's' : ''}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="print:py-1.5 print:text-xs">
-                        <Badge variant="outline" className={`text-[10px] capitalize ${statusBadge(farmer.status)} print:bg-transparent print:border-slate-300`}>
-                          {farmer.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right print:hidden">
-                        <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => navigate(`/farmers/${farmer.id}`)}
-                            className="h-7 w-7 p-0 text-slate-400 hover:text-blue-600"
-                            title="View Payments"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleOpenEdit(farmer)}
-                            className={`h-7 w-7 p-0 ${canManage ? 'text-slate-400 hover:text-slate-700' : 'text-amber-400 hover:text-amber-600'}`}
-                            title={canManage ? 'Edit' : 'Request Edit'}
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </Button>
-                          {canManage && (
+                    return (
+                      <TableRow
+                        key={farmer.id}
+                        className="cursor-pointer border-mr-line transition-colors duration-150 hover:bg-mr-surface-2/70 print:hover:bg-transparent"
+                        onClick={() => navigate(`/farmers/${farmer.id}`)}
+                      >
+                        <TableCell onClick={(e) => e.stopPropagation()} className="print:hidden">
+                          <Checkbox
+                            checked={selection.isSelected(farmer.id)}
+                            onCheckedChange={() => selection.toggle(farmer.id)}
+                            aria-label={`Select ${farmer.name}`}
+                          />
+                        </TableCell>
+                        <TableCell className="print:py-1.5">
+                          <span className="flex items-center gap-2.5">
+                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-mr-lime-soft text-[13px] font-semibold text-mr-lime-ink print:hidden">
+                              {farmer.name?.charAt(0)?.toUpperCase() || 'F'}
+                            </span>
+                            <span className="min-w-0">
+                              <span className="block truncate text-[13px] font-medium text-mr-text">{farmer.name}</span>
+                              {farmer.phone && (
+                                <span className="mt-0.5 flex items-center gap-1 text-[12px] text-mr-faint print:hidden">
+                                  <Phone className="h-3 w-3" strokeWidth={1.9} aria-hidden="true" /> {farmer.phone}
+                                </span>
+                              )}
+                            </span>
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right text-[13px] font-medium tabular-nums text-mr-text print:py-1.5">
+                          {money(total)}
+                        </TableCell>
+                        <TableCell className="text-right text-[13px] font-semibold tabular-nums text-mr-lime-ink print:py-1.5">
+                          {money(paid)}
+                        </TableCell>
+                        <TableCell className={`text-right text-[13px] font-semibold tabular-nums print:py-1.5 ${remaining > 0 ? 'text-mr-amber-ink' : 'text-mr-lime-ink'}`}>
+                          {money(remaining)}
+                        </TableCell>
+                        <TableCell className="print:hidden">
+                          <span className="flex items-center gap-2">
+                            <span
+                              className="h-1.5 w-20 overflow-hidden rounded-full bg-mr-surface-2"
+                              role="img"
+                              aria-label={`${Math.round(progressPct)}% paid`}
+                            >
+                              <span className="block h-full rounded-full bg-mr-lime-ink" style={{ width: `${progressPct}%` }} />
+                            </span>
+                            <span className="text-[12px] tabular-nums text-mr-faint">{Math.round(progressPct)}%</span>
+                          </span>
+                        </TableCell>
+                        <TableCell className="print:py-1.5">
+                          <StatusPill tone={STATUS_TONE[farmer.status] || 'neutral'} className="capitalize">
+                            {farmer.status}
+                          </StatusPill>
+                        </TableCell>
+                        <TableCell className="text-right print:hidden">
+                          <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => handleDelete(farmer.id)}
-                              className="h-7 w-7 p-0 text-slate-400 hover:text-red-600"
-                              title="Delete"
+                              onClick={() => navigate(`/farmers/${farmer.id}`)}
+                              className="h-8 w-8 rounded-full p-0 text-mr-faint hover:bg-mr-blue-soft hover:text-mr-blue"
+                              title="View payments"
+                              aria-label={`View payments for ${farmer.name}`}
                             >
-                              <Trash2 className="w-3.5 h-3.5" />
+                              <Eye className="h-4 w-4" strokeWidth={1.9} />
                             </Button>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleOpenEdit(farmer)}
+                              className={`h-8 w-8 rounded-full p-0 ${canManage ? 'text-mr-faint hover:bg-mr-surface-2 hover:text-mr-text' : 'text-mr-amber-ink hover:bg-mr-amber-soft'}`}
+                              title={canManage ? 'Edit' : 'Request edit'}
+                              aria-label={canManage ? `Edit ${farmer.name}` : `Request edit for ${farmer.name}`}
+                            >
+                              <Edit2 className="h-4 w-4" strokeWidth={1.9} />
+                            </Button>
+                            {canManage && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleDelete(farmer.id)}
+                                className="h-8 w-8 rounded-full p-0 text-mr-faint hover:bg-mr-coral-soft hover:text-mr-coral-ink"
+                                title="Delete"
+                                aria-label={`Delete ${farmer.name}`}
+                              >
+                                <Trash2 className="h-4 w-4" strokeWidth={1.9} />
+                              </Button>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+
+            {/* Mobile list — the same rows, never a squeezed table */}
+            <ul className="divide-y divide-mr-line md:hidden print:hidden">
+              {filteredFarmers.map((farmer) => {
+                const paid = parseFloat(farmer.total_paid) || 0;
+                const total = parseFloat(farmer.total_amount) || 0;
+                const remaining = total - paid;
+                const progressPct = total > 0 ? Math.min((paid / total) * 100, 100) : 0;
+                return (
+                  <li key={`m-${farmer.id}`}>
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/farmers/${farmer.id}`)}
+                      className="w-full px-5 py-4 text-left transition-colors hover:bg-mr-surface-2/70"
+                    >
+                      <span className="flex items-start justify-between gap-3">
+                        <span className="flex min-w-0 items-center gap-2.5">
+                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-mr-lime-soft text-[13px] font-semibold text-mr-lime-ink">
+                            {farmer.name?.charAt(0)?.toUpperCase() || 'F'}
+                          </span>
+                          <span className="min-w-0">
+                            <span className="block truncate text-[14px] font-medium text-mr-text">{farmer.name}</span>
+                            {farmer.phone && <span className="block truncate text-[12px] text-mr-faint">{farmer.phone}</span>}
+                          </span>
+                        </span>
+                        <StatusPill tone={STATUS_TONE[farmer.status] || 'neutral'} className="shrink-0 capitalize">
+                          {farmer.status}
+                        </StatusPill>
+                      </span>
+                      <span className="mt-3 grid grid-cols-3 gap-2 text-[12px]">
+                        <span>
+                          <span className="block text-mr-faint">Committed</span>
+                          <span className="mt-0.5 block font-semibold tabular-nums text-mr-text">{moneyCompact(total)}</span>
+                        </span>
+                        <span>
+                          <span className="block text-mr-faint">Paid</span>
+                          <span className="mt-0.5 block font-semibold tabular-nums text-mr-lime-ink">{moneyCompact(paid)}</span>
+                        </span>
+                        <span className="text-right">
+                          <span className="block text-mr-faint">Remaining</span>
+                          <span className={`mt-0.5 block font-semibold tabular-nums ${remaining > 0 ? 'text-mr-amber-ink' : 'text-mr-lime-ink'}`}>
+                            {moneyCompact(remaining)}
+                          </span>
+                        </span>
+                      </span>
+                      <span
+                        className="mt-3 block h-1.5 overflow-hidden rounded-full bg-mr-surface-2"
+                        role="img"
+                        aria-label={`${Math.round(progressPct)}% paid`}
+                      >
+                        <span className="block h-full rounded-full bg-mr-lime-ink" style={{ width: `${progressPct}%` }} />
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </>
+        )}
+      </section>
     </div>
   );
 };

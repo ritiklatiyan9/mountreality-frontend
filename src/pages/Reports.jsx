@@ -9,28 +9,19 @@ import { toast } from 'sonner';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/api';
 import { cn } from '../lib/utils';
-import { Card, CardContent } from '../components/ui/card';
-import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
-import { Badge } from '../components/ui/badge';
 import { Skeleton } from '../components/ui/skeleton';
+import {
+  PageHeader, PageTabs, SectionHead, EmptyBlock,
+  FIELD, GHOST_BTN, PRIMARY_BTN,
+} from '../components/ui/page';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '../components/ui/select';
 import {
   BarChart3, Search, Loader2, Download, RefreshCw, Sparkles, AlertTriangle,
-  TrendingUp, ArrowUpDown, FileSpreadsheet, Lightbulb, ListChecks, CalendarRange,
-  IndianRupee, LandPlot, Receipt, Store, FileSignature, PackageSearch, Boxes,
-  HardHat, Wheat, BookOpen, ArrowLeftRight, Building2, HandCoins, ScrollText,
-  Wallet, Users, Inbox,
+  ArrowUpDown, FileSpreadsheet, Lightbulb, ListChecks, CalendarRange, Inbox,
 } from 'lucide-react';
-
-// Icon names come from the backend report definitions.
-const ICONS = {
-  IndianRupee, LandPlot, Receipt, Store, FileSignature, PackageSearch, Boxes,
-  HardHat, Wheat, BookOpen, ArrowLeftRight, Building2, HandCoins, ScrollText,
-  Wallet, Users,
-};
 
 // ── Formatters (house style — mirrors dashboard/CashFlowForecast.jsx) ──
 const compact = (v) => {
@@ -71,19 +62,17 @@ const RANGES = {
   all: { label: 'All time', from: () => '2015-01-01', to: () => iso(new Date()) },
 };
 
-const BAR_COLORS = ['#6366f1', '#10b981', '#f59e0b', '#f43f5e', '#0ea5e9', '#a855f7', '#14b8a6', '#f97316', '#64748b', '#ec4899', '#84cc16', '#8b5cf6'];
-const SEVERITY = {
-  high: 'bg-red-50 text-red-700 border-red-200',
-  medium: 'bg-amber-50 text-amber-700 border-amber-200',
-  low: 'bg-slate-50 text-slate-600 border-slate-200',
-};
+/* House palette — categorical series read left to right in this order. */
+const BAR_COLORS = ['#2f6bff', '#50ddeb', '#8bb400', '#ffb02e', '#ff654a', '#101114', '#7c5cff', '#0a7a8a', '#98a0ad', '#e0468f', '#b9ff45', '#35b6e8'];
+const AXIS = { fontSize: 11, fill: '#98a0ad' };
+const GRID = 'rgba(16,17,20,0.08)';
+const TOOLTIP = { fontSize: 12, borderRadius: 14, border: '1px solid rgba(16,17,20,0.08)', boxShadow: '0 8px 24px -12px rgba(16,17,20,0.2)' };
 
-const EmptyBlock = ({ label, tall }) => (
-  <div className={cn('flex flex-col items-center justify-center text-center text-slate-400', tall ? 'py-16' : 'py-10')}>
-    <Inbox className="mb-2 h-8 w-8 text-slate-200" />
-    <p className="text-xs">{label}</p>
-  </div>
-);
+const SEVERITY = {
+  high: 'border-mr-coral-ink/20 bg-mr-coral-soft text-mr-coral-ink',
+  medium: 'border-mr-amber-ink/20 bg-mr-amber-soft text-mr-amber-ink',
+  low: 'border-mr-line bg-mr-surface-2 text-mr-muted',
+};
 
 export const Reports = () => {
   const { currentSite } = useAuth();
@@ -197,9 +186,9 @@ export const Reports = () => {
 
   if (!currentSite) {
     return (
-      <div className="flex h-full min-h-[60vh] flex-col items-center justify-center gap-3 text-slate-400">
-        <BarChart3 className="h-10 w-10" />
-        <p className="text-sm">Select a site to generate reports</p>
+      <div className="flex h-full min-h-[60vh] flex-col items-center justify-center gap-3">
+        <BarChart3 className="h-9 w-9 text-mr-faint" strokeWidth={1.5} aria-hidden="true" />
+        <p className="text-[14px] text-mr-muted">Select a site to generate reports</p>
       </div>
     );
   }
@@ -208,326 +197,289 @@ export const Reports = () => {
   const hasAmount = report?.kpis?.some((k) => k.type === 'money');
 
   return (
-    <div className="space-y-4">
-      {/* ── Header ── */}
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-600 to-blue-700 text-white shadow-lg shadow-indigo-200">
-            <BarChart3 className="h-5 w-5" />
-          </span>
-          <div>
-            <h1 className="text-xl font-bold tracking-tight text-slate-950">Reports</h1>
-            <p className="text-xs text-slate-500">
-              Detailed, exportable reports across every module · {currentSite.name}
-            </p>
+    <div className="mx-auto w-full max-w-6xl pb-16">
+      <PageHeader
+        title="Reports"
+        description={`Detailed, exportable reports across every module · ${currentSite.name}`}
+        actions={
+          <>
+            <Select value={rangeKey} onValueChange={applyRange}>
+              <SelectTrigger className={cn(FIELD, 'w-[176px]')}>
+                <CalendarRange className="mr-1.5 h-3.5 w-3.5 text-mr-faint" strokeWidth={1.9} aria-hidden="true" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.entries(RANGES).map(([key, r]) => <SelectItem key={key} value={key}>{r.label}</SelectItem>)}
+                <SelectItem value="custom">Custom range</SelectItem>
+              </SelectContent>
+            </Select>
+            {rangeKey === 'custom' && (
+              <>
+                <Input type="date" value={range.from} max={range.to} onChange={(e) => setRange((r) => ({ ...r, from: e.target.value }))} className={cn(FIELD, 'w-[150px]')} />
+                <Input type="date" value={range.to} min={range.from} onChange={(e) => setRange((r) => ({ ...r, to: e.target.value }))} className={cn(FIELD, 'w-[150px]')} />
+              </>
+            )}
+            <button type="button" className={GHOST_BTN} onClick={fetchReport} disabled={loading}>
+              <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} strokeWidth={1.9} aria-hidden="true" /> Refresh
+            </button>
+            <button type="button" className={GHOST_BTN} onClick={() => exportRows('csv')} disabled={!rows.length}>
+              <Download className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden="true" /> CSV
+            </button>
+            <button type="button" className={GHOST_BTN} onClick={() => exportRows('xlsx')} disabled={!rows.length}>
+              <FileSpreadsheet className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden="true" /> Excel
+            </button>
+          </>
+        }
+      />
+
+      {/* The permission-filtered module list, one tab each. */}
+      {modules.length === 0
+        ? <p className="mt-7 border-b border-mr-line pb-3 text-[13px] text-mr-faint">No modules available</p>
+        : <PageTabs className="mt-7" label="Report modules" items={modules.map((m) => ({ id: m.key, label: m.label }))} value={active} onChange={setActive} />}
+
+      {error && (
+        <p className="mt-6 flex items-center gap-2 rounded-control bg-mr-coral-soft px-4 py-3 text-[13px] text-mr-coral-ink">
+          <AlertTriangle className="h-4 w-4 shrink-0" strokeWidth={1.9} aria-hidden="true" /> {error}
+        </p>
+      )}
+
+      {loading && !report && (
+        <div className="mt-8 space-y-8">
+          <div className="grid grid-cols-2 gap-6 lg:grid-cols-5">
+            {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-14 rounded-control" />)}
           </div>
+          <Skeleton className="h-[300px] rounded-control" />
+          <Skeleton className="h-[280px] rounded-control" />
         </div>
+      )}
 
-        <div className="flex flex-wrap items-center gap-2">
-          <Select value={rangeKey} onValueChange={applyRange}>
-            <SelectTrigger className="h-9 w-[170px] text-xs">
-              <CalendarRange className="mr-1.5 h-3.5 w-3.5 text-slate-400" />
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {Object.entries(RANGES).map(([key, r]) => <SelectItem key={key} value={key}>{r.label}</SelectItem>)}
-              <SelectItem value="custom">Custom range</SelectItem>
-            </SelectContent>
-          </Select>
-          {rangeKey === 'custom' && (
-            <>
-              <Input type="date" value={range.from} max={range.to} onChange={(e) => setRange((r) => ({ ...r, from: e.target.value }))} className="h-9 w-[145px] text-xs" />
-              <Input type="date" value={range.to} min={range.from} onChange={(e) => setRange((r) => ({ ...r, to: e.target.value }))} className="h-9 w-[145px] text-xs" />
-            </>
-          )}
-          <Button variant="outline" size="sm" className="h-9 gap-1.5 text-xs" onClick={fetchReport} disabled={loading}>
-            <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} /> Refresh
-          </Button>
-          <Button variant="outline" size="sm" className="h-9 gap-1.5 text-xs" onClick={() => exportRows('csv')} disabled={!rows.length}>
-            <Download className="h-3.5 w-3.5" /> CSV
-          </Button>
-          <Button variant="outline" size="sm" className="h-9 gap-1.5 text-xs" onClick={() => exportRows('xlsx')} disabled={!rows.length}>
-            <FileSpreadsheet className="h-3.5 w-3.5" /> Excel
-          </Button>
-        </div>
-      </div>
+      {report && (
+        <>
+          {/* ── Report identity + totals ── */}
+          <section className="pt-8">
+            <h2 className="text-[16px] font-semibold tracking-[-0.01em] text-mr-text">{report.label}</h2>
+            <p className="mt-1 text-[14px] text-mr-muted">
+              {report.description} · {fmtDate(report.range.from)} – {fmtDate(report.range.to)}
+            </p>
 
-      <div className="grid gap-4 lg:grid-cols-[230px_minmax(0,1fr)]">
-        {/* ── Module rail ── */}
-        <Card className="h-fit rounded-2xl border-slate-200/80 shadow-sm shadow-slate-900/[0.04] lg:sticky lg:top-4">
-          <CardContent className="p-2">
-            <p className="px-2 pb-1.5 pt-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">Modules</p>
-            <div className="max-h-[70vh] space-y-0.5 overflow-y-auto">
-              {modules.length === 0 && <p className="px-2 py-3 text-xs text-slate-400">No modules available</p>}
-              {modules.map((m) => {
-                const Icon = ICONS[m.icon] || BarChart3;
-                return (
-                  <button
-                    key={m.key}
-                    onClick={() => setActive(m.key)}
-                    className={cn(
-                      'flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-[13px] font-medium transition-colors',
-                      active === m.key ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'
-                    )}
-                  >
-                    <Icon className={cn('h-4 w-4 shrink-0', active === m.key ? 'text-indigo-600' : 'text-slate-400')} />
-                    <span className="truncate">{m.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
+            <dl className="mt-6 grid grid-cols-2 gap-x-8 gap-y-6 border-t border-mr-line pt-6 sm:grid-cols-3 lg:grid-cols-5">
+              {report.kpis.map((k) => (
+                <div key={k.key} className="min-w-0">
+                  <dt className="truncate text-[13px] text-mr-muted">{k.label}</dt>
+                  <dd className="mt-1 text-[22px] font-semibold tabular-nums tracking-[-0.02em] text-mr-text">
+                    {k.type === 'money' ? money(k.value) : num(k.value)}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </section>
 
-        {/* ── Report body ── */}
-        <div className="min-w-0 space-y-4">
-          {error && (
-            <div className="flex items-center gap-2 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
-              <AlertTriangle className="h-4 w-4 shrink-0" /> {error}
-            </div>
-          )}
-
-          {loading && !report && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-                {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-[86px] rounded-2xl" />)}
+          {/* ── Trend ── */}
+          <section className="mt-10">
+            <SectionHead
+              title={`Trend by ${report.range.bucket}`}
+              meta={`${report.trend.length} periods`}
+            />
+            {report.trend.length === 0 ? (
+              <EmptyBlock title="No entries in this period" />
+            ) : (
+              <div className="pt-5">
+                <ResponsiveContainer width="100%" height={280}>
+                  <ComposedChart data={report.trend} margin={{ top: 5, right: 8, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={GRID} vertical={false} />
+                    <XAxis dataKey="bucket" tick={AXIS} tickLine={false} axisLine={{ stroke: GRID }} tickFormatter={(v) => fmtDate(v).replace(/ \d{4}$/, '')} />
+                    <YAxis yAxisId="left" tick={AXIS} tickLine={false} axisLine={false} tickFormatter={compact} />
+                    <YAxis yAxisId="right" orientation="right" tick={AXIS} tickLine={false} axisLine={false} allowDecimals={false} />
+                    <RechartsTooltip
+                      contentStyle={TOOLTIP}
+                      formatter={(value, name) => [name === 'Records' ? num(value) : money(value), name]}
+                      labelFormatter={fmtDate}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    {hasAmount && <Bar yAxisId="left" dataKey="total" name="Value" fill="#2f6bff" radius={[4, 4, 0, 0]} maxBarSize={38} />}
+                    <Line yAxisId="right" type="monotone" dataKey="count" name="Records" stroke="#0a7a8a" strokeWidth={2} dot={false} />
+                  </ComposedChart>
+                </ResponsiveContainer>
               </div>
-              <Skeleton className="h-[300px] rounded-2xl" />
-              <Skeleton className="h-[280px] rounded-2xl" />
-            </div>
-          )}
+            )}
+          </section>
 
-          {report && (
-            <>
-              <div>
-                <h2 className="text-base font-bold text-slate-900">{report.label}</h2>
-                <p className="text-xs text-slate-500">
-                  {report.description} · {fmtDate(report.range.from)} – {fmtDate(report.range.to)}
-                </p>
+          {/* ── Breakdown ── */}
+          <section className="mt-10">
+            <SectionHead title={`By ${report.dimension_label.toLowerCase()}`} />
+            {report.breakdown.length === 0 ? (
+              <EmptyBlock title="Nothing to group" />
+            ) : (
+              <div className="pt-5">
+                <ResponsiveContainer width="100%" height={Math.max(200, report.breakdown.length * 30)}>
+                  <BarChart data={report.breakdown} layout="vertical" margin={{ left: 8, right: 16 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={GRID} horizontal={false} />
+                    <XAxis type="number" tick={AXIS} tickLine={false} axisLine={{ stroke: GRID }} tickFormatter={hasAmount ? compact : num} />
+                    <YAxis type="category" dataKey="label" width={140} tick={{ ...AXIS, fill: '#626b7a' }} tickLine={false} axisLine={false} />
+                    <RechartsTooltip
+                      contentStyle={TOOLTIP}
+                      formatter={(value, _n, entry) => [hasAmount ? money(value) : num(value), `${entry.payload.count} records`]}
+                    />
+                    <Bar dataKey={hasAmount ? 'total' : 'count'} radius={[0, 4, 4, 0]} maxBarSize={22}>
+                      {report.breakdown.map((_, i) => <Cell key={i} fill={BAR_COLORS[i % BAR_COLORS.length]} />)}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
               </div>
+            )}
+          </section>
 
-              {/* KPIs */}
-              <div className={cn('grid gap-3', report.kpis.length >= 5 ? 'grid-cols-2 lg:grid-cols-5' : 'grid-cols-2 lg:grid-cols-3')}>
-                {report.kpis.map((k) => (
-                  <Card key={k.key} className="rounded-2xl border-slate-200/80 shadow-sm shadow-slate-900/[0.04]">
-                    <CardContent className="p-4">
-                      <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-slate-400">{k.label}</p>
-                      <p className="mt-1.5 text-xl font-bold tabular-nums text-slate-900">
-                        {k.type === 'money' ? money(k.value) : num(k.value)}
-                      </p>
-                    </CardContent>
-                  </Card>
-                ))}
+          {/* ── AI analysis ── */}
+          <section className="mt-10">
+            <SectionHead
+              title="AI analysis"
+              actions={
+                <button type="button" className={PRIMARY_BTN} onClick={generateInsight} disabled={aiLoading || !report.rows.length}>
+                  {aiLoading
+                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                    : <Sparkles className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden="true" />}
+                  {insight ? 'Regenerate' : 'Analyse with AI'}
+                </button>
+              }
+            />
+
+            {!insight && !aiLoading && (
+              <p className="max-w-2xl py-6 text-[13px] leading-relaxed text-mr-muted">
+                Groq reads this report&apos;s totals, trend and breakdown and writes an executive summary with risks and next actions.
+              </p>
+            )}
+            {aiLoading && (
+              <div className="space-y-2 py-6">
+                <Skeleton className="h-4 w-2/3" />
+                <Skeleton className="h-3 w-full" />
+                <Skeleton className="h-3 w-11/12" />
+                <Skeleton className="h-3 w-4/5" />
               </div>
+            )}
+            {insight && !aiLoading && (
+              <div className="space-y-5 pt-5">
+                <div className="max-w-3xl">
+                  <p className="text-[15px] font-semibold text-mr-text">{insight.headline}</p>
+                  <p className="mt-1.5 text-[13px] leading-relaxed text-mr-muted">{insight.summary}</p>
+                </div>
 
-              {/* Trend */}
-              <Card className="rounded-2xl border-slate-200/80 shadow-sm shadow-slate-900/[0.04]">
-                <CardContent className="p-4">
-                  <div className="mb-3 flex items-center justify-between">
-                    <h3 className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
-                      <TrendingUp className="h-4 w-4 text-slate-400" /> Trend by {report.range.bucket}
-                    </h3>
-                    <Badge variant="outline" className="text-[10px] text-slate-500">{report.trend.length} periods</Badge>
-                  </div>
-                  {report.trend.length === 0 ? (
-                    <EmptyBlock label="No entries in this period" />
-                  ) : (
-                    <ResponsiveContainer width="100%" height={280}>
-                      <ComposedChart data={report.trend} margin={{ top: 5, right: 8, left: 0, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-                        <XAxis dataKey="bucket" tick={{ fontSize: 10, fill: '#94a3b8' }} tickFormatter={(v) => fmtDate(v).replace(/ \d{4}$/, '')} />
-                        <YAxis yAxisId="left" tick={{ fontSize: 10, fill: '#94a3b8' }} tickFormatter={compact} />
-                        <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10, fill: '#94a3b8' }} allowDecimals={false} />
-                        <RechartsTooltip
-                          contentStyle={{ fontSize: 12, borderRadius: 12, border: '1px solid #e2e8f0' }}
-                          formatter={(value, name) => [name === 'Records' ? num(value) : money(value), name]}
-                          labelFormatter={fmtDate}
-                        />
-                        <Legend wrapperStyle={{ fontSize: 11 }} />
-                        {hasAmount && <Bar yAxisId="left" dataKey="total" name="Value" fill="#6366f1" radius={[4, 4, 0, 0]} maxBarSize={38} />}
-                        <Line yAxisId="right" type="monotone" dataKey="count" name="Records" stroke="#10b981" strokeWidth={2} dot={false} />
-                      </ComposedChart>
-                    </ResponsiveContainer>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Breakdown + AI */}
-              <div className="grid gap-4 xl:grid-cols-2">
-                <Card className="rounded-2xl border-slate-200/80 shadow-sm shadow-slate-900/[0.04]">
-                  <CardContent className="p-4">
-                    <h3 className="mb-3 text-sm font-semibold text-slate-800">By {report.dimension_label.toLowerCase()}</h3>
-                    {report.breakdown.length === 0 ? (
-                      <EmptyBlock label="Nothing to group" />
-                    ) : (
-                      <ResponsiveContainer width="100%" height={Math.max(200, report.breakdown.length * 30)}>
-                        <BarChart data={report.breakdown} layout="vertical" margin={{ left: 8, right: 16 }}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
-                          <XAxis type="number" tick={{ fontSize: 10, fill: '#94a3b8' }} tickFormatter={hasAmount ? compact : num} />
-                          <YAxis type="category" dataKey="label" width={120} tick={{ fontSize: 10, fill: '#64748b' }} />
-                          <RechartsTooltip
-                            contentStyle={{ fontSize: 12, borderRadius: 12, border: '1px solid #e2e8f0' }}
-                            formatter={(value, _n, entry) => [hasAmount ? money(value) : num(value), `${entry.payload.count} records`]}
-                          />
-                          <Bar dataKey={hasAmount ? 'total' : 'count'} radius={[0, 4, 4, 0]} maxBarSize={22}>
-                            {report.breakdown.map((_, i) => <Cell key={i} fill={BAR_COLORS[i % BAR_COLORS.length]} />)}
-                          </Bar>
-                        </BarChart>
-                      </ResponsiveContainer>
-                    )}
-                  </CardContent>
-                </Card>
-
-                <Card className="rounded-2xl border-indigo-200/70 bg-gradient-to-br from-white to-indigo-50/40 shadow-sm shadow-indigo-900/[0.05]">
-                  <CardContent className="p-4">
-                    <div className="mb-3 flex items-center justify-between gap-2">
-                      <h3 className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
-                        <Sparkles className="h-4 w-4 text-indigo-500" /> AI analysis
-                      </h3>
-                      <Button size="sm" className="h-8 gap-1.5 bg-indigo-600 text-xs hover:bg-indigo-700" onClick={generateInsight} disabled={aiLoading || !report.rows.length}>
-                        {aiLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                        {insight ? 'Regenerate' : 'Analyse with AI'}
-                      </Button>
-                    </div>
-
-                    {!insight && !aiLoading && (
-                      <p className="py-8 text-center text-xs text-slate-500">
-                        Groq reads this report's totals, trend and breakdown and writes an executive summary with risks and next actions.
-                      </p>
-                    )}
-                    {aiLoading && (
-                      <div className="space-y-2 py-2">
-                        <Skeleton className="h-4 w-2/3" />
-                        <Skeleton className="h-3 w-full" />
-                        <Skeleton className="h-3 w-11/12" />
-                        <Skeleton className="h-3 w-4/5" />
+                {insight.highlights?.length > 0 && (
+                  <dl className="grid gap-x-8 gap-y-4 border-t border-mr-line pt-5 sm:grid-cols-2">
+                    {insight.highlights.map((h, i) => (
+                      <div key={i} className="min-w-0">
+                        <dt className="flex items-center gap-1.5 text-[13px] font-semibold text-mr-text">
+                          <Lightbulb className="h-3.5 w-3.5 shrink-0 text-mr-amber-ink" strokeWidth={1.9} aria-hidden="true" /> {h.title}
+                        </dt>
+                        <dd className="mt-1 text-[13px] leading-relaxed text-mr-muted">{h.detail}</dd>
                       </div>
-                    )}
-                    {insight && !aiLoading && (
-                      <div className="max-h-[420px] space-y-3 overflow-y-auto pr-1">
-                        <div>
-                          <p className="text-sm font-bold text-slate-900">{insight.headline}</p>
-                          <p className="mt-1 text-xs leading-relaxed text-slate-600">{insight.summary}</p>
-                        </div>
-                        {insight.highlights?.length > 0 && (
-                          <div className="space-y-1.5">
-                            {insight.highlights.map((h, i) => (
-                              <div key={i} className="rounded-xl border border-slate-200 bg-white p-2.5">
-                                <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-800">
-                                  <Lightbulb className="h-3.5 w-3.5 text-amber-500" /> {h.title}
-                                </p>
-                                <p className="mt-0.5 text-[11px] leading-relaxed text-slate-500">{h.detail}</p>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        {insight.risks?.length > 0 && (
-                          <div className="space-y-1.5">
-                            {insight.risks.map((r, i) => (
-                              <div key={i} className={cn('rounded-xl border p-2.5', SEVERITY[r.severity] || SEVERITY.low)}>
-                                <p className="flex items-center gap-1.5 text-xs font-semibold">
-                                  <AlertTriangle className="h-3.5 w-3.5" /> {r.title}
-                                </p>
-                                <p className="mt-0.5 text-[11px] leading-relaxed opacity-90">{r.detail}</p>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        {insight.actions?.length > 0 && (
-                          <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-2.5">
-                            <p className="flex items-center gap-1.5 text-xs font-semibold text-emerald-800">
-                              <ListChecks className="h-3.5 w-3.5" /> Next actions
-                            </p>
-                            <ul className="mt-1 space-y-1">
-                              {insight.actions.map((a, i) => (
-                                <li key={i} className="flex gap-1.5 text-[11px] leading-relaxed text-emerald-900">
-                                  <span className="text-emerald-500">•</span> {a}
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-                        <p className="pt-1 text-[10px] text-slate-400">AI-generated from this report's data — verify before circulating.</p>
+                    ))}
+                  </dl>
+                )}
+
+                {insight.risks?.length > 0 && (
+                  <div className="space-y-2 border-t border-mr-line pt-5">
+                    {insight.risks.map((r, i) => (
+                      <div key={i} className={cn('rounded-control border p-3', SEVERITY[r.severity] || SEVERITY.low)}>
+                        <p className="flex items-center gap-1.5 text-[13px] font-semibold">
+                          <AlertTriangle className="h-3.5 w-3.5 shrink-0" strokeWidth={1.9} aria-hidden="true" /> {r.title}
+                        </p>
+                        <p className="mt-1 text-[13px] leading-relaxed opacity-90">{r.detail}</p>
                       </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Detail rows */}
-              <Card className="rounded-2xl border-slate-200/80 shadow-sm shadow-slate-900/[0.04]">
-                <CardContent className="p-0">
-                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 p-3">
-                    <h3 className="text-sm font-semibold text-slate-800">
-                      Detail <span className="ml-1 text-xs font-normal text-slate-400">{rows.length} of {report.rows.length} rows</span>
-                    </h3>
-                    <div className="relative w-full sm:w-64">
-                      <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-                      <Input value={rowSearch} onChange={(e) => setRowSearch(e.target.value)} placeholder="Filter rows…" className="h-8 pl-8 text-xs" />
-                    </div>
+                    ))}
                   </div>
+                )}
 
-                  {rows.length === 0 ? (
-                    <EmptyBlock label={report.rows.length ? 'No rows match your filter' : 'No records in this period'} tall />
-                  ) : (
-                    <div className="overflow-auto" style={{ maxHeight: 'calc(100vh - 260px)' }}>
-                      <table className="w-full border-collapse text-sm">
-                        <thead className="sticky top-0 z-20 bg-slate-50" style={{ boxShadow: '0 1px 0 0 #e2e8f0' }}>
-                          <tr>
-                            {report.columns.map((c) => (
-                              <th
-                                key={c.key}
-                                onClick={() => toggleSort(c.key)}
-                                className={cn(
-                                  'cursor-pointer select-none whitespace-nowrap px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 hover:text-slate-800',
-                                  c.type === 'money' || c.type === 'number' ? 'text-right' : 'text-left'
-                                )}
-                              >
-                                <span className="inline-flex items-center gap-1">
-                                  {c.label}
-                                  <ArrowUpDown className={cn('h-3 w-3', sort.key === c.key ? 'text-indigo-500' : 'text-slate-300')} />
-                                </span>
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {rows.map((r, i) => (
-                            <tr key={i} className="border-b border-slate-50 hover:bg-slate-50/60">
-                              {report.columns.map((c) => (
-                                <td
-                                  key={c.key}
-                                  className={cn(
-                                    'px-3 py-2 text-slate-700',
-                                    (c.type === 'money' || c.type === 'number') && 'text-right tabular-nums',
-                                    c.type === 'money' && 'font-medium text-slate-900'
-                                  )}
-                                >
-                                  {cell(r[c.key], c.type)}
-                                </td>
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-
-                  {report.row_limit_hit && (
-                    <p className="border-t border-slate-100 bg-amber-50/60 px-3 py-2 text-[11px] text-amber-700">
-                      Showing the most recent 1000 rows — narrow the date range for a complete export.
+                {insight.actions?.length > 0 && (
+                  <div className="border-t border-mr-line pt-5">
+                    <p className="flex items-center gap-1.5 text-[13px] font-semibold text-mr-text">
+                      <ListChecks className="h-3.5 w-3.5 text-mr-lime-ink" strokeWidth={1.9} aria-hidden="true" /> Next actions
                     </p>
-                  )}
-                </CardContent>
-              </Card>
-            </>
-          )}
+                    <ul className="mt-2 space-y-1.5">
+                      {insight.actions.map((a, i) => (
+                        <li key={i} className="flex gap-2 text-[13px] leading-relaxed text-mr-muted">
+                          <span className="text-mr-faint" aria-hidden="true">•</span> {a}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
 
-          {!loading && !report && !error && activeModule && (
-            <EmptyBlock label={`No data for ${activeModule.label} in this period`} tall />
-          )}
-        </div>
-      </div>
+                <p className="text-[12px] text-mr-faint">AI-generated from this report&apos;s data — verify before circulating.</p>
+              </div>
+            )}
+          </section>
+
+          {/* ── Detail rows ── */}
+          <section className="mt-10">
+            <SectionHead
+              title="Detail"
+              meta={`${rows.length} of ${report.rows.length} rows`}
+              actions={
+                <div className="relative w-full sm:w-64">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-mr-faint" strokeWidth={1.9} aria-hidden="true" />
+                  <Input value={rowSearch} onChange={(e) => setRowSearch(e.target.value)} placeholder="Filter rows…" aria-label="Filter rows" className={cn(FIELD, 'pl-9')} />
+                </div>
+              }
+            />
+
+            {rows.length === 0 ? (
+              <EmptyBlock title={report.rows.length ? 'No rows match your filter' : 'No records in this period'} tall />
+            ) : (
+              <div className="overflow-auto" style={{ maxHeight: 'calc(100vh - 280px)' }}>
+                <table className="w-full border-collapse text-[13px]">
+                  <thead className="sticky top-0 z-20 bg-mr-surface" style={{ boxShadow: `0 1px 0 0 ${GRID}` }}>
+                    <tr>
+                      {report.columns.map((c) => (
+                        <th
+                          key={c.key}
+                          onClick={() => toggleSort(c.key)}
+                          className={cn(
+                            'cursor-pointer select-none whitespace-nowrap px-3 py-3 text-[12px] font-medium text-mr-muted transition-colors hover:text-mr-text',
+                            c.type === 'money' || c.type === 'number' ? 'text-right' : 'text-left',
+                          )}
+                        >
+                          <span className="inline-flex items-center gap-1">
+                            {c.label}
+                            <ArrowUpDown className={cn('h-3 w-3', sort.key === c.key ? 'text-mr-blue' : 'text-mr-faint')} aria-hidden="true" />
+                          </span>
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((r, i) => (
+                      <tr key={i} className="border-b border-mr-line transition-colors hover:bg-mr-surface-2/60">
+                        {report.columns.map((c) => (
+                          <td
+                            key={c.key}
+                            className={cn(
+                              'px-3 py-2.5 text-mr-muted',
+                              (c.type === 'money' || c.type === 'number') && 'text-right tabular-nums',
+                              c.type === 'money' && 'font-medium text-mr-text',
+                            )}
+                          >
+                            {cell(r[c.key], c.type)}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {report.row_limit_hit && (
+              <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-mr-amber-soft px-3 py-1.5 text-[12px] font-medium text-mr-amber-ink">
+                Showing the most recent 1000 rows — narrow the date range for a complete export.
+              </p>
+            )}
+          </section>
+        </>
+      )}
+
+      {!loading && !report && !error && activeModule && (
+        <EmptyBlock title={`No data for ${activeModule.label} in this period`} tall />
+      )}
     </div>
   );
 };

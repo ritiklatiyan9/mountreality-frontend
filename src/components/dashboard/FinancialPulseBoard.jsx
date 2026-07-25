@@ -1,99 +1,230 @@
-import { createElement } from 'react';
 import {
-  Activity, ArrowDownLeft, ArrowUpRight, Banknote, CircleDollarSign,
-  FileText, Landmark, RefreshCw, ShieldCheck, TrendingDown, TrendingUp, Wallet,
+  ArrowDownLeft, ArrowUpRight, FileText, Landmark, RefreshCw, ShieldCheck, Wallet,
 } from 'lucide-react';
 import TimeFilter from './TimeFilter';
 import { Checkbox } from '../ui/checkbox';
-import { Skeleton } from '../ui/skeleton';
+import {
+  CurrencyValue, FinancialMetric, IconButton, SectionHeader, StatusPill,
+} from './primitives';
+import { ACCENT, toneFor } from './accents';
+import { money, moneyCompact } from '@/lib/utils';
 
-const fmt = (value) => (Number(value) || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
-const money = (value) => `${Number(value) < 0 ? '-' : ''}₹${fmt(Math.abs(Number(value) || 0))}`;
+/* ── Module split bar ────────────────────────────────────────────────
+   The existing kpi.breakdown, drawn as one stacked bar instead of a
+   stack of progress cards. Only modules with a value are shown. ── */
+const MODULE_LABEL = (key) => key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
-const TONES = {
-  blue: 'bg-blue-50 text-blue-600',
-  emerald: 'bg-emerald-50 text-emerald-600',
-  violet: 'bg-violet-50 text-violet-600',
-  amber: 'bg-amber-50 text-amber-600',
-  rose: 'bg-rose-50 text-rose-600',
-  cyan: 'bg-cyan-50 text-cyan-600',
-};
+function ModuleSplit({ breakdown, loading }) {
+  const rows = (breakdown || [])
+    .map((m) => ({
+      module: m.module,
+      value: Math.abs(Number(m.credit) > 0 ? Number(m.credit) : Number(m.debit) || 0),
+      incoming: Number(m.credit) > 0,
+      count: Number(m.count) || 0,
+      accent: Number(m.credit) > 0 ? toneFor(m.module) : 'coral',
+    }))
+    .filter((r) => r.value > 0)
+    .sort((a, b) => b.value - a.value);
 
-const Metric = ({ icon, tone, label, value, hint, onClick, loading, negative = false, children }) => (
-  <button type="button" onClick={onClick} className="group flex min-h-24 w-full items-center gap-3 px-3 py-4 text-left transition-colors hover:bg-slate-50/80 sm:px-4">
-    <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${TONES[tone]}`}>{createElement(icon, { className: 'h-4.5 w-4.5' })}</span>
-    <span className="min-w-0 flex-1">
-      <span className="block text-[11px] font-medium text-slate-500">{label}</span>
-      {loading ? <Skeleton className="mt-2 h-6 w-28" /> : <span className={`mt-1 block truncate text-lg font-bold tracking-tight ${negative ? 'text-rose-600' : 'text-slate-950'}`}>{money(value)}</span>}
-      {hint && <span className="mt-0.5 block truncate text-[10px] text-slate-400">{hint}</span>}
-      {children}
-    </span>
-    <TrendingUp className="h-4 w-4 shrink-0 text-slate-200 transition-colors group-hover:text-slate-400" />
-  </button>
-);
+  const total = rows.reduce((sum, r) => sum + r.value, 0);
 
+  if (loading) return <div className="h-2 w-full animate-pulse rounded-full bg-mr-surface-2" />;
+  if (!rows.length) {
+    return <p className="text-[12px] text-mr-faint">No module activity recorded in this period.</p>;
+  }
+
+  return (
+    <div>
+      <div className="flex h-2 w-full gap-0.5 overflow-hidden rounded-full" role="img"
+        aria-label={`Activity split: ${rows.map((r) => `${MODULE_LABEL(r.module)} ${money(r.value)}`).join(', ')}`}>
+        {rows.map((r) => (
+          <span
+            key={r.module}
+            className={`h-full transition-[width] duration-500 ${ACCENT[r.accent].solid}`}
+            style={{ width: `${Math.max(1.5, (r.value / total) * 100)}%` }}
+          />
+        ))}
+      </div>
+      <ul className="mt-3 space-y-2">
+        {rows.slice(0, 3).map((r) => (
+          <li key={r.module} className="flex items-baseline justify-between gap-3 text-[12px]">
+            <span className="flex min-w-0 items-center gap-2 text-mr-muted">
+              <span className={`h-2 w-2 shrink-0 rounded-full ${ACCENT[r.accent].solid}`} aria-hidden="true" />
+              <span className="truncate">{MODULE_LABEL(r.module)}</span>
+              <span className="shrink-0 text-mr-faint">{r.count}</span>
+            </span>
+            <span className={`shrink-0 font-semibold tabular-nums ${r.incoming ? 'text-mr-text' : 'text-mr-coral-ink'}`} title={money(r.value)}>
+              {r.incoming ? '+' : '−'}{moneyCompact(r.value)}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/* ── Financial pulse ─────────────────────────────────────────────────
+   One instrument panel. Net profit dominates; the supporting figures
+   share the same surface and are separated by hairlines, not cards.
+   Every value and every permission gate is unchanged. ── */
 export default function FinancialPulseBoard({
   kpi, loading, canSee, timePreset, setTimePreset, excludeOldPlots, setExcludeOldPlots,
   registryIncludeOld, setRegistryIncludeOld, onRefresh, onVerify, onSelect,
 }) {
   const incoming = Number(kpi?.totalIncoming) || 0;
-  const outgoing = Number(kpi?.totalOutgoing) || 0;
-  const opening = Number(kpi?.openingBalance) || 0;
-  const balance = Number(kpi?.siteBalance) || 0;
   const revenue = Number(kpi?.totalRevenue) || 0;
   const expense = Number(kpi?.totalExpense) || 0;
   const profit = Number(kpi?.netProfit) || 0;
+  const margin = Number(kpi?.profitMargin) || 0;
   const regNew = Number(kpi?.registryPaymentsNew) || 0;
   const regOld = Number(kpi?.registryPaymentsOld) || 0;
   const registry = registryIncludeOld ? (Number(kpi?.registryPayments) || regNew + regOld) : regNew;
-  const base = Math.max(Math.abs(opening) + Math.abs(incoming) + Math.abs(outgoing), 1);
-  const gauge = Math.min(100, Math.max(6, Math.round((Math.abs(balance) / base) * 100)));
-  const dash = `${gauge} ${100 - gauge}`;
+  const oldCount = Number(kpi?.registryPaymentsOldCount) || 0;
+  const showProfit = canSee('kpi_profit');
 
   const metrics = [
-    canSee('kpi_totalIncoming') && { key: 'totalIncoming', icon: ArrowDownLeft, tone: 'blue', label: 'Total incoming', value: incoming, hint: 'Approved ledger credits' },
-    canSee('kpi_plotPayments') && { key: 'totalIncoming', icon: Landmark, tone: 'emerald', label: 'Plot collections', value: revenue, hint: 'Payments and installments' },
-    canSee('kpi_registryPayments') && { key: 'registryPayments', icon: FileText, tone: 'violet', label: 'Registry mapping', value: registry, hint: registryIncludeOld ? `NEW ${money(regNew)} + OLD ${money(regOld)}` : `NEW only · ${money(regOld)} OLD hidden`, registry: true },
-    canSee('kpi_personalLedger') && { key: 'personalLedger', icon: Wallet, tone: 'amber', label: 'Personal ledger', value: Number(kpi?.outstanding) || 0, hint: 'Net pending balance' },
-    canSee('kpi_totalExpense') && { key: 'totalExpense', icon: TrendingDown, tone: 'rose', label: 'Total outgoing', value: expense, hint: 'Approved business outflow' },
-    canSee('kpi_profit') && { key: 'profit', icon: CircleDollarSign, tone: profit >= 0 ? 'emerald' : 'rose', label: 'Net profit', value: profit, hint: `${money(revenue)} − ${money(expense)}`, negative: profit < 0 },
+    canSee('kpi_totalIncoming') && {
+      key: 'totalIncoming', icon: ArrowDownLeft, label: 'Total incoming', accent: 'aqua',
+      value: incoming, hint: 'Approved ledger credits',
+    },
+    canSee('kpi_totalExpense') && {
+      key: 'totalExpense', icon: ArrowUpRight, label: 'Total outgoing', accent: 'coral',
+      value: expense, hint: 'Approved business outflow', tone: 'negative',
+    },
+    canSee('kpi_plotPayments') && {
+      key: 'totalIncoming', icon: Landmark, label: 'Plot collections', accent: 'lime',
+      value: revenue, hint: 'Payments and installments',
+    },
+    canSee('kpi_personalLedger') && {
+      key: 'personalLedger', icon: Wallet, label: 'Personal ledger', accent: 'amber',
+      value: Number(kpi?.outstanding) || 0, hint: 'Net pending balance',
+    },
+    canSee('kpi_registryPayments') && {
+      key: 'registryPayments', icon: FileText, label: 'Registry mapping', accent: 'blue',
+      value: registry,
+      hint: registryIncludeOld
+        ? `New ${moneyCompact(regNew)} + old ${moneyCompact(regOld)}`
+        : `New plots only · ${moneyCompact(regOld)} old hidden`,
+      registry: true,
+    },
   ].filter(Boolean);
 
   return (
-    <section className="overflow-hidden rounded-[28px] border border-slate-200/80 bg-white shadow-sm shadow-slate-900/[0.03]">
-      <header className="flex flex-col gap-3 border-b border-slate-100 px-4 py-4 sm:px-5 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex items-center gap-3">
-          <span className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-950 text-white"><Activity className="h-4.5 w-4.5" /></span>
-          <div><h2 className="text-sm font-semibold text-slate-950">Financial performance</h2><p className="text-[10px] text-slate-400">One connected view of approved accounting activity</p></div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="flex cursor-pointer items-center gap-1.5 rounded-full bg-slate-50 px-2.5 py-1.5 text-[10px] font-medium text-slate-500"><Checkbox checked={excludeOldPlots} onCheckedChange={(value) => setExcludeOldPlots(!!value)} className="h-3.5 w-3.5" />New plots only</label>
-          <TimeFilter value={timePreset} onChange={setTimePreset} />
-          <button type="button" onClick={onVerify} className="inline-flex h-8 items-center gap-1.5 rounded-full bg-emerald-50 px-3 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-100"><ShieldCheck className="h-3.5 w-3.5" />Verify</button>
-          <button type="button" onClick={onRefresh} disabled={loading} aria-label="Refresh financial data" className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 disabled:opacity-50"><RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} /></button>
-        </div>
-      </header>
+    <section
+      aria-labelledby="mr-pulse-title"
+      className="overflow-hidden rounded-panel border border-mr-line bg-mr-surface"
+    >
+      <div className="border-b border-mr-line px-5 py-3">
+        <SectionHeader
+          id="mr-pulse-title"
+          title="Financial performance"
+          description="One connected view of approved accounting activity"
+          actions={(
+            <>
+              <label className="flex h-9 cursor-pointer items-center gap-2 rounded-full border border-mr-line bg-mr-surface px-3 text-[12px] font-medium text-mr-muted transition-colors hover:bg-mr-surface-2">
+                <Checkbox
+                  checked={excludeOldPlots}
+                  onCheckedChange={(value) => setExcludeOldPlots(!!value)}
+                  className="h-4 w-4"
+                  aria-label="Show new plots only"
+                />
+                New plots only
+              </label>
+              <TimeFilter value={timePreset} onChange={setTimePreset} />
+              <button
+                type="button"
+                onClick={onVerify}
+                className="inline-flex h-9 items-center gap-1.5 rounded-full bg-mr-lime-soft px-3.5 text-[12px] font-semibold text-mr-lime-ink transition-colors hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue focus-visible:ring-offset-2"
+              >
+                <ShieldCheck className="h-4 w-4" strokeWidth={1.9} aria-hidden="true" />
+                Verify
+              </button>
+              <IconButton
+                icon={RefreshCw}
+                label="Refresh financial data"
+                onClick={onRefresh}
+                disabled={loading}
+                className={loading ? '[&>svg]:animate-spin' : ''}
+              />
+            </>
+          )}
+        />
+      </div>
 
-      <div className="grid lg:grid-cols-[300px_minmax(0,1fr)]">
-        {canSee('kpi_siteBalance') && (
-          <button type="button" onClick={() => onSelect('siteBalance')} className="group relative flex min-h-64 flex-col items-center justify-center overflow-hidden bg-slate-950 px-5 py-6 text-white lg:min-h-full">
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(34,211,238,.18),transparent_45%)]" />
-            <div className="relative h-36 w-36">
-              <svg viewBox="0 0 42 42" className="h-full w-full -rotate-90" aria-hidden="true">
-                <circle cx="21" cy="21" r="15.9" fill="none" stroke="rgba(255,255,255,.09)" strokeWidth="2.8" />
-                <circle cx="21" cy="21" r="15.9" fill="none" stroke={balance >= 0 ? '#22d3ee' : '#fb7185'} strokeWidth="2.8" strokeLinecap="round" pathLength="100" strokeDasharray={dash} />
-              </svg>
-              <span className="absolute inset-0 flex flex-col items-center justify-center"><Banknote className="mb-1 h-4 w-4 text-cyan-300" /><span className="text-[10px] text-slate-400">Site balance</span><span className="mt-1 max-w-28 truncate text-lg font-bold">{money(balance)}</span></span>
-            </div>
-            <div className="relative mt-4 grid w-full grid-cols-3 gap-2 border-t border-white/10 pt-4 text-center"><span><span className="block text-[9px] text-slate-500">Opening</span><span className="mt-1 block truncate text-[11px] font-semibold">{money(opening)}</span></span><span><span className="block text-[9px] text-slate-500">Incoming</span><span className="mt-1 block truncate text-[11px] font-semibold text-cyan-300">{money(incoming)}</span></span><span><span className="block text-[9px] text-slate-500">Outgoing</span><span className="mt-1 block truncate text-[11px] font-semibold text-rose-300">{money(outgoing)}</span></span></div>
-          </button>
+      <div className={`grid ${showProfit ? 'lg:grid-cols-[minmax(0,0.72fr)_minmax(0,2.28fr)]' : 'grid-cols-1'}`}>
+        {/* Dominant metric — net profit for the selected period */}
+        {showProfit && (
+          <div className="relative flex flex-col justify-between gap-4 border-b border-mr-line p-5 sm:p-6 lg:border-b-0 lg:border-r">
+            <div
+              className="pointer-events-none absolute inset-0"
+              aria-hidden="true"
+              style={{
+                background: profit >= 0
+                  ? 'radial-gradient(115% 85% at 0% 100%, rgba(185,255,69,0.45) 0%, rgba(80,221,235,0.16) 45%, rgba(255,255,255,0) 72%)'
+                  : 'radial-gradient(115% 85% at 0% 100%, rgba(255,101,74,0.30) 0%, rgba(255,176,46,0.12) 45%, rgba(255,255,255,0) 72%)',
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => onSelect('profit')}
+              className="relative -m-2 rounded-panel-sm p-2 text-left transition-colors hover:bg-mr-surface-2/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue"
+            >
+              <span className="text-[12px] font-medium text-mr-muted">Net profit</span>
+              {loading
+                ? <span className="mt-3 block h-12 w-44 animate-pulse rounded-lg bg-mr-surface-2" />
+                : <CurrencyValue value={profit} size="lg" tone={profit >= 0 ? 'default' : 'negative'} className="mt-2" compactAbove={1e7} />}
+              <span className="mt-2.5 flex flex-wrap items-center gap-2">
+                <StatusPill tone={profit >= 0 ? 'positive' : 'negative'}>
+                  {profit >= 0 ? 'Surplus' : 'Deficit'}
+                </StatusPill>
+                {margin !== 0 && <StatusPill>{margin}% margin</StatusPill>}
+              </span>
+              <span className="mt-2 block text-[12px] text-mr-faint">
+                Plot revenue {moneyCompact(revenue)} − outgoing {moneyCompact(expense)}
+              </span>
+            </button>
+
+            {canSee('module_breakdown') && (
+              <div className="relative">
+                <p className="mb-2 text-[12px] font-medium text-mr-muted">Top account activity</p>
+                <ModuleSplit breakdown={kpi?.breakdown} loading={loading} />
+              </div>
+            )}
+          </div>
         )}
 
-        <div className="grid divide-y divide-slate-100 sm:grid-cols-2 sm:[&>*:nth-child(odd)]:border-r sm:[&>*:nth-child(odd)]:border-slate-100 xl:grid-cols-3 xl:[&>*:not(:nth-child(3n))]:border-r xl:[&>*:not(:nth-child(3n))]:border-slate-100 xl:[&>*:nth-child(odd)]:border-r-0">
+        {/* Supporting figures — one shared surface, hairline separated */}
+        {/* -mb-px/-mr-px lets the trailing hairlines fall on the section's own
+            border instead of drawing a dangling line inside it. */}
+        <div className="-mb-px -mr-px grid sm:grid-cols-2 xl:grid-cols-3 [&>*]:border-b [&>*]:border-r [&>*]:border-mr-line">
           {metrics.map((metric) => (
-            <Metric key={`${metric.label}-${metric.key}`} {...metric} loading={loading} onClick={() => onSelect(metric.key)}>
-              {metric.registry && Number(kpi?.registryPaymentsOldCount) > 0 && <label onClick={(event) => event.stopPropagation()} className="mt-1.5 inline-flex cursor-pointer items-center gap-1 text-[9px] font-medium text-slate-400"><Checkbox checked={registryIncludeOld} onCheckedChange={(value) => setRegistryIncludeOld(!!value)} className="h-3 w-3" />Include {Number(kpi.registryPaymentsOldCount) || 0} OLD</label>}
-            </Metric>
+            <FinancialMetric
+              key={`${metric.key}-${metric.label}`}
+              icon={metric.icon}
+              accent={metric.accent}
+              label={metric.label}
+              value={metric.value}
+              hint={metric.hint}
+              tone={metric.tone}
+              size="md"
+              loading={loading}
+              onClick={() => onSelect(metric.key)}
+            >
+              {metric.registry && oldCount > 0 && (
+                <label
+                  onClick={(event) => event.stopPropagation()}
+                  className="mt-2 inline-flex cursor-pointer items-center gap-1.5 text-[12px] font-medium text-mr-muted"
+                >
+                  <Checkbox
+                    checked={registryIncludeOld}
+                    onCheckedChange={(value) => setRegistryIncludeOld(!!value)}
+                    className="h-3.5 w-3.5"
+                    aria-label={`Include ${oldCount} old plot receipts`}
+                  />
+                  Include {oldCount} old
+                </label>
+              )}
+            </FinancialMetric>
           ))}
         </div>
       </div>

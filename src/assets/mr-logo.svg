@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 372" role="img" aria-label="MountReality">
+  <defs>
+    <linearGradient id="mrLogoA" x1="30" y1="360" x2="440" y2="20" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0f3fc6"/>
+      <stop offset=".45" stop-color="#1f6ae6"/>
+      <stop offset="1" stop-color="#25c6f5"/>
+    </linearGradient>
+    <linearGradient id="mrLogoB" x1="120" y1="330" x2="280" y2="110" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0d3096"/>
+      <stop offset="1" stop-color="#1a4fc4"/>
+    </linearGradient>
+  </defs>
+  <rect x="386" y="14" width="34" height="34" fill="url(#mrLogoA)"/>
+  <rect x="432" y="62" width="26" height="26" fill="url(#mrLogoA)"/>
+  <path d="M262 66 L348 4 L348 224 L262 138 Z" fill="url(#mrLogoB)"/>
+  <path d="M356 12 L404 62 L404 280 L356 232 Z" fill="url(#mrLogoA)"/>
+  <path d="M372 84 L392 100 L392 268 L372 248 Z" fill="url(#mrLogoA)"/>
+  <path d="M414 128 L462 168 L462 338 L414 290 Z" fill="url(#mrLogoA)"/>
+  <path fill-rule="evenodd" fill="url(#mrLogoA)" d="M2 366 C58 262 148 152 212 96 L470 356 C 392 314 176 288 2 366 Z M230 138 L446 350 L440 352 L225 144 Z M204 124 C166 186 126 254 104 306 L114 308 C140 254 176 190 210 136 Z"/>
+  <path d="M212 112 C180 172 144 238 120 300 C166 282 216 278 268 282 Z" fill="url(#mrLogoB)"/>
+</svg>

@@ -1,12 +1,25 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { money, moneyCompact } from '@/lib/utils';
+
+/* Farmer status → semantic pill tone (mirrors the list page). */
+const FARMER_STATUS_TONE = { active: 'positive', completed: 'info', inactive: 'neutral' };
+
+/* Payment mode → brand tint. Cash reads aqua and bank reads blue, matching
+   the cash/bank legs in the settlement panel above the table. */
+const MODE_CHIP = {
+  CASH: 'bg-mr-aqua-soft text-mr-aqua-ink',
+  BANK: 'bg-mr-blue-soft text-mr-blue',
+  SPLIT: 'bg-mr-lime-soft text-mr-lime-ink',
+  CHEQUE: 'bg-mr-amber-soft text-mr-amber-ink',
+  DEFAULT: 'bg-mr-surface-2 text-mr-muted',
+};
+import { CurrencyValue, EmptyState, SkeletonBlock, StatusPill } from '../components/dashboard/primitives';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/api';
 import * as XLSX from 'xlsx';
 import html2pdf from 'html2pdf.js';
 import { toast } from 'sonner';
-import UserAvatar from '../components/UserAvatar';
-import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -56,6 +69,8 @@ import QRCode from 'qrcode';
 import { useRowSelection } from '../hooks/useRowSelection';
 import BulkActionsBar from '../components/BulkActionsBar';
 import { classifyPaymentMode } from '../utils/paymentMode';
+import { GHOST_BTN, PRIMARY_BTN } from '../components/ui/page';
+import { CountUp, ProgressBar } from '../components/ui/animate';
 
 const todayISO = () => new Date().toISOString().split('T')[0];
 const LAND_UNIT_LABELS = { BIGHA: 'Bigha', YARD: 'Yard', SQMT: 'Mtr Sq' };
@@ -844,56 +859,70 @@ const FarmerPayments = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <div className="w-5 h-5 border-2 border-slate-200 border-t-slate-600 rounded-full animate-spin" />
+      <div className="w-full space-y-6">
+        <SkeletonBlock className="h-24 w-full" />
+        <SkeletonBlock className="h-56 w-full" />
+        <SkeletonBlock className="h-80 w-full" />
       </div>
     );
   }
 
   if (!farmer) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 text-center">
-        <Tractor className="w-10 h-10 text-slate-200 mb-3" />
-        <p className="text-sm text-slate-500">Farmer not found</p>
-        <Button variant="outline" size="sm" className="mt-3" onClick={() => navigate('/farmers')}>
-          <ArrowLeft className="w-4 h-4 mr-1.5" /> Back to Farmers
-        </Button>
+      <div className="rounded-panel border border-mr-line bg-mr-surface">
+        <EmptyState
+          icon={Tractor}
+          title="Farmer not found"
+          description="This farmer may have been removed, or belongs to a different site."
+          action={(
+            <Button
+              variant="outline"
+              onClick={() => navigate('/farmers')}
+              className="mt-1 h-10 rounded-full border-mr-line text-[13px]"
+            >
+              <ArrowLeft className="mr-1.5 h-4 w-4" strokeWidth={1.9} /> Back to farmers
+            </Button>
+          )}
+        />
       </div>
     );
   }
 
   return (
-    <div className="w-full max-w-full md:max-w-7xl space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={() => navigate('/farmers')} className="h-8 w-8 p-0 text-slate-400">
-            <ArrowLeft className="w-4 h-4" />
-          </Button>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-semibold text-slate-900">{farmer.name}</h1>
-              <Badge variant="outline" className={`text-[10px] capitalize ${
-                farmer.status === 'active' ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                : farmer.status === 'completed' ? 'bg-blue-50 text-blue-700 border-blue-200'
-                : 'bg-slate-50 text-slate-500 border-slate-200'
-              }`}>
+    <div className="mx-auto w-full max-w-6xl pb-16">
+      {/* ── Header ── */}
+      <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+        <div className="flex min-w-0 items-center gap-3">
+          <button
+            type="button"
+            onClick={() => navigate('/farmers')}
+            aria-label="Back to farmers"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-control border border-mr-line text-mr-muted transition-colors hover:bg-mr-surface-2 hover:text-mr-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue"
+          >
+            <ArrowLeft className="h-4 w-4" strokeWidth={1.9} aria-hidden="true" />
+          </button>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="truncate text-[clamp(1.375rem,2.4vw,1.875rem)] font-semibold leading-tight tracking-[-0.03em] text-mr-text">
+                {farmer.name}
+              </h1>
+              <StatusPill tone={FARMER_STATUS_TONE[farmer.status] || 'neutral'} className="capitalize">
                 {farmer.status}
-              </Badge>
+              </StatusPill>
             </div>
-            <div className="flex items-center gap-3 mt-0.5">
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-mr-muted">
               {farmer.phone && (
-                <span className="text-xs text-slate-400 flex items-center gap-1">
-                  <Phone className="w-3 h-3" /> {farmer.phone}
+                <span className="inline-flex items-center gap-1">
+                  <Phone className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden="true" /> {farmer.phone}
                 </span>
               )}
               {farmer.address && (
-                <span className="text-xs text-slate-400 flex items-center gap-1">
-                  <MapPin className="w-3 h-3" /> {farmer.address}
+                <span className="inline-flex min-w-0 items-center gap-1">
+                  <MapPin className="h-3.5 w-3.5 shrink-0" strokeWidth={1.9} aria-hidden="true" />
+                  <span className="truncate">{farmer.address}</span>
                 </span>
               )}
             </div>
-
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -906,380 +935,427 @@ const FarmerPayments = () => {
             entityLabel="payment"
             deleting={bulkDeleting}
           />
-          <Button variant="outline" size="sm" onClick={handleExportExcel} title="Download Excel">
-            <FileSpreadsheet className="w-4 h-4 mr-1.5" /> Excel
-          </Button>
-          <Button variant="outline" size="sm" onClick={handleDownloadStatementPDF} title="Download Full Statement PDF">
-            <FileText className="w-4 h-4 mr-1.5" /> Statement
-          </Button>
+          <button type="button" className={GHOST_BTN} onClick={handleExportExcel} title="Download Excel">
+            <FileSpreadsheet className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden="true" /> Excel
+          </button>
+          <button type="button" className={GHOST_BTN} onClick={handleDownloadStatementPDF} title="Download full statement PDF">
+            <FileText className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden="true" /> Statement
+          </button>
           {canWrite && (
-            <Button size="sm" onClick={handleOpenCreate}>
-              <Plus className="w-4 h-4 mr-1.5" /> Add Payment
-            </Button>
+            <button type="button" className={PRIMARY_BTN} onClick={handleOpenCreate}>
+              <Plus className="h-4 w-4" strokeWidth={2} aria-hidden="true" /> Add payment
+            </button>
           )}
         </div>
       </div>
 
-      {/* Overall Summary Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <Card className="shadow-none border-slate-200">
-          <CardContent className="p-3">
-            <p className="text-[10px] uppercase tracking-wider text-slate-400 font-medium">Total Amount</p>
-            <p className="text-lg font-bold text-slate-900 mt-1">₹{formatCurrency(summary.total_amount)}</p>
-          </CardContent>
-        </Card>
-        <Card className="shadow-none border-slate-200">
-          <CardContent className="p-3">
-            <p className="text-[10px] uppercase tracking-wider text-slate-400 font-medium">Total Paid</p>
-            <p className="text-lg font-bold text-emerald-600 mt-1">₹{formatCurrency(summary.total_paid)}</p>
-            <div className="w-full h-1 bg-slate-100 rounded-full mt-1.5">
-              <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${progressPct}%` }} />
-            </div>
-            <p className="text-[9px] text-slate-400 mt-0.5">{progressPct.toFixed(1)}% done</p>
-          </CardContent>
-        </Card>
-        <Card className="shadow-none border-slate-200">
-          <CardContent className="p-3">
-            <p className="text-[10px] uppercase tracking-wider text-slate-400 font-medium">Remaining</p>
-            <p className={`text-lg font-bold mt-1 ${summary.remaining > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>
-              ₹{formatCurrency(summary.remaining)}
+      {/* ── Settlement position ──
+         Remaining leads because it is the number that decides whether
+         anything still has to happen. Figures count up and the bars fill
+         once on arrival; both land on the real value. */}
+      <section aria-labelledby="mr-farmer-position" className="mt-7 border-t border-mr-line pt-6">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div className="min-w-0">
+            <h2 id="mr-farmer-position" className="text-[13px] text-mr-muted">Remaining to pay</h2>
+            <p className={`mt-1.5 text-[clamp(2rem,4vw,2.75rem)] font-semibold leading-none tracking-[-0.04em] ${summary.remaining > 0 ? 'text-mr-text' : 'text-mr-lime-ink'}`}>
+              <CountUp value={summary.remaining} format={money} title={money(summary.remaining)} />
             </p>
-          </CardContent>
-        </Card>
-      </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusPill tone={summary.remaining > 0 ? 'attention' : 'positive'}>
+              {summary.remaining > 0 ? 'Settlement pending' : 'Fully settled'}
+            </StatusPill>
+            <StatusPill>{payments.length} payment{payments.length === 1 ? '' : 's'}</StatusPill>
+          </div>
+        </div>
 
-      {/* Cash & Bank Analytics Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {/* Cash Card */}
-        <Card className="shadow-none border-green-200 bg-green-50/30">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <div className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center">
-                <Banknote className="w-4 h-4 text-green-700" />
-              </div>
-              <p className="text-sm font-semibold text-green-800">Cash</p>
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <p className="text-[10px] uppercase tracking-wider text-green-600/70 font-medium">To Pay</p>
-                <p className="text-base font-bold text-green-900 mt-0.5">₹{formatCurrency(summary.cash_to_pay)}</p>
-              </div>
-              <div>
-                <p className="text-[10px] uppercase tracking-wider text-green-600/70 font-medium">Paid</p>
-                <p className="text-base font-bold text-green-700 mt-0.5">₹{formatCurrency(summary.cash_paid)}</p>
-              </div>
-              <div>
-                <p className="text-[10px] uppercase tracking-wider text-green-600/70 font-medium">Remaining</p>
-                <p className={`text-base font-bold mt-0.5 ${summary.cash_remaining > 0 ? 'text-amber-600' : 'text-green-700'}`}>₹{formatCurrency(summary.cash_remaining)}</p>
-              </div>
-            </div>
-            {summary.cash_to_pay > 0 && (
-              <div className="w-full h-1.5 bg-green-100 rounded-full mt-3">
-                <div className="h-full bg-green-500 rounded-full transition-all" style={{ width: `${Math.min((summary.cash_paid / summary.cash_to_pay) * 100, 100)}%` }} />
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <div className="mt-6">
+          <div className="flex items-baseline justify-between gap-3 text-[13px]">
+            <span className="text-mr-muted">Paid of committed</span>
+            <span className="font-medium tabular-nums text-mr-text" title={`${money(summary.total_paid)} of ${money(summary.total_amount)}`}>
+              <CountUp value={summary.total_paid} format={moneyCompact} /> of {moneyCompact(summary.total_amount)}
+            </span>
+          </div>
+          <ProgressBar
+            className="mt-2"
+            value={progressPct}
+            tone="bg-mr-lime-ink"
+            label={`${progressPct.toFixed(1)}% of the committed amount paid`}
+          />
+          <p className="mt-1.5 text-[12px] text-mr-faint">{progressPct.toFixed(1)}% settled</p>
+        </div>
 
-        {/* Bank Card */}
-        <Card className="shadow-none border-blue-200 bg-blue-50/30">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
-                <Building2 className="w-4 h-4 text-blue-700" />
-              </div>
-              <p className="text-sm font-semibold text-blue-800">Bank</p>
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <p className="text-[10px] uppercase tracking-wider text-blue-600/70 font-medium">To Pay</p>
-                <p className="text-base font-bold text-blue-900 mt-0.5">₹{formatCurrency(summary.bank_to_pay)}</p>
-              </div>
-              <div>
-                <p className="text-[10px] uppercase tracking-wider text-blue-600/70 font-medium">Paid</p>
-                <p className="text-base font-bold text-blue-700 mt-0.5">₹{formatCurrency(summary.bank_paid)}</p>
-              </div>
-              <div>
-                <p className="text-[10px] uppercase tracking-wider text-blue-600/70 font-medium">Remaining</p>
-                <p className={`text-base font-bold mt-0.5 ${summary.bank_remaining > 0 ? 'text-amber-600' : 'text-blue-700'}`}>₹{formatCurrency(summary.bank_remaining)}</p>
-              </div>
-            </div>
-            {summary.bank_to_pay > 0 && (
-              <div className="w-full h-1.5 bg-blue-100 rounded-full mt-3">
-                <div className="h-full bg-blue-500 rounded-full transition-all" style={{ width: `${Math.min((summary.bank_paid / summary.bank_to_pay) * 100, 100)}%` }} />
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+        {/* Cash and bank legs */}
+        <div className="mt-7 grid gap-8 sm:grid-cols-2">
+          {[
+            {
+              key: 'cash', label: 'Cash leg', bar: 'bg-mr-aqua-ink',
+              toPay: summary.cash_to_pay, paid: summary.cash_paid, remaining: summary.cash_remaining,
+            },
+            {
+              key: 'bank', label: 'Bank leg', bar: 'bg-mr-blue',
+              toPay: summary.bank_to_pay, paid: summary.bank_paid, remaining: summary.bank_remaining,
+            },
+          ].map((leg) => {
+            const legPct = leg.toPay > 0 ? Math.min((leg.paid / leg.toPay) * 100, 100) : 0;
+            return (
+              <div key={leg.key} className="min-w-0">
+                <div className="flex items-baseline justify-between gap-3 border-b border-mr-line pb-2.5">
+                  <h3 className="text-[14px] font-semibold text-mr-text">{leg.label}</h3>
+                  <span className="text-[12px] tabular-nums text-mr-faint">{legPct.toFixed(0)}% paid</span>
+                </div>
 
-      {/* Land & Commission Details */}
-      <Card className="shadow-none border-amber-200 bg-amber-50/30">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center">
-                <Tractor className="w-4 h-4 text-amber-700" />
-              </div>
-              <p className="text-sm font-semibold text-amber-800">Land &amp; Commission Details</p>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-              <div>
-                <p className="text-[10px] uppercase tracking-wider text-amber-600/70 font-medium">Size of Land</p>
-                <p className="text-base font-bold text-amber-900 mt-0.5">
-                  {farmer.land_size_bigha ? `${parseFloat(farmer.land_size_bigha).toLocaleString('en-IN')} ${landUnitLabel(farmer.land_size_unit)}` : '—'}
-                </p>
-              </div>
-              <div>
-                <p className="text-[10px] uppercase tracking-wider text-amber-600/70 font-medium">Rate of Land</p>
-                <p className="text-base font-bold text-amber-900 mt-0.5">
-                  {farmer.land_rate ? `₹${parseFloat(farmer.land_rate).toLocaleString('en-IN')}` : '—'}
-                </p>
-              </div>
-              <div>
-                <p className="text-[10px] uppercase tracking-wider text-amber-600/70 font-medium">Paid to Broker</p>
-                <p className="text-base font-bold text-amber-900 mt-0.5">
-                  {farmer.commission_paid_to_broker ? `₹${parseFloat(farmer.commission_paid_to_broker).toLocaleString('en-IN', { maximumFractionDigits: 2 })}` : '—'}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+                <div className="mt-3.5">
+                  <span className="block text-[13px] text-mr-muted">Remaining</span>
+                  <p className={`mt-0.5 text-[20px] font-semibold leading-none tracking-[-0.025em] ${leg.remaining > 0 ? 'text-mr-text' : 'text-mr-lime-ink'}`}>
+                    <CountUp value={leg.remaining} format={money} title={money(leg.remaining)} />
+                  </p>
+                </div>
 
-      {/* Farmer Notes */}
-      {farmer.notes && (
-        <Card className="shadow-none border-slate-200 bg-amber-50/40">
-          <CardContent className="p-3">
-            <p className="text-xs text-amber-700"><strong>Notes:</strong> {farmer.notes}</p>
-          </CardContent>
-        </Card>
-      )}
+                {leg.toPay > 0 && (
+                  <ProgressBar
+                    className="mt-3"
+                    height="h-1.5"
+                    value={legPct}
+                    tone={leg.bar}
+                    label={`${leg.label}: ${legPct.toFixed(1)}% paid`}
+                  />
+                )}
 
-      {/* Payments Table */}
-      <Card className="shadow-none border-slate-200">
-        <CardContent className="p-0">
+                <dl className="mt-3 text-[13px]">
+                  <div className="flex items-baseline justify-between gap-3 border-b border-mr-line py-2">
+                    <dt className="text-mr-muted">Committed</dt>
+                    <dd className="font-medium tabular-nums text-mr-text" title={money(leg.toPay)}>{moneyCompact(leg.toPay)}</dd>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-3 border-b border-mr-line py-2">
+                    <dt className="text-mr-muted">Paid</dt>
+                    <dd className="font-semibold tabular-nums text-mr-lime-ink" title={money(leg.paid)}>
+                      <CountUp value={leg.paid} format={moneyCompact} />
+                    </dd>
+                  </div>
+                </dl>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* ── Land, commission and notes — supporting detail, one quiet surface ── */}
+      <section className="mt-10">
+        <h2 className="border-b border-mr-line pb-2.5 text-[15px] font-semibold tracking-[-0.01em] text-mr-text">Land &amp; commission</h2>
+        <dl className="mt-4 grid gap-x-6 gap-y-4 sm:grid-cols-3">
+          {[
+            {
+              label: 'Size of land',
+              value: farmer.land_size_bigha
+                ? `${parseFloat(farmer.land_size_bigha).toLocaleString('en-IN')} ${landUnitLabel(farmer.land_size_unit)}`
+                : '—',
+            },
+            {
+              label: 'Rate of land',
+              value: farmer.land_rate ? money(farmer.land_rate) : '—',
+            },
+            {
+              label: 'Paid to broker',
+              value: farmer.commission_paid_to_broker ? money(farmer.commission_paid_to_broker) : '—',
+            },
+          ].map((row) => (
+            <div key={row.label} className="min-w-0">
+              <dt className="text-[12px] text-mr-muted">{row.label}</dt>
+              <dd className="mt-1 truncate text-[18px] font-semibold tracking-[-0.02em] tabular-nums text-mr-text">
+                {row.value}
+              </dd>
+            </div>
+          ))}
+        </dl>
+        {farmer.notes && (
+          <p className="mt-5 border-t border-mr-line pt-4 text-[13px] leading-relaxed text-mr-muted">
+            <span className="font-medium text-mr-text">Notes · </span>{farmer.notes}
+          </p>
+        )}
+      </section>
+
+      {/* ── Payment history ── */}
+      <section className="overflow-hidden rounded-panel border border-mr-line bg-mr-surface">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-mr-line px-5 py-4 sm:px-6">
+          <div>
+            <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-mr-text">Payment history</h2>
+            <p className="mt-0.5 text-[12px] text-mr-muted">Every installment recorded against this farmer</p>
+          </div>
+          <span className="text-[12px] text-mr-muted">
+            {paymentsWithRunning.length} entr{paymentsWithRunning.length === 1 ? 'y' : 'ies'}
+          </span>
+        </div>
+        <div className="p-0">
           {paymentsWithRunning.length === 0 ? (
-            <div className="text-center py-16">
-              <IndianRupee className="w-8 h-8 text-slate-200 mx-auto mb-2" />
-              <p className="text-sm text-slate-500">No payments yet</p>
-              <p className="text-xs text-slate-400 mt-0.5">Add the first installment payment</p>
-            </div>
+            <EmptyState
+              icon={IndianRupee}
+              title="No payments yet"
+              description="Record the first installment to start building this farmer's statement."
+              action={canWrite ? (
+                <Button
+                  onClick={handleOpenCreate}
+                  className="mt-1 h-10 rounded-full bg-mr-ink px-4 text-[13px] font-semibold text-white hover:bg-mr-ink-2"
+                >
+                  <Plus className="mr-1.5 h-4 w-4" strokeWidth={2} /> Add payment
+                </Button>
+              ) : null}
+            />
           ) : (
-            <div className="overflow-auto relative z-0 will-change-scroll" style={{ maxHeight: 'calc(100vh - 320px)', WebkitOverflowScrolling: 'touch' }}>
-              <table className="w-full text-sm">
-                <thead className="sticky top-0 z-30 bg-slate-50" style={{ boxShadow: '0 1px 0 0 #e2e8f0' }}>
-                  <tr>
-                    <th className="w-10 sticky left-0 z-40 bg-slate-50 px-3 py-2 text-left">
-                      <Checkbox
-                        checked={selection.isAllSelected(visibleIds) ? true : (selection.count > 0 && visibleIds.some((vid) => selection.isSelected(vid))) ? 'indeterminate' : false}
-                        onCheckedChange={() => selection.toggleAll(visibleIds)}
-                        aria-label="Select all payments"
-                      />
-                    </th>
-                    <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 w-10 sticky left-10 z-40 bg-slate-50 px-3 py-2 text-left">#</th>
-                    <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 w-24 sticky left-20 z-40 bg-slate-50 px-3 py-2 text-left" style={{boxShadow: '2px 0 4px -1px rgba(0,0,0,0.08)'}}>Date</th>
-                    <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 px-3 py-2 text-left">Particular</th>
-                    <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 px-3 py-2 text-left">Mode</th>
-                    <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 px-3 py-2 text-left">Cheque No</th>
-                    <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 px-3 py-2 text-right">Amount (₹)</th>
-                    <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 px-3 py-2 text-right">Cash (₹)</th>
-                    <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 px-3 py-2 text-right">Bank (₹)</th>
-                    <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 px-3 py-2 text-left">By</th>
-                    <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 px-3 py-2 text-right">Running Total (₹)</th>
-                    <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 px-3 py-2 text-left">Remarks</th>
-                    <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 px-3 py-2 text-left">Assigned To</th>
-                    <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 px-3 py-2 text-left">Created By</th>
-                    <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 px-3 py-2 text-left">Status</th>
-                    <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 px-3 py-2 text-left">Voucher</th>
-                    {(canUpdate || canDelete) && <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 px-3 py-2 text-right">Actions</th>}
-                    {!(canUpdate || canDelete) && <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 px-3 py-2 text-right">Edit</th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {paymentsWithRunning.map((payment, idx) => {
-                    const isPayAdvance = payment.particular?.toUpperCase().includes('PAY ADVANCE');
+            <>
+              {/* Desktop: 8 grouped columns instead of 17 pinned ones.
+                  No sticky side columns and no content-visibility — both were
+                  what made the old table shear and jump while scrolling. */}
+              <div className="hidden max-h-[65vh] overflow-y-auto overflow-x-auto md:block">
+                <table className="w-full min-w-[900px] border-collapse text-left">
+                  <caption className="sr-only">Payment history for {farmer.name}</caption>
+                  <thead className="sticky top-0 z-10">
+                    <tr>
+                      <th scope="col" className="w-10 border-b border-mr-line bg-mr-surface-2 px-4 py-3">
+                        <Checkbox
+                          checked={selection.isAllSelected(visibleIds) ? true : (selection.count > 0 && visibleIds.some((vid) => selection.isSelected(vid))) ? 'indeterminate' : false}
+                          onCheckedChange={() => selection.toggleAll(visibleIds)}
+                          aria-label="Select all payments"
+                        />
+                      </th>
+                      {[
+                        { label: 'Date', align: '' },
+                        { label: 'Particular', align: '' },
+                        { label: 'Mode', align: '' },
+                        { label: 'Amount', align: 'text-right' },
+                        { label: 'Running total', align: 'text-right' },
+                        { label: 'Status', align: '' },
+                        { label: 'Actions', align: 'text-right' },
+                      ].map((col) => (
+                        <th
+                          key={col.label}
+                          scope="col"
+                          className={`border-b border-mr-line bg-mr-surface-2 px-4 py-3 text-[12px] font-medium text-mr-muted ${col.align}`}
+                        >
+                          {col.label}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paymentsWithRunning.map((payment, idx) => {
+                      const isPayAdvance = payment.particular?.toUpperCase().includes('PAY ADVANCE');
+                      const cash = parseFloat(payment.cash_amount) || 0;
+                      const bank = parseFloat(payment.bank_amount) || 0;
+                      const meta = [
+                        payment.by_note && `By ${payment.by_note}`,
+                        payment.assigned_admin_id && getAssignedAdminLabel(payment),
+                        payment.created_by_name && `Entry by ${payment.created_by_name}`,
+                        payment.remarks,
+                      ].filter(Boolean).join(' · ');
 
-                    return (
-                      <tr
-                        key={payment.id}
-                        className={`border-b hover:bg-slate-50/50 ${isPayAdvance ? 'bg-yellow-50' : ''}`}
-                        style={{ contentVisibility: 'auto', containIntrinsicSize: '0 44px' }}
-                      >
-                        <td className="sticky left-0 z-10 bg-white px-3 py-2">
-                          <Checkbox
-                            checked={selection.isSelected(payment.id)}
-                            onCheckedChange={() => selection.toggle(payment.id)}
-                            aria-label={`Select payment ${payment.id}`}
-                          />
-                        </td>
-                        <td className="text-xs text-slate-400 font-mono sticky left-10 z-10 bg-white px-3 py-2">{idx + 1}</td>
-                        <td className="text-sm text-slate-700 whitespace-nowrap sticky left-20 z-10 bg-white px-3 py-2" style={{boxShadow: '2px 0 4px -1px rgba(0,0,0,0.08)'}}>
-                          {formatDate(payment.date)}
-                        </td>
-                        <td className="px-3 py-2">
-                          <span className={`text-sm font-medium ${isPayAdvance ? 'text-yellow-700' : 'text-slate-800'}`}>
-                            {payment.particular}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2">
-                          <Badge variant="outline" className={`text-[10px] ${
-                            payment.payment_mode === 'CASH' ? 'bg-green-50 text-green-700 border-green-200'
-                            : payment.payment_mode === 'BANK' ? 'bg-blue-50 text-blue-700 border-blue-200'
-                            : payment.payment_mode === 'SPLIT' ? 'bg-purple-50 text-purple-700 border-purple-200'
-                            : payment.payment_mode === 'CHEQUE' ? 'bg-teal-50 text-teal-700 border-teal-200'
-                            : 'bg-slate-50 text-slate-600 border-slate-200'
-                          }`}>
-                            {payment.payment_mode || 'BANK'}
-                          </Badge>
-                          <ChequeStatusControl
-                            chequeStatus={payment.cheque_status}
-                            source="farmer_payment"
-                            entryId={payment.id}
-                            isAdmin={isAdmin}
-                            onStatusChange={fetchData}
-                          />
-                        </td>
-                        <td className="px-3 py-2">
-                          <span className="text-xs font-mono text-slate-600">{payment.cheque_no || '—'}</span>
-                        </td>
-                        <td className="text-right px-3 py-2">
-                          <span className={`text-sm font-medium tabular-nums ${
-                            parseFloat(payment.amount) < 0 ? 'text-red-600' : 'text-slate-800'
-                          }`}>
-                            {formatCurrency(payment.amount)}
-                          </span>
-                        </td>
-                        <td className="text-right px-3 py-2">
-                          <span className="text-sm tabular-nums text-green-600">
-                            {parseFloat(payment.cash_amount) > 0 ? formatCurrency(payment.cash_amount) : '—'}
-                          </span>
-                        </td>
-                        <td className="text-right px-3 py-2">
-                          <span className="text-sm tabular-nums text-blue-600">
-                            {parseFloat(payment.bank_amount) > 0 ? formatCurrency(payment.bank_amount) : '—'}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2">
-                          <span className="text-sm text-slate-600">{payment.by_note || '—'}</span>
-                        </td>
-                        <td className="text-right px-3 py-2">
-                          <span className="text-sm font-medium text-slate-700 tabular-nums">
-                            {formatCurrency(payment.running_total)}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2">
-                          <span className="text-xs text-slate-500 max-w-30 truncate block">{payment.remarks || '—'}</span>
-                        </td>
-                        <td className="px-3 py-2">
-                          {payment.assigned_admin_id ? (
-                            <span className="inline-flex items-center text-xs font-medium text-purple-700 bg-purple-50 px-2 py-1 rounded-md">
-                              {getAssignedAdminLabel(payment) || '—'}
+                      return (
+                        <tr
+                          key={payment.id}
+                          className={`border-b border-mr-line align-top transition-colors duration-150 hover:bg-mr-surface-2/60 ${isPayAdvance ? 'bg-mr-amber-soft/50' : ''}`}
+                        >
+                          <td className="px-4 py-3.5">
+                            <Checkbox
+                              checked={selection.isSelected(payment.id)}
+                              onCheckedChange={() => selection.toggle(payment.id)}
+                              aria-label={`Select payment ${idx + 1}`}
+                            />
+                          </td>
+
+                          <td className="whitespace-nowrap px-4 py-3.5">
+                            <span className="block text-[13px] font-medium tabular-nums text-mr-text">{formatDate(payment.date)}</span>
+                            <span className="mt-0.5 block text-[12px] tabular-nums text-mr-faint">#{idx + 1}</span>
+                          </td>
+
+                          <td className="max-w-[22rem] px-4 py-3.5">
+                            <span className={`block truncate text-[13px] font-medium ${isPayAdvance ? 'text-mr-amber-ink' : 'text-mr-text'}`} title={payment.particular}>
+                              {payment.particular || '—'}
                             </span>
-                          ) : (
-                            <span className="text-xs text-slate-300">Unassigned</span>
-                          )}
-                        </td>
-                        <td className="px-3 py-2">
-                          <UserAvatar name={payment.created_by_name} label="Created by" />
-                        </td>
-                        <td className="px-3 py-2">
-                          <ApprovalStatusBadge status={payment.status || 'pending'} />
-                        </td>
-                        <td className="px-3 py-2">
-                          <VoucherThumbnail url={payment.voucher_url} />
-                        </td>
-                        {(canUpdate || canDelete) && (
-                          <td className="text-right px-3 py-2">
+                            {meta && (
+                              <span className="mt-0.5 block truncate text-[12px] text-mr-faint" title={meta}>{meta}</span>
+                            )}
+                          </td>
+
+                          <td className="whitespace-nowrap px-4 py-3.5">
+                            <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[12px] font-medium ${MODE_CHIP[payment.payment_mode] || MODE_CHIP.DEFAULT}`}>
+                              {payment.payment_mode || 'BANK'}
+                            </span>
+                            {payment.cheque_no && (
+                              <span className="mt-0.5 block text-[12px] tabular-nums text-mr-faint">Cheque {payment.cheque_no}</span>
+                            )}
+                            <ChequeStatusControl
+                              chequeStatus={payment.cheque_status}
+                              source="farmer_payment"
+                              entryId={payment.id}
+                              isAdmin={isAdmin}
+                              onStatusChange={fetchData}
+                            />
+                          </td>
+
+                          <td className="whitespace-nowrap px-4 py-3.5 text-right">
+                            <span className={`block text-[14px] font-semibold tabular-nums ${parseFloat(payment.amount) < 0 ? 'text-mr-coral-ink' : 'text-mr-text'}`}>
+                              ₹{formatCurrency(payment.amount)}
+                            </span>
+                            {(cash > 0 || bank > 0) && (
+                              <span className="mt-0.5 block text-[12px] tabular-nums text-mr-faint">
+                                {cash > 0 && <span className="text-mr-aqua-ink">Cash ₹{formatCurrency(cash)}</span>}
+                                {cash > 0 && bank > 0 && ' · '}
+                                {bank > 0 && <span className="text-mr-blue">Bank ₹{formatCurrency(bank)}</span>}
+                              </span>
+                            )}
+                          </td>
+
+                          <td className="whitespace-nowrap px-4 py-3.5 text-right text-[13px] font-medium tabular-nums text-mr-muted">
+                            ₹{formatCurrency(payment.running_total)}
+                          </td>
+
+                          <td className="whitespace-nowrap px-4 py-3.5">
+                            <ApprovalStatusBadge status={payment.status || 'pending'} />
+                            <span className="mt-1 block"><VoucherThumbnail url={payment.voucher_url} /></span>
+                          </td>
+
+                          <td className="whitespace-nowrap px-4 py-3.5">
                             <div className="flex items-center justify-end gap-1">
                               <Button
                                 variant="ghost"
-                                size="sm"
                                 onClick={() => handlePrintReceipt(payment)}
-                                className="h-7 w-7 p-0 text-slate-400 hover:text-green-600"
-                                title="Print Receipt"
+                                className="h-8 w-8 rounded-full p-0 text-mr-faint hover:bg-mr-lime-soft hover:text-mr-lime-ink"
+                                title="Print receipt"
+                                aria-label="Print receipt"
                               >
-                                <Printer className="w-3.5 h-3.5" />
+                                <Printer className="h-4 w-4" strokeWidth={1.9} />
                               </Button>
-                              {canUpdate && <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setSignEntry(payment)}
-                                className={`h-7 w-7 p-0 ${payment.customer_signature_url ? 'text-emerald-500 hover:text-emerald-700' : 'text-slate-400 hover:text-violet-600'}`}
-                                title={payment.customer_signature_url ? 'Signed — capture again' : 'Capture Signature'}
-                              >
-                                <PenLine className="w-3.5 h-3.5" />
-                              </Button>}
-                              {canUpdate && <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleOpenEdit(payment)}
-                                className="h-7 w-7 p-0 text-slate-400 hover:text-slate-700"
-                              >
-                                <Edit2 className="w-3.5 h-3.5" />
-                              </Button>}
-                              {canDelete && <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleDelete(payment.id)}
-                                className="h-7 w-7 p-0 text-slate-400 hover:text-red-600"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </Button>}
-                            </div>
-                          </td>
-                        )}
-                        {!(canUpdate || canDelete) && (
-                          <td className="text-right px-3 py-2">
-                            <div className="flex items-center justify-end gap-1">
+                              {canUpdate && (
+                                <Button
+                                  variant="ghost"
+                                  onClick={() => setSignEntry(payment)}
+                                  className={`h-8 w-8 rounded-full p-0 ${payment.customer_signature_url ? 'text-mr-lime-ink hover:bg-mr-lime-soft' : 'text-mr-faint hover:bg-mr-surface-2 hover:text-mr-text'}`}
+                                  title={payment.customer_signature_url ? 'Signed — capture again' : 'Capture signature'}
+                                  aria-label={payment.customer_signature_url ? 'Signed, capture again' : 'Capture signature'}
+                                >
+                                  <PenLine className="h-4 w-4" strokeWidth={1.9} />
+                                </Button>
+                              )}
                               <Button
                                 variant="ghost"
-                                size="sm"
-                                onClick={() => handlePrintReceipt(payment)}
-                                className="h-7 w-7 p-0 text-slate-400 hover:text-green-600"
-                                title="Print Receipt"
-                              >
-                                <Printer className="w-3.5 h-3.5" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
                                 onClick={() => handleOpenEdit(payment)}
-                                className="h-7 w-7 p-0 text-amber-400 hover:text-amber-600"
-                                title="Request Edit"
+                                className={`h-8 w-8 rounded-full p-0 ${canUpdate ? 'text-mr-faint hover:bg-mr-surface-2 hover:text-mr-text' : 'text-mr-amber-ink hover:bg-mr-amber-soft'}`}
+                                title={canUpdate ? 'Edit' : 'Request edit'}
+                                aria-label={canUpdate ? 'Edit payment' : 'Request payment edit'}
                               >
-                                <Edit2 className="w-3.5 h-3.5" />
+                                <Edit2 className="h-4 w-4" strokeWidth={1.9} />
                               </Button>
+                              {canDelete && (
+                                <Button
+                                  variant="ghost"
+                                  onClick={() => handleDelete(payment.id)}
+                                  className="h-8 w-8 rounded-full p-0 text-mr-faint hover:bg-mr-coral-soft hover:text-mr-coral-ink"
+                                  title="Delete"
+                                  aria-label="Delete payment"
+                                >
+                                  <Trash2 className="h-4 w-4" strokeWidth={1.9} />
+                                </Button>
+                              )}
                             </div>
                           </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Mobile: one card per payment */}
+              <ul className="divide-y divide-mr-line md:hidden">
+                {paymentsWithRunning.map((payment, idx) => {
+                  const cash = parseFloat(payment.cash_amount) || 0;
+                  const bank = parseFloat(payment.bank_amount) || 0;
+                  return (
+                    <li key={`m-${payment.id}`} className="px-4 py-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-[14px] font-medium text-mr-text">{payment.particular || '—'}</p>
+                          <p className="mt-0.5 text-[12px] text-mr-faint">
+                            #{idx + 1} · {formatDate(payment.date)}
+                          </p>
+                        </div>
+                        <span className={`shrink-0 text-[15px] font-semibold tabular-nums ${parseFloat(payment.amount) < 0 ? 'text-mr-coral-ink' : 'text-mr-text'}`}>
+                          ₹{formatCurrency(payment.amount)}
+                        </span>
+                      </div>
+
+                      <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                        <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[12px] font-medium ${MODE_CHIP[payment.payment_mode] || MODE_CHIP.DEFAULT}`}>
+                          {payment.payment_mode || 'BANK'}
+                        </span>
+                        <ApprovalStatusBadge status={payment.status || 'pending'} />
+                        {payment.cheque_no && <span className="text-[12px] text-mr-faint">Cheque {payment.cheque_no}</span>}
+                      </div>
+
+                      {(cash > 0 || bank > 0) && (
+                        <p className="mt-2 text-[12px] tabular-nums text-mr-faint">
+                          {cash > 0 && <span className="text-mr-aqua-ink">Cash ₹{formatCurrency(cash)}</span>}
+                          {cash > 0 && bank > 0 && ' · '}
+                          {bank > 0 && <span className="text-mr-blue">Bank ₹{formatCurrency(bank)}</span>}
+                          {' · Running ₹'}{formatCurrency(payment.running_total)}
+                        </p>
+                      )}
+
+                      <div className="mt-2 flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          onClick={() => handlePrintReceipt(payment)}
+                          className="h-9 w-9 rounded-full p-0 text-mr-faint"
+                          aria-label="Print receipt"
+                        >
+                          <Printer className="h-4 w-4" strokeWidth={1.9} />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          onClick={() => handleOpenEdit(payment)}
+                          className={`h-9 w-9 rounded-full p-0 ${canUpdate ? 'text-mr-faint' : 'text-mr-amber-ink'}`}
+                          aria-label={canUpdate ? 'Edit payment' : 'Request payment edit'}
+                        >
+                          <Edit2 className="h-4 w-4" strokeWidth={1.9} />
+                        </Button>
+                        {canDelete && (
+                          <Button
+                            variant="ghost"
+                            onClick={() => handleDelete(payment.id)}
+                            className="h-9 w-9 rounded-full p-0 text-mr-faint"
+                            aria-label="Delete payment"
+                          >
+                            <Trash2 className="h-4 w-4" strokeWidth={1.9} />
+                          </Button>
                         )}
-                      </tr>
-                    );
-                  })}
-                </tbody>
-                <tfoot className="sticky bottom-0 z-30 bg-slate-50" style={{ boxShadow: '0 -1px 0 0 #e2e8f0' }}>
-                  <tr>
-                    <td className="sticky left-0 z-40 bg-slate-50 px-3 py-2" colSpan={1}></td>
-                    <td className="sticky left-10 z-40 bg-slate-50 px-3 py-2" colSpan={1}></td>
-                    <td className="sticky left-20 z-40 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600 uppercase tracking-wider" style={{boxShadow: '2px 0 4px -1px rgba(0,0,0,0.08)'}}>
-                      Total ({payments.length})
-                    </td>
-                    <td className="px-3 py-2" colSpan={3}></td>
-                    <td className="text-right px-3 py-2 text-sm font-semibold text-slate-900">
-                      ₹{formatCurrency(summary.total_paid)}
-                    </td>
-                    <td className="text-right px-3 py-2 text-sm font-semibold text-green-700">
-                      ₹{formatCurrency(summary.cash_paid)}
-                    </td>
-                    <td className="text-right px-3 py-2 text-sm font-semibold text-blue-700">
-                      ₹{formatCurrency(summary.bank_paid)}
-                    </td>
-                    <td className="px-3 py-2" colSpan={canManage ? 8 : 7}></td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+
+              {/* Totals live below the scroll area, not in a sticky tfoot that
+                  fought the sticky columns for z-order. */}
+              <div className="flex flex-wrap items-center justify-between gap-x-8 gap-y-3 border-t border-mr-line bg-mr-surface-2/60 px-4 py-4 sm:px-6">
+                <span className="text-[12px] font-medium text-mr-muted">
+                  Total · {payments.length} payment{payments.length === 1 ? '' : 's'}
+                </span>
+                <div className="flex flex-wrap items-baseline gap-x-6 gap-y-2">
+                  <span className="text-[12px] text-mr-muted">
+                    Cash <span className="ml-1 text-[14px] font-semibold tabular-nums text-mr-aqua-ink">₹{formatCurrency(summary.cash_paid)}</span>
+                  </span>
+                  <span className="text-[12px] text-mr-muted">
+                    Bank <span className="ml-1 text-[14px] font-semibold tabular-nums text-mr-blue">₹{formatCurrency(summary.bank_paid)}</span>
+                  </span>
+                  <span className="text-[12px] text-mr-muted">
+                    Paid <span className="ml-1 text-[17px] font-semibold tabular-nums text-mr-text">₹{formatCurrency(summary.total_paid)}</span>
+                  </span>
+                </div>
+              </div>
+            </>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
       {/* Add / Edit Payment Dialog */}
       <EntryDialog

@@ -1,4 +1,5 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { ApolloProvider } from '@apollo/client/react';
 import { apolloClient } from './graphql/client';
@@ -8,6 +9,7 @@ import { DocViewerProvider } from './components/DocViewer';
 import Layout from './components/Layout';
 import Landing from './pages/Landing';
 import Pricing from './pages/Pricing';
+import Legal from './pages/Legal';
 import Login from './pages/Login';
 import SignUp from './pages/SignUp';
 import Subscription from './pages/Subscription';
@@ -75,8 +77,24 @@ import UserIdManagement from './pages/UserIdManagement';
 import ApprovalManager from './pages/ApprovalManager';
 import DashboardManagement from './pages/DashboardManagement';
 import BalanceSheet from './pages/BalanceSheet';
+import ComplianceLegal from './pages/ComplianceLegal';
+import ComplianceItemDetail from './pages/ComplianceItemDetail';
+import LegalCaseDetail from './pages/LegalCaseDetail';
+import LegalNoticeDetail from './pages/LegalNoticeDetail';
 import './App.css';
 import './fonts.css';
+
+/* Route changes must start at the top of the page. Without this, clicking a
+   CTA from far down the landing page renders the next route at the same
+   scroll offset. Skipped when the browser is restoring a history entry. */
+function ScrollToTop() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    if (window.history.scrollRestoration) window.history.scrollRestoration = 'manual';
+    window.scrollTo(0, 0);
+  }, [pathname]);
+  return null;
+}
 
 function App() {
   return (
@@ -84,12 +102,19 @@ function App() {
     <Router>
       <AuthProvider>
         <DocViewerProvider>
+        <ScrollToTop />
         <Routes>
           {/* Public Routes */}
           <Route path="/" element={<Landing />} />
           <Route path="/pricing" element={<Pricing />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<SignUp />} />
+          {/* Public policy pages — one component, one route each (footer links here). */}
+          <Route path="/terms" element={<Legal />} />
+          <Route path="/privacy" element={<Legal />} />
+          <Route path="/refund" element={<Legal />} />
+          <Route path="/shipping" element={<Legal />} />
+          <Route path="/contact" element={<Legal />} />
           <Route
             path="/vendors/payments/:paymentId/receipt"
             element={<ProtectedRoute requiredModule="vendors"><VendorPaymentReceiptPrint /></ProtectedRoute>}
@@ -168,6 +193,26 @@ function App() {
             <Route path="/bank-configs" element={<ProtectedRoute requiredModule="upi_collect"><BankConfigs /></ProtectedRoute>} />
             <Route path="/reports" element={<ProtectedRoute requiredModule="reports"><Reports /></ProtectedRoute>} />
             <Route path="/finance-forecast" element={<ProtectedRoute requiredModule="finance_forecast"><FinanceForecast /></ProtectedRoute>} />
+            <Route path="/compliance" element={<Navigate to="/compliance/dashboard" replace />} />
+            <Route path="/compliance/dashboard" element={<ProtectedRoute requiredModule="compliance"><ComplianceLegal /></ProtectedRoute>} />
+            <Route path="/compliance/my-tasks" element={<ProtectedRoute requiredModule="compliance"><ComplianceLegal /></ProtectedRoute>} />
+            <Route path="/compliance/calendar" element={<ProtectedRoute requiredModule="compliance"><ComplianceLegal /></ProtectedRoute>} />
+            <Route path="/compliance/register" element={<ProtectedRoute requiredModule="compliance"><ComplianceLegal /></ProtectedRoute>} />
+            <Route path="/compliance/register/:id" element={<ProtectedRoute requiredModule="compliance"><ComplianceItemDetail /></ProtectedRoute>} />
+            <Route path="/compliance/licences" element={<ProtectedRoute requiredModule="compliance"><ComplianceLegal /></ProtectedRoute>} />
+            <Route path="/compliance/documents" element={<ProtectedRoute requiredModule="compliance"><ComplianceLegal /></ProtectedRoute>} />
+            <Route path="/compliance/reports" element={<ProtectedRoute requiredModule="compliance"><ComplianceLegal /></ProtectedRoute>} />
+            <Route path="/compliance/templates" element={<ProtectedRoute requiredModule="compliance_templates"><ComplianceLegal /></ProtectedRoute>} />
+            <Route path="/compliance/filings" element={<ProtectedRoute requiredModule="compliance_templates"><ComplianceLegal /></ProtectedRoute>} />
+            <Route path="/compliance/authorities" element={<ProtectedRoute requiredModule="compliance_settings"><ComplianceLegal /></ProtectedRoute>} />
+            <Route path="/compliance/settings" element={<ProtectedRoute requiredModule="compliance_settings"><ComplianceLegal /></ProtectedRoute>} />
+            <Route path="/legal/cases" element={<ProtectedRoute requiredModule="legal"><ComplianceLegal /></ProtectedRoute>} />
+            <Route path="/legal/cases/:id" element={<ProtectedRoute requiredModule="legal"><LegalCaseDetail /></ProtectedRoute>} />
+            <Route path="/legal/notices" element={<ProtectedRoute requiredModule="legal"><ComplianceLegal /></ProtectedRoute>} />
+            <Route path="/legal/notices/:id" element={<ProtectedRoute requiredModule="legal"><LegalNoticeDetail /></ProtectedRoute>} />
+            <Route path="/legal/hearings" element={<ProtectedRoute requiredModule="legal"><ComplianceLegal /></ProtectedRoute>} />
+            <Route path="/legal/inspections" element={<ProtectedRoute requiredModule="compliance"><ComplianceLegal /></ProtectedRoute>} />
+            <Route path="/legal/reports" element={<ProtectedRoute requiredModule="legal"><ComplianceLegal /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute requiredModule="settings"><Settings /></ProtectedRoute>} />
             {/* Billing — reachable by every authenticated role (402 redirects land here) */}
             <Route path="/subscription" element={<ProtectedRoute><Subscription /></ProtectedRoute>} />
