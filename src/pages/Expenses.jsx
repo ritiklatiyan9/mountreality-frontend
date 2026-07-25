@@ -7,7 +7,6 @@ import QRCode from 'qrcode';
 import { apolloClient } from '../graphql/client';
 import { GET_EXPENSES_PAGE_DATA, GET_EXPENSES_BREAKDOWN } from '../graphql/queries';
 import * as XLSX from 'xlsx';
-import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Checkbox } from '../components/ui/checkbox';
 import { Input } from '../components/ui/input';
@@ -21,9 +20,6 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '../components/ui/select';
-import {
-  TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from '../components/ui/table';
 import {
   Collapsible, CollapsibleContent, CollapsibleTrigger,
 } from '../components/ui/collapsible';
@@ -50,7 +46,6 @@ import {
   Tooltip as RechartsTooltip,
 } from 'recharts';
 import ChequeStatusControl from '../components/ChequeStatusControl';
-import UserAvatar from '../components/UserAvatar';
 import SignaturePad from '../components/SignaturePad';
 import { useDocViewer } from '../components/DocViewer';
 import { printCashReceipt } from '../lib/cashReceipt';
@@ -64,6 +59,11 @@ import {
   EntryPersonPicker, useEntryPersonOptions, mapPersonToPayload,
 } from '../components/EntryModal';
 import BulkActionsBar from '../components/BulkActionsBar';
+import { EmptyState, SkeletonBlock } from '../components/dashboard/primitives';
+import ExpenseSummary from '../components/expenses/ExpenseSummary';
+import ExpenseTable from '../components/expenses/ExpenseTable';
+import ExpenseMobileList from '../components/expenses/ExpenseMobileList';
+import { PERIOD_OPTIONS } from '../components/expenses/expenseMeta';
 import { useRowSelection } from '../hooks/useRowSelection';
 const PAYMENT_MODE_OPTIONS = [
   'CASH', 'UPI', 'CHEQUE', 'BANK', 'TRANSFER', 'NEFT', 'RTGS', 'IMPS', 'ADJUST',
@@ -833,6 +833,23 @@ const Expenses = () => {
     return parsed.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
   };
 
+  /* Every row action in one place — the table and the mobile list take
+     the same bundle, so they can never diverge on behaviour. */
+  const expenseActions = {
+    formatDate: fmtDate,
+    onView: (exp) => setViewEntry(exp),
+    onPrint: (exp) => printReceipt(exp),
+    onSign: (exp) => setSignEntry(exp),
+    onEdit: (exp) => handleOpenEdit(exp),
+    onDelete: (id) => handleDelete(id),
+    onNavigate: (route) => navigate(route),
+    onUploadBill: (id, file) => handleBillUpload(id, file),
+    onViewBill: (exp) => openDoc({
+      url: exp.bill_url,
+      title: `Bill — ₹${fmt(parseFloat(exp.debit) || parseFloat(exp.credit) || 0)}`,
+    }),
+  };
+
   const getModeBadge = (mode) => {
     if (!mode) return null;
     const cls = MODE_COLORS[mode] || 'bg-slate-50 text-slate-600 border-slate-200';
@@ -1157,23 +1174,15 @@ const Expenses = () => {
   //  MAIN VIEW
   // ═══════════════════════════════════════════════════
   return (
-    <div className="mx-auto w-full max-w-[1800px] space-y-4 pb-5">
-      <div className="flex flex-col gap-3 border-b border-slate-200 pb-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-rose-100 bg-rose-50 text-rose-600">
-            <CreditCard className="h-5 w-5" />
-          </div>
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-xl font-semibold leading-none tracking-tight text-slate-950">Expenses</h1>
-              <Badge variant="outline" className="h-5 border-slate-200 bg-slate-50 px-2 text-[10px] font-semibold text-slate-600">
-                {totalItems} {totalItems === 1 ? 'entry' : 'entries'}
-              </Badge>
-            </div>
-            <p className="mt-1 text-xs text-slate-500">
-              Keep spending, reimbursements and bills in one clear view · <span className="font-semibold text-slate-700">{currentSite.name}</span>
-            </p>
-          </div>
+    <div className="mx-auto w-full max-w-[1800px] space-y-6 pb-6">
+      <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+        <div className="min-w-0">
+          <h1 className="text-[clamp(1.5rem,2.6vw,2rem)] font-semibold leading-tight tracking-[-0.03em] text-mr-text">
+            Expenses
+          </h1>
+          <p className="mt-1 text-[13px] text-mr-muted">
+            Spending, reimbursements and bills{currentSite?.name ? ` · ${currentSite.name}` : ''}
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <BulkActionsBar
@@ -1187,82 +1196,69 @@ const Expenses = () => {
           />
           <Button
             variant="outline"
-            size="sm"
             onClick={() => setRadarOpen(true)}
-            className="h-9 rounded-full border-slate-200 bg-white px-3 text-xs font-semibold text-violet-700 hover:border-violet-200 hover:bg-violet-50"
+            className="h-10 rounded-full border-mr-line text-[13px]"
             title="Category radar chart"
           >
-            <RadarIcon className="w-3.5 h-3.5 mr-1" /> Radar
+            <RadarIcon className="mr-1.5 h-4 w-4" strokeWidth={1.9} /> Radar
           </Button>
-          <Button variant="outline" size="sm" onClick={downloadExcel} className="h-9 rounded-full border-slate-200 bg-white px-3 text-xs font-semibold" disabled={expenses.length === 0}>
-            <Download className="w-3.5 h-3.5 mr-1" /> Excel
+          <Button
+            variant="outline"
+            onClick={downloadExcel}
+            disabled={expenses.length === 0}
+            className="h-10 rounded-full border-mr-line text-[13px]"
+          >
+            <Download className="mr-1.5 h-4 w-4" strokeWidth={1.9} /> Excel
           </Button>
           {canWrite && (
-            <Button size="sm" onClick={handleOpenCreate} className="h-9 rounded-full bg-slate-900 px-4 text-xs font-semibold text-white shadow-sm hover:bg-slate-800">
-              <Plus className="w-3.5 h-3.5 mr-1" /> Add Expense
+            <Button
+              onClick={handleOpenCreate}
+              className="h-10 rounded-full bg-mr-ink px-4 text-[13px] font-semibold text-white hover:bg-mr-ink-2"
+            >
+              <Plus className="mr-1.5 h-4 w-4" strokeWidth={2} /> Add expense
             </Button>
           )}
         </div>
       </div>
 
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-900/[0.025]">
-        <div className="grid grid-cols-2 divide-x divide-y divide-slate-100 lg:grid-cols-4">
-          {[
-            { label: 'Total Debit', value: `₹${fmt(totalDebit)}`, val: 'text-red-600', Icon: ArrowUpRight, ic: 'text-red-400', note: `${summary.total_count} entries total` },
-            { label: 'Total Credit', value: `₹${fmt(totalCredit)}`, val: 'text-emerald-700', Icon: ArrowDownRight, ic: 'text-emerald-500', note: 'received / reimbursed' },
-            { label: 'Net Balance', value: `₹${fmt(Math.abs(netBalance))}`, val: netBalance >= 0 ? 'text-emerald-700' : 'text-red-600', Icon: Banknote, ic: netBalance >= 0 ? 'text-emerald-500' : 'text-red-400', note: netBalance >= 0 ? 'surplus' : 'deficit' },
-            { label: 'Entries', value: `${summary.total_count}`, val: 'text-slate-900', Icon: Hash, ic: 'text-slate-400', note: 'in current view' },
-          ].map((m) => (
-            <div key={m.label} className="bg-white px-4 py-3.5 transition-colors hover:bg-slate-50/70">
-              <div className="flex items-center gap-2">
-                <span className={`flex h-7 w-7 items-center justify-center rounded-lg bg-slate-50 ${m.ic}`}><m.Icon className="h-3.5 w-3.5" /></span>
-                <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">{m.label}</span>
-              </div>
-              <p className={`mt-1 text-lg font-bold leading-tight tabular-nums ${m.val}`}>{m.value}</p>
-              <p className="mt-0.5 truncate text-[10px] text-slate-400">{m.note}</p>
-            </div>
-          ))}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-slate-100 bg-slate-50/70 px-4 py-2.5">
-          {[
-            { label: 'Cash In', value: cashIn, val: 'text-emerald-700', ic: 'text-emerald-500', Icon: ArrowDownRight, note: 'Mode: CASH (incl. SPLIT)' },
-            { label: 'Cash Out', value: cashOut, val: 'text-red-600', ic: 'text-red-500', Icon: ArrowUpRight, note: 'Mode: CASH (incl. SPLIT)' },
-            { label: 'Bank In', value: bankIn, val: 'text-indigo-700', ic: 'text-indigo-500', Icon: ArrowDownRight, note: 'RTGS / NEFT / UPI / Cheque' },
-            { label: 'Bank Out', value: bankOut, val: 'text-amber-700', ic: 'text-amber-500', Icon: ArrowUpRight, note: 'RTGS / NEFT / UPI / Cheque' },
-          ].map((m) => (
-            <div key={m.label} className="flex items-center gap-1.5">
-              <m.Icon className={`h-3.5 w-3.5 ${m.ic}`} />
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{m.label}</span>
-              <p className={`text-xs font-bold tabular-nums ${m.val}`}>₹{fmt(m.value)}</p>
-            </div>
-          ))}
-        </div>
-      </section>
+      <ExpenseSummary
+        totalDebit={totalDebit}
+        totalCredit={totalCredit}
+        netBalance={netBalance}
+        entryCount={summary.total_count}
+        cashIn={cashIn}
+        cashOut={cashOut}
+        bankIn={bankIn}
+        bankOut={bankOut}
+        siteName={currentSite?.name}
+      />
 
       {/* Breakdown */}
       <Collapsible open={breakdownOpen} onOpenChange={setBreakdownOpen}>
-        <Card className="overflow-hidden border-2 border-slate-200 shadow-sm">
+        <section className="overflow-hidden rounded-panel border border-mr-line bg-mr-surface">
           <CollapsibleTrigger asChild>
-            <button className="flex w-full items-center justify-between px-3.5 py-2.5 transition-colors hover:bg-slate-50/80">
-              <span className="text-xs font-semibold text-slate-700 uppercase tracking-wider flex items-center gap-2">
-                <span className="flex h-6 w-6 items-center justify-center rounded-md bg-slate-900 text-white">
-                  <Tag className="w-3.5 h-3.5" />
+            <button
+              className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left transition-colors hover:bg-mr-surface-2/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue focus-visible:ring-inset sm:px-6"
+              aria-expanded={breakdownOpen}
+            >
+              <span>
+                <span className="flex items-center gap-2 text-[15px] font-semibold tracking-[-0.01em] text-mr-text">
+                  Spend by category
+                  {breakdownLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-mr-faint" aria-hidden="true" />}
                 </span>
-                Breakdown by Category
-                {breakdownLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400 ml-1" />}
+                <span className="mt-0.5 block text-[12px] text-mr-muted">Tap a category to filter the entries below</span>
               </span>
-              <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${breakdownOpen ? 'rotate-180' : ''}`} />
+              <ChevronDown className={`h-4 w-4 shrink-0 text-mr-faint transition-transform duration-200 ${breakdownOpen ? 'rotate-180' : ''}`} strokeWidth={1.9} aria-hidden="true" />
             </button>
           </CollapsibleTrigger>
           <CollapsibleContent>
-            <div className="px-4 pb-4 pt-3 border-t border-slate-100">
+            <div className="border-t border-mr-line px-5 pb-5 pt-4 sm:px-6">
               {breakdownLoading && !breakdownLoaded ? (
-                <div className="py-10 flex items-center justify-center text-slate-400 text-xs gap-2">
-                  <Loader2 className="w-4 h-4 animate-spin" /> Loading breakdown…
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+                  {[0, 1, 2, 3, 4].map((i) => <SkeletonBlock key={i} className="h-20 w-full" />)}
                 </div>
               ) : sortedCategoryBreakdown.length === 0 ? (
-                <p className="text-xs text-slate-400 py-6 text-center">No category data available.</p>
+                <p className="py-6 text-center text-[12px] text-mr-muted">No category data for this selection.</p>
               ) : (() => {
                 const maxCatDebit = Math.max(...sortedCategoryBreakdown.map((c) => parseFloat(c.total_debit) || 0), 1);
                 return (
@@ -1276,27 +1272,28 @@ const Expenses = () => {
                       <button
                         key={key}
                         onClick={() => toggleFilterCategory(key)}
-                        className={`text-left p-2.5 rounded-lg border transition-all group ${isActive
-                            ? 'border-slate-900 bg-slate-900 text-white shadow-sm'
-                          : 'border-slate-300 bg-white hover:border-slate-400 hover:shadow-sm'
+                        aria-pressed={isActive}
+                        className={`group rounded-control border p-3 text-left transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue ${isActive
+                          ? 'border-transparent bg-mr-ink text-white'
+                          : 'border-mr-line bg-mr-surface hover:bg-mr-surface-2'
                         }`}
                       >
-                        <div className="flex items-center gap-2 mb-1.5">
-                          <span className={`w-6 h-6 rounded-md text-[10px] font-bold flex items-center justify-center flex-shrink-0 ${isActive ? 'bg-white/15 text-white' : 'bg-slate-100 text-slate-600 group-hover:bg-slate-200'}`}>
+                        <div className="mb-2 flex items-center gap-2">
+                          <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${isActive ? 'bg-white/15 text-white' : 'bg-mr-blue-soft text-mr-blue'}`}>
                             {letter}
                           </span>
-                          <p className={`text-[11px] font-semibold truncate ${isActive ? 'text-white' : 'text-slate-800'}`}>{key}</p>
+                          <p className={`truncate text-[12px] font-medium ${isActive ? 'text-white' : 'text-mr-text'}`}>{key}</p>
                         </div>
-                        <p className={`text-sm font-bold tabular-nums ${isActive ? 'text-white' : 'text-slate-900'}`}>
+                        <p className={`text-[17px] font-semibold tabular-nums ${isActive ? 'text-white' : 'text-mr-text'}`}>
                           ₹{fmt(c.total_debit)}
                         </p>
-                        <div className={`h-1 rounded-full mt-1.5 overflow-hidden ${isActive ? 'bg-white/20' : 'bg-slate-100'}`}>
-                          <div className={`h-full rounded-full ${isActive ? 'bg-white/70' : 'bg-slate-400 group-hover:bg-slate-500'}`} style={{ width: `${share}%` }} />
+                        <div className={`mt-2 h-1.5 overflow-hidden rounded-full ${isActive ? 'bg-white/20' : 'bg-mr-surface-2'}`}>
+                          <div className={`h-full rounded-full ${isActive ? 'bg-white/70' : 'bg-mr-coral'}`} style={{ width: `${share}%` }} />
                         </div>
-                        <div className="flex items-center justify-between mt-1">
-                          <span className={`text-[10px] ${isActive ? 'text-slate-300' : 'text-slate-400'}`}>{c.entries} {c.entries === 1 ? 'entry' : 'entries'}</span>
+                        <div className="mt-1.5 flex items-center justify-between gap-2">
+                          <span className={`text-[12px] ${isActive ? 'text-white/60' : 'text-mr-faint'}`}>{c.entries} {c.entries === 1 ? 'entry' : 'entries'}</span>
                           {c.total_credit > 0 && (
-                            <span className={`text-[10px] ${isActive ? 'text-emerald-300' : 'text-emerald-600'}`}>↓ ₹{fmt(c.total_credit)}</span>
+                            <span className={`text-[12px] ${isActive ? 'text-mr-lime' : 'text-mr-lime-ink'}`}>+₹{fmt(c.total_credit)}</span>
                           )}
                         </div>
                       </button>
@@ -1307,46 +1304,43 @@ const Expenses = () => {
               })()}
             </div>
           </CollapsibleContent>
-        </Card>
+        </section>
       </Collapsible>
 
       {/* Filter Bar */}
-      <Card className="rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-900/[0.025]">
-        <CardContent className="space-y-2.5 p-3 sm:p-4">
+      <section className="rounded-panel border border-mr-line bg-mr-surface">
+        <div className="space-y-3 p-4 sm:p-5">
           <div className="flex items-center justify-between gap-2 flex-wrap">
-            <div className="inline-flex max-w-full items-center gap-0.5 overflow-x-auto rounded-lg border border-slate-200 bg-slate-100 p-0.5">
-              {[
-                { key: 'all', label: 'All Time' },
-                { key: 'today', label: 'Today' },
-                { key: 'week', label: 'Week' },
-                { key: 'month', label: 'Month' },
-                { key: 'last_month', label: 'Last Month' },
-                { key: 'custom', label: 'Custom' },
-              ].map((pr) => (
+            <div role="radiogroup" aria-label="Reporting period" className="mr-rail inline-flex max-w-full items-center gap-0.5 overflow-x-auto rounded-full border border-mr-line bg-mr-surface-2 p-1">
+              {PERIOD_OPTIONS.map((pr) => (
                 <button
                   key={pr.key}
+                  type="button"
+                  role="radio"
+                  aria-checked={filterPeriod === pr.key}
                   onClick={() => { handlePeriodChange(pr.key); if (pr.key === 'custom') setFilterPanelOpen(true); }}
-                  className={`px-2.5 py-1 text-xs font-medium rounded-md transition-all ${filterPeriod === pr.key
-                    ? 'bg-white text-slate-900 shadow-sm'
-                    : 'text-slate-500 hover:text-slate-800'
-                    }`}
+                  className={`whitespace-nowrap rounded-full px-3 py-1.5 text-[12px] font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue focus-visible:ring-offset-1 ${
+                    filterPeriod === pr.key ? 'bg-mr-ink text-white' : 'text-mr-muted hover:text-mr-text'
+                  }`}
                 >
                   {pr.label}
                 </button>
               ))}
             </div>
-            <span className="text-xs text-slate-400 px-1 tabular-nums">
+            <span className="px-1 text-[12px] tabular-nums text-mr-muted">
               {totalItems} {totalItems === 1 ? 'entry' : 'entries'}
             </span>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative min-w-56 flex-1">
-              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+              <label htmlFor="mr-expense-search" className="sr-only">Search expenses</label>
+              <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-mr-faint" strokeWidth={1.9} aria-hidden="true" />
               <Input
-                placeholder="Search party, remark, account..."
+                id="mr-expense-search"
+                placeholder="Search party, remark or account…"
                 value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-                className="h-9 border-slate-200 bg-slate-50 pl-8 text-xs focus:bg-white"
+                className="h-10 rounded-full border-mr-line bg-mr-surface-2 pl-10 text-[13px] shadow-none focus-visible:border-mr-blue focus-visible:bg-mr-surface focus-visible:ring-2 focus-visible:ring-mr-blue/25"
               />
             </div>
             <Button
@@ -1354,36 +1348,37 @@ const Expenses = () => {
               variant="outline"
               size="sm"
               onClick={() => setFilterPanelOpen((open) => !open)}
-              className={`h-9 rounded-full px-3 text-xs font-semibold ${filterPanelOpen || hasActiveFilters ? 'border-slate-300 bg-slate-100 text-slate-800' : 'border-slate-200 bg-white text-slate-600'}`}
+              aria-expanded={filterPanelOpen}
+              className={`h-10 rounded-full px-4 text-[12px] font-semibold ${filterPanelOpen || hasActiveFilters ? 'border-transparent bg-mr-ink text-white hover:bg-mr-ink-2 hover:text-white' : 'border-mr-line text-mr-muted'}`}
             >
-              <Filter className="mr-1.5 h-3.5 w-3.5" /> Filters
-              {hasActiveFilters && <span className="ml-1 rounded-full bg-slate-800 px-1.5 py-0.5 text-[9px] text-white">Active</span>}
+              <Filter className="mr-1.5 h-4 w-4" strokeWidth={1.9} /> Filters
+              {hasActiveFilters && <span className="ml-1.5 rounded-full bg-white/20 px-1.5 py-0.5 text-[11px]">On</span>}
             </Button>
           </div>
 
           <Collapsible open={filterPanelOpen} onOpenChange={setFilterPanelOpen}>
             <CollapsibleContent className="pt-0.5">
-          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-100 bg-slate-50/60 p-2">
+          <div className="flex flex-wrap items-center gap-2 rounded-control border border-mr-line bg-mr-surface-2/60 p-2.5">
             {filterPeriod === 'custom' && (
-              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-300 bg-slate-50 px-2 py-1">
-                <Calendar className="h-3.5 w-3.5 text-slate-500" />
+              <div className="flex flex-wrap items-center gap-2 rounded-full border border-mr-line bg-mr-surface px-3 py-1">
+                <Calendar className="h-3.5 w-3.5 text-mr-faint" strokeWidth={1.9} aria-hidden="true" />
                 <Input
                   type="date" value={filterDateFrom}
                   onChange={(e) => setFilterDateFrom(e.target.value)}
-                  className="h-7 w-36 border-slate-300 bg-white text-xs"
+                  className="h-8 w-36 rounded-control border-mr-line bg-mr-surface text-[12px]"
                 />
-                <span className="text-[10px] font-medium uppercase text-slate-400">to</span>
+                <span className="text-[12px] text-mr-muted">to</span>
                 <Input
                   type="date" value={filterDateTo}
                   onChange={(e) => setFilterDateTo(e.target.value)}
-                  className="h-7 w-36 border-slate-300 bg-white text-xs"
+                  className="h-8 w-36 rounded-control border-mr-line bg-mr-surface text-[12px]"
                 />
               </div>
             )}
 
             <Select value={filterMode} onValueChange={setFilterMode}>
-              <SelectTrigger className="h-8 w-36 border-slate-300 bg-white text-xs">
-                <SelectValue placeholder="All Modes" />
+              <SelectTrigger className="h-9 w-36 rounded-full border-mr-line bg-mr-surface text-[12px]" aria-label="Filter by payment mode">
+                <SelectValue placeholder="All modes" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Modes</SelectItem>
@@ -1399,10 +1394,10 @@ const Expenses = () => {
                   variant="outline"
                   role="combobox"
                   aria-expanded={filterCategoryOpen}
-                  className={`w-48 h-8 justify-between font-normal text-xs ${
+                  className={`h-9 w-48 justify-between rounded-full text-[12px] font-normal ${
                     filterCategories.length > 0
-                      ? 'border-violet-300 bg-violet-50 text-violet-800 hover:bg-violet-100'
-                      : 'border-slate-300 bg-white hover:bg-slate-50'
+                      ? 'border-transparent bg-mr-blue-soft text-mr-blue hover:bg-mr-blue-soft'
+                      : 'border-mr-line bg-mr-surface hover:bg-mr-surface-2'
                   }`}
                 >
                   <span className="truncate flex items-center gap-1.5">
@@ -1478,8 +1473,8 @@ const Expenses = () => {
             </Popover>
 
             <Select value={filterTo} onValueChange={setFilterTo}>
-              <SelectTrigger className="h-8 w-36 border-slate-300 bg-white text-xs">
-                <SelectValue placeholder="All TO" />
+              <SelectTrigger className="h-9 w-36 rounded-full border-mr-line bg-mr-surface text-[12px]" aria-label="Filter by recipient">
+                <SelectValue placeholder="All recipients" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Recipients</SelectItem>
@@ -1491,14 +1486,16 @@ const Expenses = () => {
 
             <button
               onClick={() => setFilterBillStatus(filterBillStatus === 'missing' ? 'all' : 'missing')}
-              className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors flex items-center gap-1.5 ${
+              type="button"
+              aria-pressed={filterBillStatus === 'missing'}
+              className={`flex h-9 items-center gap-1.5 rounded-full border px-3.5 text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue ${
                 filterBillStatus === 'missing'
-                  ? 'bg-red-600 text-white border-red-600'
-                  : 'bg-white text-slate-600 border-slate-300 hover:border-red-400 hover:text-red-600'
+                  ? 'border-transparent bg-mr-coral-ink text-white'
+                  : 'border-mr-line bg-mr-surface text-mr-muted hover:text-mr-coral-ink'
               }`}
             >
-              <AlertCircle className="w-3 h-3" />
-              Missing Bills
+              <AlertCircle className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden="true" />
+              Missing bills
             </button>
 
           </div>
@@ -1508,395 +1505,150 @@ const Expenses = () => {
           {hasActiveFilters && (
             <div className="flex items-center gap-2 flex-wrap">
               {filterPeriod !== 'all' && filterPeriod !== 'custom' && (
-                <Badge variant="secondary" className="text-xs gap-1">
+                <Badge variant="secondary" className="gap-1 rounded-full border-mr-line bg-mr-surface-2 text-[12px] font-medium text-mr-muted">
                   <Calendar className="w-3 h-3" />
                   {filterPeriod === 'today' ? 'Today' : filterPeriod === 'week' ? 'This Week' : filterPeriod === 'month' ? 'This Month' : 'Last Month'}
                   <X className="w-3 h-3 cursor-pointer ml-0.5" onClick={() => handlePeriodChange('all')} />
                 </Badge>
               )}
               {(filterDateFrom || filterDateTo) && filterPeriod === 'custom' && (
-                <Badge variant="secondary" className="text-xs gap-1">
+                <Badge variant="secondary" className="gap-1 rounded-full border-mr-line bg-mr-surface-2 text-[12px] font-medium text-mr-muted">
                   <Calendar className="w-3 h-3" /> {filterDateFrom || '...'} → {filterDateTo || '...'}
                   <X className="w-3 h-3 cursor-pointer ml-0.5" onClick={() => { setFilterDateFrom(''); setFilterDateTo(''); setFilterPeriod('all'); }} />
                 </Badge>
               )}
               {filterMode !== 'all' && (
-                <Badge variant="secondary" className="text-xs gap-1">
+                <Badge variant="secondary" className="gap-1 rounded-full border-mr-line bg-mr-surface-2 text-[12px] font-medium text-mr-muted">
                   <CreditCard className="w-3 h-3" /> {filterMode}
                   <X className="w-3 h-3 cursor-pointer ml-0.5" onClick={() => setFilterMode('all')} />
                 </Badge>
               )}
               {filterCategories.map((c) => (
-                <Badge key={`cat-${c}`} variant="secondary" className="text-xs gap-1">
+                <Badge key={`cat-${c}`} variant="secondary" className="gap-1 rounded-full border-transparent bg-mr-blue-soft text-[12px] font-medium text-mr-blue">
                   <Tag className="w-3 h-3" /> {c}
                   <X className="w-3 h-3 cursor-pointer ml-0.5" onClick={() => toggleFilterCategory(c)} />
                 </Badge>
               ))}
               {filterCategories.length > 1 && (
-                <Badge variant="outline" className="text-[10px] gap-1 border-slate-300 text-slate-500">
+                <Badge variant="outline" className="gap-1 rounded-full border-mr-line text-[12px] text-mr-muted">
                   {filterCategories.length} categories · AND
                 </Badge>
               )}
               {filterTo !== 'all' && (
-                <Badge variant="secondary" className="text-xs gap-1">
+                <Badge variant="secondary" className="gap-1 rounded-full border-mr-line bg-mr-surface-2 text-[12px] font-medium text-mr-muted">
                   TO: {filterTo}
                   <X className="w-3 h-3 cursor-pointer ml-0.5" onClick={() => setFilterTo('all')} />
                 </Badge>
               )}
               {searchQuery && (
-                <Badge variant="secondary" className="text-xs gap-1">
+                <Badge variant="secondary" className="gap-1 rounded-full border-mr-line bg-mr-surface-2 text-[12px] font-medium text-mr-muted">
                   <Search className="w-3 h-3" /> &quot;{searchQuery}&quot;
                   <X className="w-3 h-3 cursor-pointer ml-0.5" onClick={() => setSearchQuery('')} />
                 </Badge>
               )}
               {filterBillStatus === 'missing' && (
-                <Badge variant="secondary" className="text-xs gap-1 bg-red-100 text-red-700 border-red-200">
+                <Badge variant="secondary" className="gap-1 rounded-full border-transparent bg-mr-coral-soft text-[12px] font-medium text-mr-coral-ink">
                   <AlertCircle className="w-3 h-3" /> Missing Bills
                   <X className="w-3 h-3 cursor-pointer ml-0.5" onClick={() => setFilterBillStatus('all')} />
                 </Badge>
               )}
-              <Button variant="ghost" size="sm" onClick={clearFilters} className="text-xs text-slate-500 h-6 px-2">Clear all</Button>
-              <span className="text-xs text-slate-400 ml-auto tabular-nums">
-                Showing <span className="font-medium text-slate-600">{expenses.length}</span> of {totalItems}
-                <span className="mx-1.5 text-slate-300">·</span>Debit <span className="text-red-500 font-medium">₹{fmt(totalDebit)}</span>
-                <span className="mx-1.5 text-slate-300">·</span>Credit <span className="text-emerald-600 font-medium">₹{fmt(totalCredit)}</span>
+              <Button variant="ghost" size="sm" onClick={clearFilters} className="h-8 rounded-full px-2.5 text-[12px] text-mr-muted hover:text-mr-text">Clear all</Button>
+              <span className="ml-auto text-[12px] tabular-nums text-mr-muted">
+                Showing <span className="font-medium text-mr-text">{expenses.length}</span> of {totalItems}
+                <span className="mx-1.5 text-mr-faint">·</span>Debit <span className="font-medium text-mr-coral-ink">₹{fmt(totalDebit)}</span>
+                <span className="mx-1.5 text-mr-faint">·</span>Credit <span className="font-medium text-mr-lime-ink">₹{fmt(totalCredit)}</span>
               </span>
             </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
       {/* Expenses Table */}
-      <Card className="overflow-hidden rounded-2xl border border-slate-200 shadow-sm shadow-slate-900/[0.025]">
-        <CardContent className="p-0">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-white px-4 py-3">
+      <section className="overflow-hidden rounded-panel border border-mr-line bg-mr-surface">
+        <div className="p-0">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-mr-line px-5 py-4 sm:px-6">
             <div>
-              <p className="text-sm font-semibold text-slate-800">Expense entries</p>
-              <p className="mt-0.5 text-xs text-slate-500">Review each payment, bill and approval in one place.</p>
+              <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-mr-text">Expense entries</h2>
+              <p className="mt-0.5 text-[12px] text-mr-muted">Every payment, bill and approval in one place</p>
             </div>
-            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">{totalItems} records</span>
+            <span className="text-[12px] text-mr-muted">{totalItems} record{totalItems === 1 ? '' : 's'}</span>
           </div>
           {loading ? (
-            <div className="flex items-center justify-center py-20">
-              <div className="w-5 h-5 border-2 border-slate-200 border-t-slate-600 rounded-full animate-spin" />
+            <div className="space-y-3 p-5 sm:p-6">
+              {[0, 1, 2, 3, 4].map((i) => <SkeletonBlock key={i} className="h-14 w-full" />)}
             </div>
           ) : expenses.length === 0 ? (
-            <div className="text-center py-20">
-              <CreditCard className="w-8 h-8 text-slate-200 mx-auto mb-3" />
-              <p className="text-sm font-medium text-slate-500">{totalItems === 0 && !hasActiveFilters ? 'No expenses recorded yet' : 'No entries match your filters'}</p>
-              <p className="text-xs text-slate-400 mt-1">{totalItems === 0 && !hasActiveFilters ? 'Add the first expense entry' : 'Try adjusting or clearing filters'}</p>
-            </div>
+            <EmptyState
+              icon={CreditCard}
+              title={totalItems === 0 && !hasActiveFilters ? 'No expenses recorded yet' : 'No entries match your filters'}
+              description={totalItems === 0 && !hasActiveFilters
+                ? 'Add the first expense entry to start tracking spending against this site.'
+                : 'Try a different search term, or clear the filters to see everything.'}
+              action={canWrite && totalItems === 0 && !hasActiveFilters ? (
+                <Button
+                  onClick={handleOpenCreate}
+                  className="mt-1 h-10 rounded-full bg-mr-ink px-4 text-[13px] font-semibold text-white hover:bg-mr-ink-2"
+                >
+                  <Plus className="mr-1.5 h-4 w-4" strokeWidth={2} /> Add expense
+                </Button>
+              ) : null}
+            />
           ) : (
-            <div className="relative max-h-[calc(100dvh-240px)] overflow-auto overscroll-contain bg-white">
-              <table className="w-full min-w-[1450px] border-collapse text-sm">
-                <TableHeader className="sticky top-0 z-40 bg-slate-100 shadow-[0_2px_0_0_#cbd5e1] [&_th]:bg-slate-100">
-                  <TableRow className="border-b-2 border-slate-300 bg-slate-100 hover:bg-slate-100">
-                    <TableHead className="w-8 pl-4">
-                      <Checkbox
-                        checked={
-                          selection.isAllSelected(visibleNativeIds)
-                            ? true
-                            : selection.count > 0 && visibleNativeIds.some((id) => selection.isSelected(id))
-                            ? 'indeterminate'
-                            : false
-                        }
-                        onCheckedChange={() => selection.toggleAll(visibleNativeIds)}
-                        aria-label="Select all"
-                      />
-                    </TableHead>
-                    <TableHead className="w-10 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">#</TableHead>
-                    <TableHead className="w-28 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-                      <button
-                        onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
-                        className="flex items-center gap-1 hover:text-slate-800 transition-colors"
-                      >
-                        Date <ArrowUpDown className="w-3 h-3" />
-                      </button>
-                    </TableHead>
-                    <TableHead className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider min-w-44">Party</TableHead>
-                    <TableHead className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider min-w-32">Assigned Admin</TableHead>
-                    <TableHead className="w-24 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Mode</TableHead>
-                    <TableHead className="w-32 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Category</TableHead>
-                    <TableHead className="text-right w-32 text-[11px] font-semibold text-red-500 uppercase tracking-wider">Debit (₹)</TableHead>
-                    <TableHead className="text-right w-32 text-[11px] font-semibold text-emerald-600 uppercase tracking-wider">Credit (₹)</TableHead>
-                    <TableHead className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider min-w-40">Remarks</TableHead>
+            <>
+              <ExpenseTable
+                expenses={expenses}
+                selection={selection}
+                visibleNativeIds={visibleNativeIds}
+                sortOrder={sortOrder}
+                onToggleSort={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
+                page={currentPage}
+                perPage={itemsPerPage}
+                isAdmin={isAdmin}
+                canUpdate={canUpdate}
+                canDelete={canDelete}
+                uploadingBillId={uploadingBillId}
+                onRefreshCheque={fetchExpenses}
+                getAssignedAdminLabel={getAssignedAdminLabel}
+                actions={expenseActions}
+              />
+              <ExpenseMobileList
+                expenses={expenses}
+                selection={selection}
+                canUpdate={canUpdate}
+                canDelete={canDelete}
+                uploadingBillId={uploadingBillId}
+                getAssignedAdminLabel={getAssignedAdminLabel}
+                actions={expenseActions}
+              />
 
-                    <TableHead className="w-24 text-[11px] font-semibold text-slate-500 uppercase tracking-wider text-center">Status</TableHead>
-                    <TableHead className="w-28 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Created By</TableHead>
-                    <TableHead className="w-20 text-[11px] font-semibold text-slate-500 uppercase tracking-wider text-center">Bill</TableHead>
-                    <TableHead className="w-20 pr-4 text-[11px] font-semibold text-slate-500 uppercase tracking-wider text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {expenses.map((exp, idx) => {
-                    const debit = parseFloat(exp.debit) || 0;
-                    const credit = parseFloat(exp.credit) || 0;
-                    const assignedAdminLabel = getAssignedAdminLabel(exp);
-                    const isNonCash = exp.payment_mode && exp.payment_mode !== 'CASH';
-                    const missingBill = isNonCash && !exp.bill_url;
-                    const isRejected = exp.status === 'rejected';
-
-                    return (
-                      <TableRow
-                        key={exp.id}
-                        className={`group border-b border-slate-200 transition-colors ${
-                          isRejected
-                            ? 'opacity-60 bg-slate-50/60'
-                            : missingBill
-                            ? 'bg-red-50/40 hover:bg-red-50/70 border-l-2 border-l-red-400'
-                            : credit > 0
-                            ? 'bg-emerald-50/20 hover:bg-emerald-50/40'
-                            : 'hover:bg-slate-50/80'
-                        }`}
-                      >
-                        {/* Select */}
-                        <TableCell className="pl-4 py-2.5 w-8">
-                          {!exp.source && (
-                            <Checkbox
-                              checked={selection.isSelected(exp.id)}
-                              onCheckedChange={() => selection.toggle(exp.id)}
-                              aria-label="Select row"
-                            />
-                          )}
-                        </TableCell>
-
-                        {/* # */}
-                        <TableCell className="py-2.5 text-xs text-slate-400 font-mono tabular-nums w-10">
-                          {((currentPage - 1) * itemsPerPage) + idx + 1}
-                        </TableCell>
-
-                        {/* Date */}
-                        <TableCell className="py-2.5 w-28">
-                          <span className="text-xs font-medium text-slate-700 tabular-nums whitespace-nowrap">{fmtDate(exp.date)}</span>
-                        </TableCell>
-
-                        {/* Party — FROM / TO consolidated */}
-                        <TableCell className="py-2.5 min-w-44">
-                          <div className="space-y-0.5">
-                            {exp.from_entity && (
-                              <div className="flex items-center gap-1">
-                                <span className="text-[9px] font-bold text-slate-400 uppercase w-5 shrink-0">FR</span>
-                                <span className="text-xs font-medium text-slate-700 truncate max-w-36">{exp.from_entity}</span>
-                              </div>
-                            )}
-                            {exp.to_entity && (
-                              <div className="flex items-center gap-1">
-                                <span className="text-[9px] font-bold text-slate-400 uppercase w-5 shrink-0">TO</span>
-                                <span className="text-xs font-medium text-slate-800 truncate max-w-36">{exp.to_entity}</span>
-                              </div>
-                            )}
-                            {!exp.from_entity && !exp.to_entity && <span className="text-xs text-slate-300">—</span>}
-                          </div>
-                        </TableCell>
-
-                        {/* Assigned Admin */}
-                        <TableCell className="py-2.5 min-w-32">
-                          {assignedAdminLabel ? (
-                            <span className="inline-flex items-center text-[10px] font-medium text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-100 max-w-40 truncate">
-                              {assignedAdminLabel}
-                            </span>
-                          ) : (
-                            <span className="text-xs text-slate-300">—</span>
-                          )}
-                        </TableCell>
-
-                        {/* Mode */}
-                        <TableCell className="py-2.5 w-24">
-                          <div className="space-y-1">
-                            {exp.payment_mode ? getModeBadge(exp.payment_mode) : <span className="text-xs text-slate-300">—</span>}
-                            <ChequeStatusControl
-                              chequeStatus={exp.cheque_status}
-                              source="expense"
-                              entryId={exp.id}
-                              isAdmin={isAdmin}
-                              onStatusChange={fetchExpenses}
-                            />
-                          </div>
-                        </TableCell>
-
-                        {/* Category */}
-                        <TableCell className="py-2.5 w-32">
-                          {exp.category ? (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-violet-50 text-violet-700 px-2 py-1 rounded-md border border-violet-200 uppercase max-w-full truncate">
-                              <Tag className="w-2.5 h-2.5 shrink-0" />
-                              <span className="truncate">{exp.category}</span>
-                            </span>
-                          ) : <span className="text-xs text-slate-300">—</span>}
-                        </TableCell>
-
-                        {/* Debit */}
-                        <TableCell className="py-2.5 text-right w-32">
-                          {debit > 0 ? (
-                            <span className={`text-sm font-bold tabular-nums ${isRejected ? 'line-through text-slate-400' : 'text-red-600'}`}>
-                              {fmt(debit)}
-                            </span>
-                          ) : <span className="text-xs text-slate-300">—</span>}
-                        </TableCell>
-
-                        {/* Credit */}
-                        <TableCell className="py-2.5 text-right w-32">
-                          {credit > 0 ? (
-                            <span className={`text-sm font-bold tabular-nums ${isRejected ? 'line-through text-slate-400' : 'text-emerald-700'}`}>
-                              {fmt(credit)}
-                            </span>
-                          ) : <span className="text-xs text-slate-300">—</span>}
-                        </TableCell>
-
-                        {/* Remarks */}
-                        <TableCell className="py-2.5 min-w-40 max-w-64">
-                          {exp.remark ? (
-                            <TooltipProvider delayDuration={150}>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <span className="block text-xs text-slate-600 truncate cursor-help" title={exp.remark}>
-                                    {exp.remark}
-                                  </span>
-                                </TooltipTrigger>
-                                <TooltipContent className="max-w-xs whitespace-pre-wrap text-xs">
-                                  {exp.remark}
-                                </TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
-                          ) : <span className="text-xs text-slate-300">—</span>}
-                        </TableCell>
-
-                        {/* Status */}
-                        <TableCell className="py-2.5 w-24 text-center">
-                          <div className="flex flex-col items-center gap-0.5">
-                            {getStatusBadge(exp.status || 'pending', exp.approved_by_name)}
-                            {exp.source === 'farmer_payment' && <span className="text-[9px] text-orange-500 font-medium">Farmer Pmnt</span>}
-                            {exp.source === 'commission' && <span className="text-[9px] text-purple-500 font-medium">Commission</span>}
-                            {exp.source === 'vendor_payment' && <span className="text-[9px] text-teal-500 font-medium">Vendor Pmnt</span>}
-                            {exp.source === 'personal_ledger' && <span className="text-[9px] text-indigo-500 font-medium">Pers. Ledger</span>}
-                            {exp.source === 'daybook' && <span className="text-[9px] text-slate-400">Day Book</span>}
-                          </div>
-                        </TableCell>
-
-                        {/* Created By */}
-                        <TableCell className="py-2.5 w-28">
-                          <UserAvatar name={exp.created_by_name} label="Created by" />
-                        </TableCell>
-
-                        {/* Bill */}
-                        <TableCell className="py-2.5 w-20 text-center">
-                          {isNonCash ? (
-                            exp.bill_url ? (
-                              <button type="button" onClick={() => openDoc({ url: exp.bill_url, title: `Bill — ₹${fmt(debit || credit)}` })}
-                                className="inline-flex items-center gap-0.5 text-[10px] font-medium text-emerald-700 bg-emerald-50 px-2 py-1 rounded border border-emerald-200 hover:bg-emerald-100 transition-colors cursor-pointer">
-                                <ImageIcon className="w-3 h-3" /> View
-                              </button>
-                            ) : !exp.source ? (
-                              <label className={`inline-flex items-center gap-0.5 text-[10px] font-medium px-2 py-1 rounded border cursor-pointer transition-colors ${
-                                uploadingBillId === exp.id
-                                  ? 'text-slate-400 bg-slate-50 border-slate-200 cursor-wait'
-                                  : 'text-red-600 bg-red-50 border-red-200 hover:bg-red-100'
-                              }`}>
-                                {uploadingBillId === exp.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <UploadCloud className="w-3 h-3" />}
-                                {uploadingBillId === exp.id ? '...' : 'Upload'}
-                                <input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" className="hidden"
-                                  disabled={uploadingBillId === exp.id}
-                                  onChange={(e) => handleBillUpload(exp.id, e.target.files[0])} />
-                              </label>
-                            ) : <span className="text-[10px] text-amber-500 font-medium">Missing</span>
-                          ) : <span className="text-xs text-slate-300">—</span>}
-                        </TableCell>
-
-                        {/* Actions */}
-                        <TableCell className="py-2.5 pr-4 w-20 text-right">
-                          <div className="flex items-center justify-end gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Button variant="ghost" size="sm" onClick={() => setViewEntry(exp)}
-                              className="h-7 w-7 p-0 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50" title="View Details">
-                              <Eye className="w-3.5 h-3.5" />
-                            </Button>
-                            <Button variant="ghost" size="sm" onClick={() => printReceipt(exp)}
-                              className="h-7 w-7 p-0 text-slate-400 hover:text-blue-600 hover:bg-blue-50" title="Print Receipt">
-                              <Printer className="w-3.5 h-3.5" />
-                            </Button>
-                            {canUpdate && !exp.source && (
-                              <Button variant="ghost" size="sm" onClick={() => setSignEntry(exp)}
-                                className={`h-7 w-7 p-0 ${exp.customer_signature_url
-                                  ? 'text-emerald-500 hover:text-emerald-700 hover:bg-emerald-50'
-                                  : 'text-slate-400 hover:text-violet-600 hover:bg-violet-50'}`}
-                                title={exp.customer_signature_url ? 'Signed — capture again' : 'Capture Customer Signature'}>
-                                <PenLine className="w-3.5 h-3.5" />
-                              </Button>
-                            )}
-                            {(canUpdate || canDelete) && (
-                              <>
-                                {exp.source === 'farmer_payment' ? (
-                                  canUpdate && <Button variant="ghost" size="sm" onClick={() => navigate('/farmer-payments')}
-                                    className="h-7 w-7 p-0 text-slate-400 hover:text-orange-600 hover:bg-orange-50" title="Edit in Farmer Payments">
-                                    <Edit2 className="w-3.5 h-3.5" />
-                                  </Button>
-                                ) : exp.source === 'commission' ? (
-                                  canUpdate && <Button variant="ghost" size="sm" onClick={() => navigate('/commissions')}
-                                    className="h-7 w-7 p-0 text-slate-400 hover:text-purple-600 hover:bg-purple-50" title="Edit in Commissions">
-                                    <Edit2 className="w-3.5 h-3.5" />
-                                  </Button>
-                                ) : exp.source === 'daybook' ? (
-                                  canUpdate && <Button variant="ghost" size="sm" onClick={() => navigate('/daybook')}
-                                    className="h-7 w-7 p-0 text-slate-400 hover:text-blue-600 hover:bg-blue-50" title="Edit in Day Book">
-                                    <Edit2 className="w-3.5 h-3.5" />
-                                  </Button>
-                                ) : exp.source === 'vendor_payment' ? (
-                                  canUpdate && <Button variant="ghost" size="sm" onClick={() => navigate('/vendors')}
-                                    className="h-7 w-7 p-0 text-slate-400 hover:text-teal-600 hover:bg-teal-50" title="Edit in Vendors">
-                                    <Edit2 className="w-3.5 h-3.5" />
-                                  </Button>
-                                ) : exp.source === 'personal_ledger' ? (
-                                  canUpdate && <Button variant="ghost" size="sm" onClick={() => navigate('/personal-ledger')}
-                                    className="h-7 w-7 p-0 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50" title="Edit in Personal Ledger">
-                                    <Edit2 className="w-3.5 h-3.5" />
-                                  </Button>
-                                ) : (
-                                  <>
-                                    {canUpdate && <Button variant="ghost" size="sm" onClick={() => handleOpenEdit(exp)}
-                                      className="h-7 w-7 p-0 text-slate-400 hover:text-slate-700 hover:bg-slate-100" title="Edit">
-                                      <Edit2 className="w-3.5 h-3.5" />
-                                    </Button>}
-                                    {canDelete && <Button variant="ghost" size="sm" onClick={() => handleDelete(exp.id)}
-                                      className="h-7 w-7 p-0 text-slate-400 hover:text-red-600 hover:bg-red-50" title="Delete">
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                    </Button>}
-                                  </>
-                                )}
-                              </>
-                            )}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-                {/* Totals footer */}
-                <tfoot>
-                  <TableRow className="bg-slate-50 border-t-2 border-slate-200 font-semibold">
-                    <TableCell colSpan={7} className="pl-4 py-3 text-xs font-semibold text-slate-600">
-                      Total ({totalItems} entries)
-                    </TableCell>
-                    <TableCell className="py-3 text-right">
-                      <span className="text-sm font-bold text-red-600 tabular-nums">₹{fmt(totalDebit)}</span>
-                    </TableCell>
-                    <TableCell className="py-3 text-right">
-                      <span className="text-sm font-bold text-emerald-700 tabular-nums">₹{fmt(totalCredit)}</span>
-                    </TableCell>
-                    <TableCell className="py-3 text-right">
-                      <span className={`text-sm font-bold tabular-nums ${netBalance >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
-                        ₹{fmt(Math.abs(netBalance))}
-                      </span>
-                    </TableCell>
-                    <TableCell colSpan={5} />
-                  </TableRow>
-                </tfoot>
-              </table>
-            </div>
+              {/* Totals sit below the scroll area rather than in a sticky
+                  tfoot competing with the sticky header for z-order. */}
+              <div className="flex flex-wrap items-center justify-between gap-x-8 gap-y-3 border-t border-mr-line bg-mr-surface-2/60 px-4 py-4 sm:px-6">
+                <span className="text-[12px] font-medium text-mr-muted">
+                  Total · {totalItems} entr{totalItems === 1 ? 'y' : 'ies'}
+                </span>
+                <div className="flex flex-wrap items-baseline gap-x-6 gap-y-2">
+                  <span className="text-[12px] text-mr-muted">
+                    Debit <span className="ml-1 text-[14px] font-semibold tabular-nums text-mr-coral-ink">₹{fmt(totalDebit)}</span>
+                  </span>
+                  <span className="text-[12px] text-mr-muted">
+                    Credit <span className="ml-1 text-[14px] font-semibold tabular-nums text-mr-lime-ink">₹{fmt(totalCredit)}</span>
+                  </span>
+                  <span className="text-[12px] text-mr-muted">
+                    Net <span className={`ml-1 text-[17px] font-semibold tabular-nums ${netBalance >= 0 ? 'text-mr-lime-ink' : 'text-mr-coral-ink'}`}>
+                      ₹{fmt(Math.abs(netBalance))}
+                    </span>
+                  </span>
+                </div>
+              </div>
+            </>
           )}
 
           {/* Pagination Controls */}
           {!loading && totalItems > 0 && (
-            <div className="flex flex-col items-center justify-between gap-3 overflow-x-auto border-t-2 border-slate-200 bg-slate-50/60 p-3 md:flex-row">
+            <div className="flex flex-col items-center justify-between gap-3 overflow-x-auto border-t border-mr-line bg-mr-surface px-4 py-3.5 sm:px-6 md:flex-row">
               <div className="flex items-center gap-3 shrink-0">
-                <p className="text-xs text-slate-500">
+                <p className="text-[12px] text-mr-muted">
                   Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, totalItems)} of {totalItems} entries
                 </p>
                 <Select value={itemsPerPage.toString()} onValueChange={(v) => setItemsPerPage(Number(v))}>
@@ -1950,8 +1702,8 @@ const Expenses = () => {
               </Pagination>
             </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
       {/* View Details Dialog */}
       <Dialog open={!!viewEntry} onOpenChange={(open) => { if (!open) setViewEntry(null); }}>

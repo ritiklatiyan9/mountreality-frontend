@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import api from '../api/api';
-import { Card, CardContent } from '../components/ui/card';
-import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import {
@@ -12,17 +10,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../components/ui/dialog';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '../components/ui/table';
-import { Badge } from '../components/ui/badge';
-import { AlertCircle, Check, Eye, EyeOff, Home, KeyRound, Lock, Search, ShieldCheck, Unlock } from 'lucide-react';
 import { Checkbox } from '../components/ui/checkbox';
+import {
+  PageHeader, SectionHead, EmptyBlock, StatusDot,
+  FIELD, FIELD_LG, GHOST_BTN, PRIMARY_BTN,
+} from '../components/ui/page';
+import { cn } from '@/lib/utils';
+import { AlertCircle, Check, Eye, EyeOff, Home, KeyRound, Lock, Search, ShieldCheck, Unlock } from 'lucide-react';
 
 const UserIdManagement = () => {
   const [users, setUsers] = useState([]);
@@ -154,206 +148,221 @@ const UserIdManagement = () => {
   };
 
   return (
-    <div className="max-w-6xl space-y-5">
-      <div>
-        <h1 className="text-xl font-semibold text-slate-900">User ID Management</h1>
-        <p className="text-sm text-slate-500 mt-0.5">Admin controls for user access block/unblock and password reset/change</p>
-      </div>
+    <div className="mx-auto w-full max-w-6xl pb-16">
+      <PageHeader
+        title="User ID management"
+        description="Block or unblock sign-in, reset passwords, and grant site access."
+      />
 
       {message.text && (
-        <div className={`flex items-center gap-2 p-3 rounded-lg text-sm border ${
-          message.type === 'success'
-            ? 'bg-emerald-50 border-emerald-100 text-emerald-700'
-            : 'bg-red-50 border-red-100 text-red-700'
+        <p className={`mt-6 flex items-center gap-2 rounded-control px-4 py-3 text-[13px] ${
+          message.type === 'success' ? 'bg-mr-lime-soft text-mr-lime-ink' : 'bg-mr-coral-soft text-mr-coral-ink'
         }`}>
-          {message.type === 'success' ? <Check className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
-          <span>{message.text}</span>
-        </div>
+          {message.type === 'success'
+            ? <Check className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden="true" />
+            : <AlertCircle className="h-4 w-4 shrink-0" strokeWidth={1.9} aria-hidden="true" />}
+          {message.text}
+        </p>
       )}
 
-      <Card className="shadow-none border-slate-200">
-        <CardContent className="p-4 flex items-center justify-between gap-3">
-          <div className="relative w-full max-w-sm">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <Input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search by user id, name, email"
-              className="pl-9"
-            />
-          </div>
-          <Badge variant="outline" className="text-xs bg-slate-50 border-slate-200 text-slate-600">
-            {filteredUsers.length} users
-          </Badge>
-        </CardContent>
-      </Card>
+      <section className="mt-8">
+        <SectionHead
+          title="Users"
+          meta={`${filteredUsers.length} user${filteredUsers.length === 1 ? '' : 's'}`}
+          actions={
+            <div className="relative w-full sm:w-72">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-mr-faint" strokeWidth={1.9} aria-hidden="true" />
+              <Input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search user id, name or email…"
+                aria-label="Search users"
+                className={`${FIELD} pl-9`}
+              />
+            </div>
+          }
+        />
 
-      <Card className="shadow-none border-slate-200">
-        <CardContent className="p-0">
-          {loading ? (
-            <div className="py-14 text-center text-sm text-slate-500">Loading users...</div>
-          ) : filteredUsers.length === 0 ? (
-            <div className="py-14 text-center text-sm text-slate-500">No users found.</div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow className="hover:bg-transparent bg-slate-50/80">
-                  <TableHead className="text-[11px] uppercase tracking-wider">User ID</TableHead>
-                  <TableHead className="text-[11px] uppercase tracking-wider">Name</TableHead>
-                  <TableHead className="text-[11px] uppercase tracking-wider">Email</TableHead>
-                  <TableHead className="text-[11px] uppercase tracking-wider">Role</TableHead>
-                  <TableHead className="text-[11px] uppercase tracking-wider">Status</TableHead>
-                  <TableHead className="text-[11px] uppercase tracking-wider">Joined</TableHead>
-                  <TableHead className="text-[11px] uppercase tracking-wider text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+        {loading ? (
+          <EmptyBlock title="Loading users…" />
+        ) : filteredUsers.length === 0 ? (
+          <EmptyBlock
+            icon={ShieldCheck}
+            title="No users found"
+            description={query ? 'No one matches that search.' : 'Users appear here once they are created.'}
+            tall
+          />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-[13px]">
+              <thead>
+                <tr className="border-b border-mr-line">
+                  {['User ID', 'Name', 'Email', 'Role', 'Status', 'Joined'].map((h) => (
+                    <th key={h} className="whitespace-nowrap px-3 py-3 text-left text-[12px] font-medium text-mr-muted">{h}</th>
+                  ))}
+                  <th className="px-3 py-3 text-right text-[12px] font-medium text-mr-muted">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
                 {filteredUsers.map((u) => (
-                  <TableRow key={u.id}>
-                    <TableCell className="text-sm font-semibold text-slate-700">#{u.id}</TableCell>
-                    <TableCell className="text-sm text-slate-800">{u.name}</TableCell>
-                    <TableCell className="text-sm text-slate-600">{u.email}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className={`text-[10px] ${u.role === 'admin' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-slate-50 text-slate-700 border-slate-200'}`}>
-                        {u.role === 'admin' ? 'ADMIN' : 'SUB-ADMIN'}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className={`text-[10px] ${u.is_active ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
-                        {u.is_active ? 'ACTIVE' : 'BLOCKED'}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-sm text-slate-500">
-                      {u.created_at ? new Date(u.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—'}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center justify-end gap-2">
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          className="h-8 w-8 text-indigo-600 border-indigo-200 hover:bg-indigo-50"
+                  <tr key={u.id} className="border-b border-mr-line transition-colors hover:bg-mr-surface-2/60">
+                    <td className="px-3 py-3 font-medium tabular-nums text-mr-text">#{u.id}</td>
+                    <td className="px-3 py-3 text-mr-text">{u.name}</td>
+                    <td className="px-3 py-3 text-mr-muted">{u.email}</td>
+                    <td className="px-3 py-3">
+                      <span className={`inline-flex rounded-full px-2.5 py-1 text-[12px] font-medium ${
+                        u.role === 'admin' ? 'bg-mr-blue-soft text-mr-blue' : 'bg-mr-surface-2 text-mr-muted'
+                      }`}>
+                        {u.role === 'admin' ? 'Admin' : 'Sub-Admin'}
+                      </span>
+                    </td>
+                    <td className="px-3 py-3">
+                      <StatusDot tone={u.is_active ? 'positive' : 'negative'}>
+                        {u.is_active ? 'Active' : 'Blocked'}
+                      </StatusDot>
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-3 text-mr-muted">
+                      {u.created_at ? new Date(u.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                    </td>
+                    <td className="px-3 py-3">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          type="button"
+                          className="flex h-8 w-8 items-center justify-center rounded-control text-mr-faint transition-colors hover:bg-mr-surface-2 hover:text-mr-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue disabled:opacity-40"
                           disabled={submitting}
                           onClick={() => openSiteDialog(u)}
                           title="Manage site access"
+                          aria-label={`Manage site access for ${u.name}`}
                         >
-                          <Home className="w-3.5 h-3.5" />
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className={`h-8 ${u.is_active ? 'text-red-600 border-red-200 hover:bg-red-50' : 'text-emerald-700 border-emerald-200 hover:bg-emerald-50'}`}
+                          <Home className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden="true" />
+                        </button>
+                        <button
+                          type="button"
+                          className={cn(
+                            'inline-flex h-8 items-center gap-1.5 rounded-control px-2.5 text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue disabled:opacity-40',
+                            u.is_active
+                              ? 'text-mr-coral-ink hover:bg-mr-coral-soft'
+                              : 'text-mr-lime-ink hover:bg-mr-lime-soft',
+                          )}
                           disabled={submitting}
                           onClick={() => handleToggleAccess(u)}
                         >
-                          {u.is_active ? <Lock className="w-3.5 h-3.5 mr-1.5" /> : <Unlock className="w-3.5 h-3.5 mr-1.5" />}
+                          {u.is_active
+                            ? <Lock className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden="true" />
+                            : <Unlock className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden="true" />}
                           {u.is_active ? 'Block' : 'Unblock'}
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-8"
+                        </button>
+                        <button
+                          type="button"
+                          className="inline-flex h-8 items-center gap-1.5 rounded-control border border-mr-line px-2.5 text-[12px] font-medium text-mr-text transition-colors hover:bg-mr-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue disabled:opacity-40"
                           disabled={submitting || !u.is_active}
                           onClick={() => openResetDialog(u)}
                         >
-                          <KeyRound className="w-3.5 h-3.5 mr-1.5" /> Reset Password
-                        </Button>
+                          <KeyRound className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden="true" /> Reset password
+                        </button>
                       </div>
-                    </TableCell>
-                  </TableRow>
+                    </td>
+                  </tr>
                 ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
-      {/* ── Site Access Dialog ── */}
+      {/* ── Site access ── */}
       <Dialog open={siteDialogOpen} onOpenChange={setSiteDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-base">Site Access — {siteUser?.name}</DialogTitle>
-            <DialogDescription className="text-sm">
+            <DialogTitle className="text-[17px] font-semibold tracking-[-0.015em]">Site access — {siteUser?.name}</DialogTitle>
+            <DialogDescription className="text-[13px] text-mr-muted">
               Select which sites this user can access.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-2 max-h-[50vh] overflow-y-auto">
+          <div className="max-h-[50vh] space-y-1.5 overflow-y-auto">
             {allSites.length === 0 ? (
-              <p className="text-sm text-slate-500 py-4 text-center">No sites found.</p>
+              <p className="py-6 text-center text-[13px] text-mr-muted">No sites found.</p>
             ) : (
               allSites.map((site) => (
                 <label
                   key={site.id}
-                  className={`flex items-center gap-3 rounded-lg border p-3 cursor-pointer transition-colors ${
+                  className={cn(
+                    'flex cursor-pointer items-center gap-3 rounded-control border p-3 transition-colors',
                     selectedSiteIds.includes(site.id)
-                      ? 'bg-indigo-50 border-indigo-200'
-                      : 'bg-white border-slate-200 hover:bg-slate-50'
-                  }`}
+                      ? 'border-mr-blue/30 bg-mr-blue-soft'
+                      : 'border-mr-line hover:bg-mr-surface-2',
+                  )}
                 >
                   <Checkbox
                     checked={selectedSiteIds.includes(site.id)}
                     onCheckedChange={() => toggleSite(site.id)}
                   />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-slate-800 truncate">{site.name}</p>
-                    {site.location && <p className="text-[11px] text-slate-500 truncate">{site.location}</p>}
-                  </div>
-                  <Badge variant="outline" className="text-[10px] shrink-0">ID: {site.id}</Badge>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[13px] font-medium text-mr-text">{site.name}</span>
+                    {site.location && <span className="block truncate text-[12px] text-mr-faint">{site.location}</span>}
+                  </span>
+                  <span className="shrink-0 text-[12px] tabular-nums text-mr-faint">#{site.id}</span>
                 </label>
               ))
             )}
           </div>
 
           <DialogFooter>
-            <Button type="button" variant="outline" size="sm" onClick={() => setSiteDialogOpen(false)} disabled={submitting}>
+            <button type="button" className={GHOST_BTN} onClick={() => setSiteDialogOpen(false)} disabled={submitting}>
               Cancel
-            </Button>
-            <Button type="button" size="sm" onClick={handleSaveSites} disabled={submitting}>
-              {submitting ? 'Saving...' : `Save (${selectedSiteIds.length} sites)`}
-            </Button>
+            </button>
+            <button type="button" className={PRIMARY_BTN} onClick={handleSaveSites} disabled={submitting}>
+              {submitting ? 'Saving…' : `Save (${selectedSiteIds.length} site${selectedSiteIds.length === 1 ? '' : 's'})`}
+            </button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
+      {/* ── Password reset ── */}
       <Dialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-base">Reset / Change Password</DialogTitle>
-            <DialogDescription className="text-sm">
-              Set a new password for {selectedUser?.name || 'user'}. Existing sessions will be logged out.
+            <DialogTitle className="text-[17px] font-semibold tracking-[-0.015em]">Reset password</DialogTitle>
+            <DialogDescription className="text-[13px] text-mr-muted">
+              Set a new password for {selectedUser?.name || 'this user'}. Existing sessions will be signed out.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-2">
-            <Label className="text-xs font-medium">New Password *</Label>
+            <Label htmlFor="reset-password" className="text-[13px] font-medium text-mr-text">New password *</Label>
             <div className="relative">
               <Input
+                id="reset-password"
                 type={showPassword ? 'text' : 'password'}
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 placeholder="Minimum 6 characters"
-                className="pr-10"
+                className={`${FIELD_LG} pr-10`}
               />
               <button
                 type="button"
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                 onClick={() => setShowPassword((v) => !v)}
+                tabIndex={-1}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-mr-faint transition-colors hover:text-mr-text"
               >
-                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                {showPassword ? <EyeOff className="h-4 w-4" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
               </button>
             </div>
-            <p className="text-[11px] text-slate-500 inline-flex items-center gap-1.5">
-              <ShieldCheck className="w-3 h-3" /> User will need to login again with the new password.
+            <p className="inline-flex items-center gap-1.5 text-[12px] text-mr-muted">
+              <ShieldCheck className="h-3.5 w-3.5 text-mr-faint" strokeWidth={1.9} aria-hidden="true" />
+              The user will need to sign in again with the new password.
             </p>
           </div>
 
           <DialogFooter>
-            <Button type="button" variant="outline" size="sm" onClick={() => setResetDialogOpen(false)} disabled={submitting}>
+            <button type="button" className={GHOST_BTN} onClick={() => setResetDialogOpen(false)} disabled={submitting}>
               Cancel
-            </Button>
-            <Button type="button" size="sm" onClick={handleResetPassword} disabled={submitting}>
-              {submitting ? 'Updating...' : 'Update Password'}
-            </Button>
+            </button>
+            <button type="button" className={PRIMARY_BTN} onClick={handleResetPassword} disabled={submitting}>
+              {submitting ? 'Updating…' : 'Update password'}
+            </button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

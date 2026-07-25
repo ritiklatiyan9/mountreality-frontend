@@ -1,35 +1,64 @@
+import { useRef } from 'react';
 import { motion } from 'framer-motion';
 
 const MotionSpan = motion.span;
 
 const PRESETS = [
   { key: 'today',      label: 'Today' },
-  { key: 'this_week',  label: 'This Week' },
-  { key: 'this_month', label: 'This Month' },
-  { key: 'this_year',  label: 'This Year' },
+  { key: 'this_week',  label: 'This week' },
+  { key: 'this_month', label: 'This month' },
+  { key: 'this_year',  label: 'This year' },
   { key: 'overall',    label: 'Overall' },
 ];
 
-export default function TimeFilter({ value, onChange }) {
+/* ── Period segmented control ────────────────────────────────────────
+   A radio group, not a row of buttons: arrow keys move between periods
+   and only the selected one is in the tab order. Selection logic is
+   unchanged — it still just calls onChange with the preset key. ── */
+export default function TimeFilter({ value, onChange, label = 'Reporting period' }) {
+  const ref = useRef(null);
+
+  const onKeyDown = (event) => {
+    const dir = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
+    if (!dir) return;
+    event.preventDefault();
+    const index = PRESETS.findIndex((p) => p.key === value);
+    const next = PRESETS[(index + dir + PRESETS.length) % PRESETS.length];
+    onChange(next.key);
+    ref.current?.querySelector(`[data-period="${next.key}"]`)?.focus();
+  };
+
   return (
-    <div className="flex items-center gap-0.5 flex-wrap rounded-full bg-slate-100 p-1">
-      {PRESETS.map(({ key, label }) => {
+    <div
+      ref={ref}
+      role="radiogroup"
+      aria-label={label}
+      onKeyDown={onKeyDown}
+      className="flex flex-wrap items-center gap-0.5 rounded-full border border-mr-line bg-mr-surface-2 p-1"
+    >
+      {PRESETS.map(({ key, label: text }) => {
         const active = value === key;
         return (
           <button
             key={key}
+            type="button"
+            role="radio"
+            data-period={key}
+            aria-checked={active}
+            tabIndex={active ? 0 : -1}
             onClick={() => onChange(key)}
-            className={`relative px-3 py-1 rounded-full text-[11px] font-semibold transition-colors duration-200
-              ${active ? 'text-white' : 'text-slate-600 hover:text-slate-900'}`}
+            className={`relative rounded-full px-3 py-1.5 text-[12px] font-medium transition-colors duration-200
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue focus-visible:ring-offset-1
+              ${active ? 'text-white' : 'text-mr-muted hover:text-mr-text'}`}
           >
             {active && (
               <MotionSpan
-                layoutId="time-filter-pill"
-                className="absolute inset-0 rounded-full bg-slate-950 shadow-sm"
-                transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+                layoutId="mr-period-pill"
+                className="absolute inset-0 rounded-full bg-mr-ink"
+                transition={{ type: 'spring', stiffness: 420, damping: 34 }}
               />
             )}
-            <span className="relative z-10">{label}</span>
+            <span className="relative z-10 whitespace-nowrap">{text}</span>
           </button>
         );
       })}

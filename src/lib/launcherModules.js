@@ -4,6 +4,7 @@ import {
   CreditCard, ShoppingBag, UsersRound, MessageSquare, Sheet, MapPin, UserCog,
   CheckCircle2, Shield, Banknote, LayoutDashboard, QrCode, FileSearch,
   FileText, HardHat, Boxes, TrendingUp,
+  ShieldCheck, Gavel,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -40,6 +41,8 @@ export const ALL_APPS = [
   { key: 'excel', path: '/excel/files', label: 'Native Excel', icon: Sheet, perm: 'excel' },
   { key: 'reports', path: '/reports', label: 'Reports', icon: FileText, perm: 'reports' },
   { key: 'finance_forecast', path: '/finance-forecast', label: 'Finance Forecast', icon: TrendingUp, perm: 'finance_forecast' },
+  { key: 'compliance_legal', path: '/compliance/dashboard', label: 'Compliance & Legal', icon: ShieldCheck, perm: 'compliance' },
+  { key: 'legal_matters', path: '/legal/cases', label: 'Legal Matters', icon: Gavel, perm: 'legal' },
   // ── Admin-only ──
   { key: 'sites', path: '/sites', label: 'Sites', icon: MapPin, roles: ['admin', 'super_admin'] },
   { key: 'sub_admins', path: '/sub-admins', label: 'Admin Management', icon: UserCog, roles: ['admin', 'super_admin'] },
