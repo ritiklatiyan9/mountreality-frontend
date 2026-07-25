@@ -1,37 +1,20 @@
 import { useState, useEffect } from 'react';
 import api from '../api/api';
-import { Card, CardContent } from '../components/ui/card';
-import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
-import { Badge } from '../components/ui/badge';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '../components/ui/select';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-  DialogFooter,
+  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
+  DialogTrigger, DialogFooter,
 } from '../components/ui/dialog';
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '../components/ui/table';
+  PageHeader, SectionHead, EmptyBlock, StatusDot,
+  FIELD, FIELD_LG, GHOST_BTN, PRIMARY_BTN,
+} from '../components/ui/page';
 import {
-  UserPlus, Edit2, Trash2, Mail, Phone, Shield,
-  Eye, EyeOff, AlertCircle, Check, Search
+  UserPlus, Edit2, Trash2, Shield, Eye, EyeOff, AlertCircle, Check, Search, Loader2,
 } from 'lucide-react';
 
 export const SubAdmins = () => {
@@ -117,173 +100,206 @@ export const SubAdmins = () => {
   );
 
   return (
-    <div className="max-w-5xl space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold text-slate-900">Admin Management</h1>
-          <p className="text-sm text-slate-500 mt-0.5">Manage admins and sub-admins for the system</p>
-        </div>
-        <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm(); }}>
-          <DialogTrigger asChild>
-            <Button size="sm" onClick={handleOpenCreate}>
-              <UserPlus className="w-4 h-4 mr-1.5" /> Add Admin / Sub-Admin
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-lg">
-            <DialogHeader>
-              <DialogTitle className="text-base">{editingId ? 'Edit User' : 'New Admin / Sub-Admin'}</DialogTitle>
-              <DialogDescription className="text-sm">
-                {editingId ? 'Update user details and role.' : 'Create a new admin or sub-admin account.'}
-              </DialogDescription>
-            </DialogHeader>
+    <div className="mx-auto w-full max-w-5xl pb-16">
+      <PageHeader
+        title="Admin management"
+        description="Admins and sub-admins who can sign in to this workspace."
+        actions={
+          <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm(); }}>
+            <DialogTrigger asChild>
+              <button type="button" className={PRIMARY_BTN} onClick={handleOpenCreate}>
+                <UserPlus className="h-4 w-4" strokeWidth={1.9} aria-hidden="true" /> Add admin
+              </button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-lg">
+              <DialogHeader>
+                <DialogTitle className="text-[17px] font-semibold tracking-[-0.015em]">
+                  {editingId ? 'Edit user' : 'New admin or sub-admin'}
+                </DialogTitle>
+                <DialogDescription className="text-[13px] text-mr-muted">
+                  {editingId ? 'Update user details and role.' : 'Create an account that can sign in to this workspace.'}
+                </DialogDescription>
+              </DialogHeader>
 
-            {message.text && (
-              <div className={`flex gap-2 p-3 rounded-lg text-sm ${
-                message.type === 'success' ? 'bg-emerald-50 border border-emerald-100 text-emerald-700' : 'bg-red-50 border border-red-100 text-red-700'
-              }`}>
-                {message.type === 'success' ? <Check className="w-4 h-4 shrink-0 mt-0.5" /> : <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />}
-                {message.text}
-              </div>
-            )}
+              {message.text && (
+                <p className={`flex gap-2 rounded-control px-3 py-2.5 text-[13px] ${
+                  message.type === 'success' ? 'bg-mr-lime-soft text-mr-lime-ink' : 'bg-mr-coral-soft text-mr-coral-ink'
+                }`}>
+                  {message.type === 'success'
+                    ? <Check className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={2} aria-hidden="true" />
+                    : <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.9} aria-hidden="true" />}
+                  {message.text}
+                </p>
+              )}
 
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label>Full Name *</Label>
-                  <Input placeholder="John Doe" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} required />
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="admin-name" className="text-[13px] font-medium text-mr-text">Full name *</Label>
+                    <Input id="admin-name" placeholder="John Doe" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} required className={FIELD_LG} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="admin-phone" className="text-[13px] font-medium text-mr-text">Phone</Label>
+                    <Input id="admin-phone" placeholder="+91 9876543210" value={formData.phone} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} className={FIELD_LG} />
+                  </div>
                 </div>
-                <div className="space-y-1.5">
-                  <Label>Phone</Label>
-                  <Input placeholder="+91 9876543210" value={formData.phone} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} />
+                <div className="space-y-2">
+                  <Label htmlFor="admin-email" className="text-[13px] font-medium text-mr-text">Email *</Label>
+                  <Input id="admin-email" type="email" placeholder="john@company.com" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} required className={FIELD_LG} />
                 </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Email *</Label>
-                <Input type="email" placeholder="john@company.com" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} required />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Role *</Label>
-                <Select value={formData.role} onValueChange={(v) => setFormData({ ...formData, role: v })}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select role" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="admin">Admin</SelectItem>
-                    <SelectItem value="sub_admin">Sub-Admin</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>{editingId ? 'New Password (optional)' : 'Password *'}</Label>
-                <div className="relative">
-                  <Input type={showPass ? 'text' : 'password'} placeholder={editingId ? 'Leave blank to keep' : 'Min. 6 characters'} value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} required={!editingId} className="pr-10" />
-                  <button type="button" onClick={() => setShowPass(!showPass)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600" tabIndex={-1}>
-                    {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
+                <div className="space-y-2">
+                  <Label htmlFor="admin-role" className="text-[13px] font-medium text-mr-text">Role *</Label>
+                  <Select value={formData.role} onValueChange={(v) => setFormData({ ...formData, role: v })}>
+                    <SelectTrigger id="admin-role" className={FIELD_LG}>
+                      <SelectValue placeholder="Select role" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="admin">Admin</SelectItem>
+                      <SelectItem value="sub_admin">Sub-Admin</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
-              </div>
-              <DialogFooter>
-                <Button type="button" variant="outline" size="sm" onClick={() => setDialogOpen(false)}>Cancel</Button>
-                <Button type="submit" size="sm">{editingId ? 'Update' : 'Create'}</Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
-      </div>
+                <div className="space-y-2">
+                  <Label htmlFor="admin-password" className="text-[13px] font-medium text-mr-text">
+                    {editingId ? 'New password (optional)' : 'Password *'}
+                  </Label>
+                  <div className="relative">
+                    <Input
+                      id="admin-password"
+                      type={showPass ? 'text' : 'password'}
+                      placeholder={editingId ? 'Leave blank to keep' : 'Min. 6 characters'}
+                      value={formData.password}
+                      onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                      required={!editingId}
+                      className={`${FIELD_LG} pr-10`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPass(!showPass)}
+                      tabIndex={-1}
+                      aria-label={showPass ? 'Hide password' : 'Show password'}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-mr-faint transition-colors hover:text-mr-text"
+                    >
+                      {showPass ? <EyeOff className="h-4 w-4" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
+                    </button>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <button type="button" className={GHOST_BTN} onClick={() => setDialogOpen(false)}>Cancel</button>
+                  <button type="submit" className={PRIMARY_BTN}>{editingId ? 'Update' : 'Create'}</button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+        }
+      />
 
-      {/* Search */}
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1 max-w-xs">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <Input placeholder="Search by name or email..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="pl-9 h-9" />
-        </div>
-        <span className="text-xs text-slate-400 ml-auto">{filteredAdmins.length} member{filteredAdmins.length !== 1 ? 's' : ''}</span>
-      </div>
-
-      {/* Table */}
-      <Card className="shadow-none border-slate-200">
-        <CardContent className="p-0">
-          {loading ? (
-            <div className="flex items-center justify-center py-16">
-              <div className="w-5 h-5 border-2 border-slate-200 border-t-slate-600 rounded-full animate-spin" />
+      <section className="mt-8">
+        <SectionHead
+          title="Team"
+          meta={`${filteredAdmins.length} member${filteredAdmins.length === 1 ? '' : 's'}`}
+          actions={
+            <div className="relative w-full sm:w-64">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-mr-faint" strokeWidth={1.9} aria-hidden="true" />
+              <Input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search name or email…"
+                aria-label="Search admins"
+                className={`${FIELD} pl-9`}
+              />
             </div>
-          ) : filteredAdmins.length === 0 ? (
-            <div className="text-center py-16">
-              <Shield className="w-8 h-8 text-slate-200 mx-auto mb-2" />
-              <p className="text-sm text-slate-500">No admins or sub-admins found</p>
-              <p className="text-xs text-slate-400 mt-0.5">Add your first admin or sub-admin</p>
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow className="hover:bg-transparent">
-                  <TableHead className="text-xs">Name</TableHead>
-                  <TableHead className="text-xs">Contact</TableHead>
-                  <TableHead className="text-xs">Role</TableHead>
-                  <TableHead className="text-xs">Status</TableHead>
-                  <TableHead className="text-xs">Joined</TableHead>
-                  <TableHead className="text-xs text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+          }
+        />
+
+        {loading ? (
+          <div className="flex items-center justify-center py-20">
+            <Loader2 className="h-5 w-5 animate-spin text-mr-faint" aria-hidden="true" />
+          </div>
+        ) : filteredAdmins.length === 0 ? (
+          <EmptyBlock
+            icon={Shield}
+            title="No admins or sub-admins found"
+            description={searchQuery ? 'No one matches that search.' : 'Add your first admin or sub-admin to get started.'}
+            tall
+          />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-[13px]">
+              <thead>
+                <tr className="border-b border-mr-line">
+                  {['Name', 'Contact', 'Role', 'Status', 'Joined'].map((h) => (
+                    <th key={h} className="whitespace-nowrap px-3 py-3 text-left text-[12px] font-medium text-mr-muted">{h}</th>
+                  ))}
+                  <th className="px-3 py-3 text-right text-[12px] font-medium text-mr-muted">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
                 {filteredAdmins.map((admin) => (
-                  <TableRow key={admin.id}>
-                    <TableCell>
+                  <tr key={admin.id} className="border-b border-mr-line transition-colors hover:bg-mr-surface-2/60">
+                    <td className="px-3 py-3">
                       <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 text-sm font-medium shrink-0">
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-mr-surface-2 text-[13px] font-semibold text-mr-muted">
                           {admin.name?.charAt(0)?.toUpperCase()}
-                        </div>
-                        <span className="text-sm font-medium text-slate-800">{admin.name}</span>
+                        </span>
+                        <span className="font-medium text-mr-text">{admin.name}</span>
                       </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="space-y-0.5">
-                        <div className="flex items-center gap-1.5 text-sm text-slate-600">
-                          <Mail className="w-3 h-3 text-slate-400" />
-                          {admin.email}
-                        </div>
-                        {admin.phone && (
-                          <div className="flex items-center gap-1.5 text-xs text-slate-400">
-                            <Phone className="w-3 h-3" />
-                            {admin.phone}
-                          </div>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className={`text-[10px] ${admin.role === 'admin' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-slate-50 text-slate-700 border-slate-200'}`}>
-                        {admin.role === 'admin' ? 'ADMIN' : 'SUB-ADMIN'}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <button onClick={() => handleToggleActive(admin)} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium cursor-pointer transition-colors ${
-                        admin.is_active ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'bg-red-50 text-red-600 hover:bg-red-100'
+                    </td>
+                    <td className="px-3 py-3">
+                      <span className="block text-mr-muted">{admin.email}</span>
+                      {admin.phone && <span className="mt-0.5 block text-[12px] text-mr-faint">{admin.phone}</span>}
+                    </td>
+                    <td className="px-3 py-3">
+                      <span className={`inline-flex rounded-full px-2.5 py-1 text-[12px] font-medium ${
+                        admin.role === 'admin' ? 'bg-mr-blue-soft text-mr-blue' : 'bg-mr-surface-2 text-mr-muted'
                       }`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${admin.is_active ? 'bg-emerald-500' : 'bg-red-400'}`} />
-                        {admin.is_active ? 'Active' : 'Inactive'}
+                        {admin.role === 'admin' ? 'Admin' : 'Sub-Admin'}
+                      </span>
+                    </td>
+                    <td className="px-3 py-3">
+                      <button
+                        type="button"
+                        onClick={() => handleToggleActive(admin)}
+                        aria-label={`${admin.is_active ? 'Deactivate' : 'Activate'} ${admin.name}`}
+                        className="rounded-full transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue"
+                      >
+                        <StatusDot tone={admin.is_active ? 'positive' : 'negative'}>
+                          {admin.is_active ? 'Active' : 'Inactive'}
+                        </StatusDot>
                       </button>
-                    </TableCell>
-                    <TableCell className="text-sm text-slate-500">
-                      {admin.created_at ? new Date(admin.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—'}
-                    </TableCell>
-                    <TableCell className="text-right">
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-3 text-mr-muted">
+                      {admin.created_at
+                        ? new Date(admin.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+                        : '—'}
+                    </td>
+                    <td className="px-3 py-3">
                       <div className="flex items-center justify-end gap-1">
-                        <Button variant="ghost" size="sm" onClick={() => handleOpenEdit(admin)} className="h-7 w-7 p-0 text-slate-400 hover:text-slate-700">
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </Button>
-                        <Button variant="ghost" size="sm" onClick={() => handleDeactivate(admin.id)} className="h-7 w-7 p-0 text-slate-400 hover:text-red-600">
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </Button>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEdit(admin)}
+                          aria-label={`Edit ${admin.name}`}
+                          className="flex h-8 w-8 items-center justify-center rounded-control text-mr-faint transition-colors hover:bg-mr-surface-2 hover:text-mr-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue"
+                        >
+                          <Edit2 className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden="true" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeactivate(admin.id)}
+                          aria-label={`Deactivate ${admin.name}`}
+                          className="flex h-8 w-8 items-center justify-center rounded-control text-mr-faint transition-colors hover:bg-mr-coral-soft hover:text-mr-coral-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden="true" />
+                        </button>
                       </div>
-                    </TableCell>
-                  </TableRow>
+                    </td>
+                  </tr>
                 ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
     </div>
   );
 };

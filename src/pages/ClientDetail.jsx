@@ -12,6 +12,7 @@ import { Card, CardContent } from '../components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Badge } from '../components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
+import { StatusDot, GHOST_BTN, DANGER_BTN } from '../components/ui/page';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter,
   DialogHeader, DialogTitle,
@@ -112,9 +113,9 @@ const EMPTY_FORM = {
 const Avatar = ({ src, name, size = 'md' }) => {
   const sizes = { sm: 'w-8 h-8 text-xs', md: 'w-12 h-12 text-sm', lg: 'w-20 h-20 text-xl', xl: 'w-28 h-28 text-3xl' };
   const initials = (name || '??').split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase();
-  if (src) return <img src={src} alt={name} className={`${sizes[size]} rounded-full object-cover ring-2 ring-white shadow-sm`} />;
+  if (src) return <img src={src} alt="" className={`${sizes[size]} rounded-full object-cover`} />;
   return (
-    <div className={`${sizes[size]} rounded-full bg-gradient-to-br from-slate-700 to-slate-900 text-white flex items-center justify-center font-bold ring-2 ring-white shadow-sm`}>
+    <div className={`${sizes[size]} flex items-center justify-center rounded-full bg-mr-surface-2 font-semibold text-mr-muted`} aria-hidden="true">
       {initials}
     </div>
   );
@@ -130,17 +131,15 @@ const TypeBadge = ({ type }) => {
   );
 };
 
-const DetailRow = ({ icon, label, value, mono }) => {
+/* One fact: label left, value right, hairline between. The icon each
+   caller passes is ignored — a per-row glyph on a dense fact list is
+   decoration, and the label already says what the row is. */
+const DetailRow = ({ label, value, mono }) => {
   if (!value) return null;
   return (
-    <div className="group flex items-start gap-3 rounded-xl px-2 py-2.5 transition-colors hover:bg-slate-50">
-      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500 transition-colors group-hover:bg-white group-hover:text-slate-700 group-hover:shadow-sm">
-        {createElement(icon, { className: 'h-3.5 w-3.5' })}
-      </span>
-      <div className="min-w-0">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">{label}</p>
-        <p className={`mt-0.5 break-words text-sm font-medium text-slate-800 ${mono ? 'font-mono tracking-wider' : ''}`}>{value}</p>
-      </div>
+    <div className="grid grid-cols-[minmax(0,140px)_minmax(0,1fr)] gap-4 border-b border-mr-line py-2.5">
+      <span className="text-[13px] text-mr-muted">{label}</span>
+      <span className={`min-w-0 break-words text-[13px] font-medium text-mr-text ${mono ? 'font-mono tracking-wide' : ''}`}>{value}</span>
     </div>
   );
 };
@@ -569,96 +568,114 @@ const ClientDetail = () => {
   };
 
   return (
-    <div className="mx-auto w-full max-w-7xl space-y-5 px-2 py-4 sm:px-4 lg:px-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <Button variant="outline" size="icon" onClick={() => navigate('/clients')} className="h-9 w-9 rounded-full border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-900">
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">Members / profile</p>
-            <h1 className="mt-0.5 text-lg font-semibold tracking-tight text-slate-900">Member workspace</h1>
-          </div>
-        </div>
-        <span className="text-xs text-slate-400">ID #{m.id}</span>
-      </div>
-
-      <Card className="overflow-hidden border border-slate-200/80 bg-white shadow-[0_16px_45px_rgba(15,23,42,0.06)]">
-        <div className="relative overflow-hidden border-b border-slate-100 bg-gradient-to-r from-indigo-50 via-white to-sky-50 px-5 pb-6 pt-5 sm:px-6">
-          <div className="pointer-events-none absolute -right-8 -top-10 h-40 w-40 rounded-full bg-sky-200/30 blur-2xl" />
-          <div className="pointer-events-none absolute right-24 top-6 h-20 w-20 rounded-full border border-indigo-100/70" />
-          <div className="relative flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div className="flex min-w-0 items-start gap-4">
-              <div className="rounded-[26px] bg-white p-1.5 shadow-sm ring-1 ring-slate-200/70">
-                <Avatar src={m.photo} name={m.full_name} size="lg" />
-              </div>
-              <div className="min-w-0 pt-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="truncate text-xl font-semibold tracking-tight text-slate-900">{m.full_name}</h2>
-                  <TypeBadge type={m.member_type} />
-                  <Badge variant="secondary" className={`px-2.5 py-0.5 text-[10px] font-semibold ${STATUS_COLORS[m.status] || 'bg-slate-100 text-slate-600'}`}>
-                    {m.status}
-                  </Badge>
-                </div>
-                {m.father_name && <p className="mt-1 text-sm text-slate-500">S/O {m.father_name}</p>}
-                <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-slate-600">
-                  {m.phone && <a href={`tel:${m.phone}`} className="inline-flex items-center gap-1.5 rounded-full border border-white bg-white/80 px-2.5 py-1 shadow-sm transition-colors hover:text-blue-600"><Phone className="h-3.5 w-3.5" /> {m.phone}</a>}
-                  {m.email && <a href={`mailto:${m.email}`} className="inline-flex items-center gap-1.5 rounded-full border border-white bg-white/80 px-2.5 py-1 shadow-sm transition-colors hover:text-blue-600"><Mail className="h-3.5 w-3.5" /> {m.email}</a>}
-                  {m.city && <span className="inline-flex items-center gap-1.5 rounded-full border border-white bg-white/80 px-2.5 py-1 shadow-sm"><MapPin className="h-3.5 w-3.5" /> {m.city}{m.state ? `, ${m.state}` : ''}</span>}
-                </div>
-              </div>
+    <div className="mx-auto w-full max-w-5xl pb-16">
+      {/* ── Identity ── */}
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex min-w-0 items-start gap-4">
+          <button
+            type="button"
+            onClick={() => navigate('/clients')}
+            aria-label="Back to members"
+            className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-control border border-mr-line text-mr-muted transition-colors hover:bg-mr-surface-2 hover:text-mr-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue"
+          >
+            <ArrowLeft className="h-4 w-4" strokeWidth={1.9} aria-hidden="true" />
+          </button>
+          <Avatar src={m.photo} name={m.full_name} size="lg" />
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="truncate text-[26px] font-semibold tracking-[-0.03em] text-mr-text">{m.full_name}</h1>
+              <TypeBadge type={m.member_type} />
+              <StatusDot tone={m.status === 'ACTIVE' ? 'positive' : m.status === 'BLOCKED' ? 'negative' : 'neutral'}>
+                {m.status}
+              </StatusDot>
             </div>
-            <div className="relative flex flex-wrap items-center gap-2 lg:justify-end">
-              <Button variant="outline" size="sm" onClick={printProfile} className="rounded-full border-slate-200 bg-white/90 text-xs text-slate-700 hover:bg-white">
-                <Printer className="mr-1 h-3.5 w-3.5" /> Print
-              </Button>
-              <Button variant="outline" size="sm" onClick={openKycDialog} className="rounded-full border-blue-200 bg-blue-50 text-xs text-blue-700 hover:bg-blue-100 hover:text-blue-800">
-                <ScanLine className="mr-1 h-3.5 w-3.5" /> {kycVerified ? 'Update KYC' : 'Start KYC'}
-              </Button>
-              {canManage && (
-                <>
-                  <Button variant="outline" size="sm" onClick={handleOpenEdit} className="rounded-full border-slate-200 bg-white/90 text-xs text-slate-700 hover:bg-white"><Edit2 className="mr-1 h-3.5 w-3.5" /> Edit</Button>
-                  <Button variant="outline" size="sm" onClick={handleDelete} className="rounded-full border-red-200 bg-red-50 text-xs text-red-600 hover:bg-red-100 hover:text-red-700"><Trash2 className="mr-1 h-3.5 w-3.5" /> Delete</Button>
-                </>
+            <p className="mt-1 text-[14px] text-mr-muted">
+              {m.father_name ? `S/O ${m.father_name} · ` : ''}Member #{m.id}
+            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-[13px] text-mr-muted">
+              {m.phone && (
+                <a href={`tel:${m.phone}`} className="inline-flex items-center gap-1.5 transition-colors hover:text-mr-blue">
+                  <Phone className="h-3.5 w-3.5 text-mr-faint" strokeWidth={1.9} aria-hidden="true" /> {m.phone}
+                </a>
+              )}
+              {m.email && (
+                <a href={`mailto:${m.email}`} className="inline-flex items-center gap-1.5 transition-colors hover:text-mr-blue">
+                  <Mail className="h-3.5 w-3.5 text-mr-faint" strokeWidth={1.9} aria-hidden="true" /> {m.email}
+                </a>
+              )}
+              {m.city && (
+                <span className="inline-flex items-center gap-1.5">
+                  <MapPin className="h-3.5 w-3.5 text-mr-faint" strokeWidth={1.9} aria-hidden="true" /> {m.city}{m.state ? `, ${m.state}` : ''}
+                </span>
               )}
             </div>
           </div>
         </div>
-        <CardContent className="p-0">
-          <div className="grid divide-y divide-slate-100 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
-            <div className="flex items-center gap-3 px-5 py-3.5 sm:px-6">
-              <span className={`flex h-9 w-9 items-center justify-center rounded-xl ${kycVerified ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}><BadgeCheck className="h-4 w-4" /></span>
-              <div><p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">KYC status</p><p className="mt-0.5 text-sm font-semibold text-slate-700">{kycVerified ? 'Verified' : 'Pending setup'}</p></div>
-            </div>
-            <div className="flex items-center gap-3 px-5 py-3.5 sm:px-6">
-              <span className={`flex h-9 w-9 items-center justify-center rounded-xl ${memberNet >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}><Wallet className="h-4 w-4" /></span>
-              <div><p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Ledger balance</p><p className={`mt-0.5 text-sm font-semibold tabular-nums ${memberNet >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{fmtCur(Math.abs(memberNet))} <span className="text-[10px]">{memberNet >= 0 ? 'CR' : 'DR'}</span></p></div>
-            </div>
-            <div className="flex items-center gap-3 px-5 py-3.5 sm:px-6">
-              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600"><Receipt className="h-4 w-4" /></span>
-              <div><p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Mapped entries</p><p className="mt-0.5 text-sm font-semibold tabular-nums text-slate-700">{memberTxnSummary.count || 0} total</p></div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
 
-      <Tabs defaultValue="overview" className="w-full">
-        <TabsList className="grid h-auto w-full max-w-md grid-cols-2 gap-1 rounded-full border border-slate-200 bg-slate-100/70 p-1">
-          <TabsTrigger value="overview" className="rounded-full text-[10px] sm:text-xs">Overview</TabsTrigger>
-          <TabsTrigger value="ledger" className="rounded-full text-[10px] sm:text-xs">Ledger</TabsTrigger>
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" className={GHOST_BTN} onClick={printProfile}>
+            <Printer className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden="true" /> Print
+          </button>
+          <button type="button" className={GHOST_BTN} onClick={openKycDialog}>
+            <ScanLine className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden="true" /> {kycVerified ? 'Update KYC' : 'Start KYC'}
+          </button>
+          {canManage && (
+            <>
+              <button type="button" className={GHOST_BTN} onClick={handleOpenEdit}>
+                <Edit2 className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden="true" /> Edit
+              </button>
+              <button type="button" className={DANGER_BTN} onClick={handleDelete}>
+                <Trash2 className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden="true" /> Delete
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* ── Standing ── */}
+      <dl className="mt-7 grid grid-cols-2 gap-x-8 gap-y-5 border-y border-mr-line py-5 sm:grid-cols-3">
+        <div className="min-w-0">
+          <dt className="text-[13px] text-mr-muted">KYC status</dt>
+          <dd className="mt-1 text-[18px] font-semibold tracking-[-0.02em] text-mr-text">
+            {kycVerified ? 'Verified' : 'Pending setup'}
+          </dd>
+        </div>
+        <div className="min-w-0">
+          <dt className="text-[13px] text-mr-muted">Ledger balance</dt>
+          <dd className={`mt-1 text-[18px] font-semibold tabular-nums tracking-[-0.02em] ${memberNet >= 0 ? 'text-mr-lime-ink' : 'text-mr-coral-ink'}`}>
+            {fmtCur(Math.abs(memberNet))}
+            <span className="ml-1 text-[12px] font-medium text-mr-faint">{memberNet >= 0 ? 'CR' : 'DR'}</span>
+          </dd>
+        </div>
+        <div className="min-w-0">
+          <dt className="text-[13px] text-mr-muted">Mapped entries</dt>
+          <dd className="mt-1 text-[18px] font-semibold tabular-nums tracking-[-0.02em] text-mr-text">
+            {memberTxnSummary.count || 0}
+          </dd>
+        </div>
+      </dl>
+
+      <Tabs defaultValue="overview" className="mt-7 w-full">
+        <TabsList className="h-auto w-full justify-start gap-1 rounded-none border-b border-mr-line bg-transparent p-0">
+          {[{ id: 'overview', label: 'Overview' }, { id: 'ledger', label: 'Ledger' }].map((t) => (
+            <TabsTrigger
+              key={t.id}
+              value={t.id}
+              className="-mb-px rounded-none border-b-2 border-transparent bg-transparent px-4 pb-3 pt-1 text-[14px] font-medium text-mr-muted shadow-none data-[state=active]:border-mr-ink data-[state=active]:bg-transparent data-[state=active]:font-semibold data-[state=active]:text-mr-text data-[state=active]:shadow-none"
+            >
+              {t.label}
+            </TabsTrigger>
+          ))}
         </TabsList>
 
-        <TabsContent value="overview" className="space-y-5 mt-4">
+        <TabsContent value="overview" className="mt-7 space-y-10">
 
       {/* Detail Sections */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         {/* Personal */}
-        <Card className="border border-slate-200/80 bg-white shadow-sm shadow-slate-900/[0.025]">
-          <CardContent className="p-4 sm:p-5">
-          <p className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-600">
-            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600"><User className="h-3.5 w-3.5" /></span> Personal
-          </p>
-          <div className="space-y-1">
+        <section>
+          <h2 className="border-b border-mr-line pb-2.5 text-[15px] font-semibold tracking-[-0.01em] text-mr-text">Personal</h2>
+          <div className="mt-1">
             <DetailRow icon={User} label="Full Name" value={m.full_name} />
             <DetailRow icon={User} label="Father / Husband" value={m.father_name} />
             <DetailRow icon={User} label="Mother's Name" value={m.mother_name} />
@@ -676,16 +693,12 @@ const ClientDetail = () => {
             <DetailRow icon={User} label="Religion" value={m.religion} />
             <DetailRow icon={User} label="Caste" value={m.caste} />
           </div>
-          </CardContent>
-        </Card>
+        </section>
 
         {/* Contact & Address */}
-        <Card className="border border-slate-200/80 bg-white shadow-sm shadow-slate-900/[0.025]">
-          <CardContent className="p-4 sm:p-5">
-          <p className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-600">
-            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-sky-50 text-sky-600"><Phone className="h-3.5 w-3.5" /></span> Contact & Address
-          </p>
-          <div className="space-y-1">
+        <section>
+          <h2 className="border-b border-mr-line pb-2.5 text-[15px] font-semibold tracking-[-0.01em] text-mr-text">Contact & Address</h2>
+          <div className="mt-1">
             <DetailRow icon={Phone} label="Phone" value={m.phone} />
             <DetailRow icon={Phone} label="Alt Phone" value={m.alt_phone} />
             <DetailRow icon={Phone} label="WhatsApp" value={m.whatsapp} />
@@ -695,9 +708,9 @@ const ClientDetail = () => {
           </div>
           {(m.emergency_contact_name || m.emergency_contact_phone) && (
             <>
-              <Separator className="my-3" />
-              <p className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider mb-2">Emergency Contact</p>
-              <div className="space-y-1">
+              
+              <p className="mb-1 mt-4 text-[13px] font-medium text-mr-muted">Emergency Contact</p>
+              <div className="mt-1">
                 <DetailRow icon={User} label="Name" value={m.emergency_contact_name} />
                 <DetailRow icon={Phone} label="Phone" value={m.emergency_contact_phone} />
                 <DetailRow icon={User} label="Relation" value={m.emergency_contact_relation} />
@@ -706,25 +719,21 @@ const ClientDetail = () => {
           )}
           {(m.nominee_name || m.nominee_phone) && (
             <>
-              <Separator className="my-3" />
-              <p className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider mb-2">Nominee</p>
-              <div className="space-y-1">
+              
+              <p className="mb-1 mt-4 text-[13px] font-medium text-mr-muted">Nominee</p>
+              <div className="mt-1">
                 <DetailRow icon={User} label="Nominee Name" value={m.nominee_name} />
                 <DetailRow icon={User} label="Relation" value={m.nominee_relation} />
                 <DetailRow icon={Phone} label="Phone" value={m.nominee_phone} />
               </div>
             </>
           )}
-          </CardContent>
-        </Card>
+        </section>
 
         {/* Identity */}
-        <Card className="border border-slate-200/80 bg-white shadow-sm shadow-slate-900/[0.025]">
-          <CardContent className="p-4 sm:p-5">
-          <p className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-600">
-            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-violet-50 text-violet-600"><Shield className="h-3.5 w-3.5" /></span> Identity Documents
-          </p>
-          <div className="space-y-1">
+        <section>
+          <h2 className="border-b border-mr-line pb-2.5 text-[15px] font-semibold tracking-[-0.01em] text-mr-text">Identity Documents</h2>
+          <div className="mt-1">
             <DetailRow icon={Hash} label="Aadhar Number" value={m.aadhar_no} mono />
             <DetailRow icon={Hash} label="PAN Number" value={m.pan_no} mono />
             <DetailRow icon={Hash} label="Voter ID" value={m.voter_id} mono />
@@ -736,16 +745,12 @@ const ClientDetail = () => {
           {!m.aadhar_no && !m.pan_no && !m.voter_id && !m.passport_no && !m.driving_license_no && (
             <p className="text-xs text-slate-500 text-center py-4">No identity documents added</p>
           )}
-          </CardContent>
-        </Card>
+        </section>
 
         {/* Bank */}
-        <Card className="border border-slate-200/80 bg-white shadow-sm shadow-slate-900/[0.025]">
-          <CardContent className="p-4 sm:p-5">
-          <p className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-600">
-            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600"><CreditCard className="h-3.5 w-3.5" /></span> Bank Details
-          </p>
-          <div className="space-y-1">
+        <section>
+          <h2 className="border-b border-mr-line pb-2.5 text-[15px] font-semibold tracking-[-0.01em] text-mr-text">Bank Details</h2>
+          <div className="mt-1">
             <DetailRow icon={Building2} label="Bank Name" value={m.bank_name} />
             <DetailRow icon={Hash} label="Account Number" value={m.account_no} mono />
             <DetailRow icon={Hash} label="IFSC Code" value={m.ifsc_code} mono />
@@ -754,14 +759,12 @@ const ClientDetail = () => {
           {!m.bank_name && !m.account_no && (
             <p className="text-xs text-slate-500 text-center py-4">No bank details added</p>
           )}
-          </CardContent>
-        </Card>
+        </section>
       </div>
 
       {/* Employee Details */}
       {m.member_type === 'EMPLOYEE' && (m.employee_id || m.designation || m.department || m.date_of_joining || m.salary) && (
-        <Card className="overflow-hidden border border-slate-200/70 bg-white/80 shadow-[0_10px_30px_rgba(15,23,42,0.04)] backdrop-blur-sm">
-          <CardContent className="p-5">
+        <section>
             <p className="mb-3 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.2em] text-indigo-600">
               <UserCog className="h-3.5 w-3.5" /> Employee Details
             </p>
@@ -803,8 +806,7 @@ const ClientDetail = () => {
                 </div>
               )}
             </div>
-          </CardContent>
-        </Card>
+        </section>
       )}
 
       {/* KYC Documents */}
@@ -869,8 +871,7 @@ const ClientDetail = () => {
 
       {/* Notes & Meta */}
       {(m.reference || m.notes || m.created_at) && (
-        <Card className="overflow-hidden border border-slate-200/70 bg-white/80 shadow-[0_10px_30px_rgba(15,23,42,0.04)] backdrop-blur-sm">
-          <CardContent className="p-5">
+        <section>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               {m.reference && (
                 <div>
@@ -891,15 +892,13 @@ const ClientDetail = () => {
                 </div>
               )}
             </div>
-          </CardContent>
-        </Card>
+        </section>
       )}
 
       </TabsContent>
 
       <TabsContent value="ledger" className="space-y-5 mt-4">
-        <Card className="overflow-hidden border border-slate-200/80 bg-white shadow-sm shadow-slate-900/[0.025]">
-          <CardContent className="p-0">
+        <section>
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white px-4 py-3.5 sm:px-5">
               <div>
                 <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.16em] text-slate-700"><Wallet className="w-3.5 h-3.5 text-indigo-500" /> Financial activity</p>
@@ -1167,8 +1166,7 @@ const ClientDetail = () => {
                 </div>
               </div>
             )}
-          </CardContent>
-        </Card>
+        </section>
 
       {/* Transactions */}
       <div className="rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm shadow-slate-900/[0.025] sm:p-4">

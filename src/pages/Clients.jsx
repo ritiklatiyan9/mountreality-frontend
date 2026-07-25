@@ -14,6 +14,14 @@ import { Checkbox } from '../components/ui/checkbox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { useRowSelection } from '../hooks/useRowSelection';
 import BulkActionsBar from '../components/BulkActionsBar';
+import { EmptyState, SkeletonBlock } from '../components/dashboard/primitives';
+import { PageHeader, EmptyBlock, GHOST_BTN, PRIMARY_BTN } from '../components/ui/page';
+import MembersSummary from '../components/clients/MembersSummary';
+import MembersToolbar from '../components/clients/MembersToolbar';
+import MembersTable from '../components/clients/MembersTable';
+import MembersMobileList from '../components/clients/MembersMobileList';
+import { MemberAvatar as Avatar } from '../components/clients/memberDisplay';
+import { MEMBER_TYPES, isKycIncomplete } from '../components/clients/memberMeta';
 import { SiteRegistrationDialog } from '../components/MemberKycDialog';
 import { KYC_DOC_FIELDS, EMPLOYEE_DOC_FIELDS } from '../components/memberKycFields';
 import {
@@ -35,17 +43,6 @@ import {
 import * as XLSX from 'xlsx';
 
 // ── Constants ──
-const MEMBER_TYPES = [
-  { value: 'CLIENT', label: 'Client', icon: UserCheck, color: 'bg-blue-100 text-blue-700' },
-  { value: 'FARMER', label: 'Farmer', icon: Tractor, color: 'bg-emerald-100 text-emerald-700' },
-  { value: 'MEMBER', label: 'Member', icon: Users, color: 'bg-purple-100 text-purple-700' },
-  { value: 'BROKER', label: 'Broker', icon: Handshake, color: 'bg-amber-100 text-amber-700' },
-  { value: 'PARTNER', label: 'Partner', icon: Users, color: 'bg-cyan-100 text-cyan-700' },
-  { value: 'VENDOR', label: 'Vendor', icon: Store, color: 'bg-orange-100 text-orange-700' },
-  { value: 'EMPLOYEE', label: 'Employee', icon: UserCog, color: 'bg-indigo-100 text-indigo-700' },
-  { value: 'OTHER', label: 'Other', icon: HelpCircle, color: 'bg-slate-100 text-slate-700' },
-];
-
 const GENDER_OPTIONS = ['MALE', 'FEMALE', 'OTHER'];
 const BLOOD_OPTIONS = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 const STATUS_OPTIONS = ['ACTIVE', 'INACTIVE', 'BLOCKED'];
@@ -53,47 +50,6 @@ const MARITAL_OPTIONS = ['SINGLE', 'MARRIED', 'DIVORCED', 'WIDOWED'];
 const EMPLOYMENT_TYPE_OPTIONS = ['FULL-TIME', 'PART-TIME', 'CONTRACT', 'INTERN', 'PROBATION', 'FREELANCE'];
 const ROLE_OPTIONS = ['OWNER', 'PARTNER', 'DIRECTOR', 'MANAGER', 'STAFF', 'CONSULTANT', 'REPRESENTATIVE', 'OTHER'];
 const CATEGORY_ICON_MAP = { UserCheck, Tractor, Users, Handshake, Store, UserCog, HelpCircle, Tag };
-
-const STATUS_COLORS = {
-  ACTIVE: 'bg-emerald-100 text-emerald-700',
-  INACTIVE: 'bg-slate-100 text-slate-600',
-  BLOCKED: 'bg-red-100 text-red-700',
-};
-
-// ── Avatar (outside component to avoid remount) ──
-const Avatar = ({ src, name, size = 'md' }) => {
-  const sizes = { sm: 'w-8 h-8 text-xs', md: 'w-12 h-12 text-sm', lg: 'w-20 h-20 text-xl', xl: 'w-28 h-28 text-3xl' };
-  const initials = (name || '??').split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase();
-  if (src) {
-    return <img src={src} alt={name} className={`${sizes[size]} rounded-full object-cover ring-2 ring-white shadow-sm`} />;
-  }
-  return (
-    <div className={`${sizes[size]} rounded-full bg-gradient-to-br from-slate-700 to-slate-900 text-white flex items-center justify-center font-bold ring-2 ring-white shadow-sm`}>
-      {initials}
-    </div>
-  );
-};
-
-// ── Type badge (outside component to avoid remount) ──
-const TypeBadge = ({ type }) => {
-  const t = MEMBER_TYPES.find(mt => mt.value === type) || MEMBER_TYPES[6];
-  return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full ${t.color}`}>
-      <t.icon className="w-3 h-3" />
-      {t.label}
-    </span>
-  );
-};
-
-/** Check if a member has incomplete KYC */
-const isKycIncomplete = (m) => {
-  if (m.shared_kyc_status === 'VERIFIED') return false;
-  const hasContact = m.phone || m.email;
-  const hasAddress = m.address || m.city;
-  const hasIdentity = m.aadhar_no || m.pan_no || m.voter_id || m.passport_no || m.driving_license_no;
-  const hasKycPhoto = m.aadhar_front_url || m.aadhar_back_url || m.pan_card_url || m.voter_id_url || m.passport_url || m.driving_license_url || m.cheque_url || m.other_kyc_url;
-  return !hasContact || !hasAddress || !hasIdentity || !hasKycPhoto;
-};
 
 const EMPTY_FORM = {
   member_type: 'CLIENT', role: '', full_name: '', father_name: '', gender: '', date_of_birth: '',
@@ -626,6 +582,15 @@ export const Clients = () => {
   }, [members, filterType, filterStatus, filterTeam, filterKyc, searchQuery, sortOrder]);
 
   const visibleIds = useMemo(() => filteredMembers.map(m => m.id), [filteredMembers]);
+
+  // Passed to both the table and the mobile list so they can never drift.
+  const memberPermissions = { canWrite, canUpdate, canDelete };
+  const memberActions = {
+    onView: (m) => navigate(`/clients/${m.id}`),
+    onRegisterSite: (m) => { setSiteRegistrationMember(m); setSiteRegistrationOpen(true); },
+    onEdit: (m) => handleOpenEdit(m),
+    onDelete: (m) => handleDelete(m),
+  };
 
   // ── Excel Export ──
   const downloadExcel = () => {
@@ -1234,10 +1199,7 @@ export const Clients = () => {
   // ═══════════════════════════════════════════════════
   if (!currentSite) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 text-center">
-        <Building2 className="w-10 h-10 text-slate-200 mb-3" />
-        <p className="text-sm text-slate-500">Select a site to view members</p>
-      </div>
+      <EmptyBlock icon={Building2} title="Select a site to view members" tall />
     );
   }
 
@@ -1245,318 +1207,104 @@ export const Clients = () => {
   //  LIST VIEW
   // ═══════════════════════════════════════════════════
   return (
-    <div className="space-y-5">
-      {/* Modern Header */}
-      <div className="flex flex-col gap-3 border-b border-slate-300/80 pb-3 sm:flex-row sm:items-end sm:justify-between">
-        <div className="flex-1">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-700">
-              <Users className="h-4.5 w-4.5" />
-            </div>
-            <div>
-              <h1 className="text-xl font-semibold tracking-tight text-slate-900">Members</h1>
-              <p className="text-sm text-slate-500">
-                Manage clients, farmers & members for <span className="font-medium text-slate-700">{currentSite.name}</span>
-              </p>
-            </div>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
-          <BulkActionsBar
-            count={selection.count}
-            onClear={selection.clear}
-            onEdit={canUpdate ? () => {
-              const row = filteredMembers.find(m => selection.isSelected(m.id));
-              if (row) handleOpenEdit(row);
-            } : undefined}
-            onDelete={canDelete ? handleBulkDelete : undefined}
-            onPrint={handleBulkPrint}
-            entityLabel="client"
-            deleting={bulkDeleting}
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleBulkPrint}
-            disabled={filteredMembers.length === 0}
-            className="text-xs border-transparent bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-slate-700"
-          >
-            <Printer className="w-3.5 h-3.5 mr-1.5" /> Print
-          </Button>
-          <Button 
-            variant="outline" 
-            size="sm" 
-            onClick={downloadExcel} 
-            disabled={filteredMembers.length === 0}
-            className="text-xs border-transparent bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-slate-700"
-          >
-            <Download className="w-3.5 h-3.5 mr-1.5" /> Excel
-          </Button>
-          {canWrite && (
-            <Button 
-              size="sm" 
-              onClick={handleOpenCreate}
-              className="bg-slate-900 text-white hover:bg-slate-800"
-            >
-              <Plus className="w-4 h-4 mr-1.5" /> Add Member
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {/* Metrics Strip - flat SaaS style */}
-      {summary.total > 0 && (
-        <div className="flex flex-wrap items-center gap-2 border-b border-slate-300/80 pb-3">
-          {[
-            { label: 'Total', value: summary.total, icon: Users, color: 'text-slate-700' },
-            { label: 'Clients', value: summary.clients, icon: UserCheck, color: 'text-blue-700' },
-            { label: 'Farmers', value: summary.farmers, icon: Tractor, color: 'text-emerald-700' },
-            { label: 'Employees', value: summary.employees, icon: UserCog, color: 'text-indigo-700' },
-            { label: 'Members', value: summary.members, icon: Users, color: 'text-purple-700' },
-            { label: 'Active', value: summary.active, icon: Check, color: 'text-emerald-700' },
-            { label: 'Inactive', value: summary.inactive, icon: Clock, color: 'text-slate-600' },
-          ].map((s) => (
-            <div key={s.label} className="flex items-center gap-2 rounded-full bg-slate-50 px-3 py-1.5">
-              <s.icon className={`h-3.5 w-3.5 ${s.color}`} />
-              <span className="text-xs font-medium text-slate-600">{s.label}</span>
-              <span className={`text-sm font-semibold ${s.color} tabular-nums`}>{s.value || 0}</span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Filters - refined SaaS style */}
-      <div className="flex flex-col gap-2 border-b border-slate-300/80 pb-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex flex-1 flex-wrap items-center gap-2">
-          <div className="relative min-w-[280px] flex-1">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4  -translate-y-1/2 text-slate-400" />
-            <Input
-              placeholder="Search members"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="h-10 border rounded-full border-slate-300/80 bg-slate-50 pl-9 text-sm text-slate-700 shadow-none outline-none ring-0 focus-visible:border-slate-300 focus-visible:ring-0"
+    <div className="mx-auto w-full max-w-[1400px] pb-16">
+      <PageHeader
+        title="Members"
+        description={`Clients, farmers and members${currentSite?.name ? ` · ${currentSite.name}` : ''}`}
+        actions={
+          <>
+            <BulkActionsBar
+              count={selection.count}
+              onClear={selection.clear}
+              onEdit={canUpdate ? () => {
+                const row = filteredMembers.find(m => selection.isSelected(m.id));
+                if (row) handleOpenEdit(row);
+              } : undefined}
+              onDelete={canDelete ? handleBulkDelete : undefined}
+              onPrint={handleBulkPrint}
+              entityLabel="client"
+              deleting={bulkDeleting}
             />
-          </div>
-
-          <div className="flex flex-nowrap items-center gap-2 overflow-x-auto pb-1">
-            <Select value={filterType} onValueChange={setFilterType}>
-              <SelectTrigger className="h-9 min-w-[110px] rounded-full border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-none hover:bg-slate-50">
-                <SelectValue placeholder="All Types" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL"><span className="flex items-center gap-2"><Users className="w-3.5 h-3.5" /> All Types</span></SelectItem>
-                {MEMBER_TYPES.map(t => (
-                  <SelectItem key={t.value} value={t.value}><span className="flex items-center gap-2"><t.icon className="w-3.5 h-3.5" /> {t.label}</span></SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <Select value={filterStatus} onValueChange={setFilterStatus}>
-              <SelectTrigger className="h-9 min-w-[110px] rounded-full border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-none hover:bg-slate-50">
-                <SelectValue placeholder="All Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">All Status</SelectItem>
-                {STATUS_OPTIONS.map(s => (
-                  <SelectItem key={s} value={s}><span className="flex items-center gap-2"><span className={`h-2 w-2 rounded-full ${STATUS_COLORS[s]?.split(' ')[0] || 'bg-slate-400'}`} /> {s}</span></SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <Select value={filterKyc} onValueChange={setFilterKyc}>
-              <SelectTrigger className="h-9 min-w-[120px] rounded-full border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-none hover:bg-slate-50">
-                <SelectValue placeholder="All KYC" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">All KYC</SelectItem>
-                <SelectItem value="INCOMPLETE">Incomplete only</SelectItem>
-              </SelectContent>
-            </Select>
-
-            {uniqueTeams.length > 0 && (
-              <Select value={filterTeam} onValueChange={setFilterTeam}>
-                <SelectTrigger className="h-9 min-w-[110px] rounded-full border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-none hover:bg-slate-50">
-                  <SelectValue placeholder="All Teams" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ALL">All Teams</SelectItem>
-                  {uniqueTeams.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-                </SelectContent>
-              </Select>
+            <button type="button" className={GHOST_BTN} onClick={handleBulkPrint} disabled={filteredMembers.length === 0}>
+              <Printer className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden="true" /> Print
+            </button>
+            <button type="button" className={GHOST_BTN} onClick={downloadExcel} disabled={filteredMembers.length === 0}>
+              <Download className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden="true" /> Excel
+            </button>
+            {canWrite && (
+              <button type="button" className={PRIMARY_BTN} onClick={handleOpenCreate}>
+                <Plus className="h-4 w-4" strokeWidth={2} aria-hidden="true" /> Add member
+              </button>
             )}
-          </div>
-        </div>
+          </>
+        }
+      />
 
-        <div className="flex flex-wrap items-center gap-2">
-          {(searchQuery || filterType !== 'ALL' || filterStatus !== 'ALL' || filterTeam !== 'ALL' || filterKyc !== 'ALL') && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => { setSearchQuery(''); setFilterType('ALL'); setFilterStatus('ALL'); setFilterTeam('ALL'); setFilterKyc('ALL'); }}
-              className="h-8 rounded-full text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-            >
-              <X className="mr-1.5 h-3.5 w-3.5" /> Clear
-            </Button>
-          )}
-          <div className="flex items-center gap-2 rounded-full bg-slate-50 px-3 py-1.5 text-slate-600">
-            <Users className="h-3.5 w-3.5 text-slate-400" />
-            <span className="text-xs font-medium">{filteredMembers.length} member{filteredMembers.length !== 1 ? 's' : ''}</span>
-          </div>
-        </div>
+      <div className="mt-7">
+        <MembersSummary summary={summary} />
       </div>
 
-      {/* Members Table */}
-      {loading ? (
-        <div className="flex items-center justify-center py-16">
-          <div className="w-5 h-5 border-2 border-slate-200 border-t-slate-600 rounded-full animate-spin" />
-        </div>
-      ) : filteredMembers.length === 0 ? (
-        <div className="text-center py-16">
-          <Users className="w-10 h-10 text-slate-200 mx-auto mb-3" />
-          <p className="text-sm text-slate-500">{members.length === 0 ? 'No members registered yet' : 'No members match your filters'}</p>
-          <p className="text-xs text-slate-400 mt-0.5">
-            {members.length === 0 ? 'Add your first client, farmer or member' : 'Try different search criteria'}
-          </p>
-        </div>
-      ) : (
-        <Card className="shadow-none border-slate-200">
-          <CardContent className="p-0">
-            <div className="max-h-[70vh] overflow-auto">
-              <Table className="min-w-[1100px]">
-                <TableHeader className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur supports-[backdrop-filter]:bg-slate-50/80">
-                  <TableRow className="border-b border-slate-200">
-                    <TableHead className="w-10">
-                      <Checkbox
-                        checked={
-                          selection.isAllSelected(visibleIds)
-                            ? true
-                            : (selection.count > 0 && visibleIds.some((id) => selection.isSelected(id)))
-                              ? 'indeterminate'
-                              : false
-                        }
-                        onCheckedChange={() => selection.toggleAll(visibleIds)}
-                        aria-label="Select all"
-                      />
-                    </TableHead>
-                    <TableHead className="w-12">
-                      <Button variant="ghost" size="sm" onClick={() => setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc')} className="h-6 px-1.5 text-xs" title="Sort Older/Latest">
-                        # <ArrowUpDown className="w-3 h-3 ml-1" />
-                      </Button>
-                    </TableHead>
-                    <TableHead className="w-16">Photo</TableHead>
-                    <TableHead className="min-w-[200px]">Name</TableHead>
-                    <TableHead className="min-w-[180px]">Father Name</TableHead>
-                    <TableHead className="w-32">Type</TableHead>
-                    <TableHead className="min-w-[130px]">Phone</TableHead>
-                    <TableHead className="min-w-[120px]">City</TableHead>
-                    <TableHead className="w-24">Team</TableHead>
-                    <TableHead className="w-24">Status</TableHead>
-                    <TableHead className="w-40 text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredMembers.map((m, idx) => {
-                    const kycMissing = isKycIncomplete(m);
-                    return (
-                    <TableRow
-                      key={m.id}
-                      className="cursor-pointer hover:bg-slate-50/50 transition-colors"
-                      onClick={() => navigate(`/clients/${m.id}`)}
-                    >
-                      <TableCell onClick={(e) => e.stopPropagation()}>
-                        <Checkbox
-                          checked={selection.isSelected(m.id)}
-                          onCheckedChange={() => selection.toggle(m.id)}
-                          aria-label={`Select ${m.full_name}`}
-                        />
-                      </TableCell>
-                      <TableCell className="text-xs text-slate-400 font-mono">{idx + 1}</TableCell>
-                      <TableCell>
-                        <Avatar src={m.photo} name={m.full_name} size="sm" />
-                      </TableCell>
-                      <TableCell>
-                        <div className="font-medium text-sm text-slate-900">{m.full_name}</div>
-                        {m.email && <div className="text-xs text-slate-500 mt-0.5">{m.email}</div>}
-                        {kycMissing && (
-                          <Badge  className="text-[9px] px-1.5 bg-red-500 py-0 h-4 font-semibold gap-1">
-                            <AlertCircle className="w-2.5 h-2.5 " /> KYC Incomplete
-                          </Badge>
-                        )}
-                        {!kycMissing && m.shared_kyc_status === 'VERIFIED' && (
-                          <Badge className="h-4 gap-1 bg-emerald-600 px-1.5 py-0 text-[9px] font-semibold hover:bg-emerald-600">
-                            <BadgeCheck className="h-2.5 w-2.5" /> KYC Verified
-                          </Badge>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-sm text-slate-600">{m.father_name || '—'}</TableCell>
-                      <TableCell>
-                        <TypeBadge type={m.member_type} />
-                      </TableCell>
-                      <TableCell>
-                        {m.phone ? (
-                          <a href={`tel:${m.phone}`} onClick={(e) => e.stopPropagation()} className="text-sm text-slate-600 hover:text-blue-600 inline-flex items-center gap-1.5">
-                            <Phone className="w-3.5 h-3.5" /> {m.phone}
-                          </a>
-                        ) : (
-                          <span className="text-sm text-slate-400">—</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {m.city ? (
-                          <div className="text-sm text-slate-600 inline-flex items-center gap-1.5">
-                            <MapPin className="w-3.5 h-3.5" /> {m.city}
-                          </div>
-                        ) : (
-                          <span className="text-sm text-slate-400">—</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {m.team ? (
-                          <Badge variant="outline" className="text-[10px] font-semibold bg-indigo-50 text-indigo-700 border-indigo-200">{m.team}</Badge>
-                        ) : (
-                          <span className="text-sm text-slate-400">—</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <span className={`px-2 py-1 text-[10px] font-semibold rounded-full ${STATUS_COLORS[m.status] || 'bg-slate-100 text-slate-600'}`}>
-                          {m.status}
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center justify-end gap-1">
-                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-slate-500 hover:text-blue-600" title="View"
-                            onClick={(e) => { e.stopPropagation(); navigate(`/clients/${m.id}`); }}>
-                            <Eye className="w-3.5 h-3.5" />
-                          </Button>
-                          {canWrite && (
-                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-slate-500 hover:bg-indigo-50 hover:text-indigo-700" title="Register in other sites"
-                              onClick={(e) => { e.stopPropagation(); setSiteRegistrationMember(m); setSiteRegistrationOpen(true); }}>
-                              <UserPlus className="w-3.5 h-3.5" />
-                            </Button>
-                          )}
-                          {(canUpdate || canDelete) && (
-                            <>
-                              {canUpdate && <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-slate-500 hover:text-slate-700" title="Edit full details"
-                                onClick={(e) => { e.stopPropagation(); handleOpenEdit(m); }}>
-                                <Edit2 className="w-3.5 h-3.5" />
-                              </Button>}
-                              {canDelete && <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-slate-500 hover:text-red-600" title="Delete"
-                                onClick={(e) => { e.stopPropagation(); handleDelete(m); }}>
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </Button>}
-                            </>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      <div className="mt-5">
+        <MembersToolbar
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        filterType={filterType}
+        onTypeChange={setFilterType}
+        filterStatus={filterStatus}
+        onStatusChange={setFilterStatus}
+        statusOptions={STATUS_OPTIONS}
+        filterKyc={filterKyc}
+        onKycChange={setFilterKyc}
+        filterTeam={filterTeam}
+        onTeamChange={setFilterTeam}
+        teams={uniqueTeams}
+        resultCount={filteredMembers.length}
+        onClear={() => {
+          setSearchQuery(''); setFilterType('ALL'); setFilterStatus('ALL');
+            setFilterTeam('ALL'); setFilterKyc('ALL');
+          }}
+        />
+      </div>
+
+      {/* ── Member list ── */}
+      <section className="mt-5 border-t border-mr-line">
+        {loading ? (
+          <div className="space-y-3 p-5 sm:p-6">
+            {[0, 1, 2, 3, 4].map((i) => <SkeletonBlock key={i} className="h-14 w-full" />)}
+          </div>
+        ) : filteredMembers.length === 0 ? (
+          <EmptyState
+            icon={Users}
+            title={members.length === 0 ? 'No members registered yet' : 'No members match your filters'}
+            description={members.length === 0
+              ? 'Add your first client, farmer or member to start building the register.'
+              : 'Try a different search term, or clear the filters to see everyone.'}
+            action={canWrite && members.length === 0 ? (
+              <button type="button" className={PRIMARY_BTN} onClick={handleOpenCreate}>
+                <Plus className="h-4 w-4" strokeWidth={2} aria-hidden="true" /> Add member
+              </button>
+            ) : null}
+          />
+        ) : (
+          <>
+            <MembersTable
+              members={filteredMembers}
+              selection={selection}
+              visibleIds={visibleIds}
+              sortOrder={sortOrder}
+              onToggleSort={() => setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
+              permissions={memberPermissions}
+              actions={memberActions}
+            />
+            <MembersMobileList
+              members={filteredMembers}
+              selection={selection}
+              permissions={memberPermissions}
+              actions={memberActions}
+            />
+          </>
+        )}
+      </section>
 
       <Dialog open={quickCreateOpen} onOpenChange={(open) => { setQuickCreateOpen(open); if (!open) resetQuickCreateForm(); }}>
         <DialogContent className="sm:max-w-md">

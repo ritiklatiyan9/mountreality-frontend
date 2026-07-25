@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import {
-  ArrowDownLeft, ArrowUpRight, ChevronLeft, Loader2, Eye,
-  Calendar, Banknote, Landmark, FileText, User, MapPin,
-  NotebookPen, Tag, Users, MessageSquare, ArrowLeftRight,
+  ArrowDownLeft, ArrowUpRight, ChevronLeft, ChevronRight, Loader2, Check,
+  Calendar, Banknote, Landmark, FileText, User, MapPin, BookOpen, CreditCard,
+  NotebookPen, Tag, Users, MessageSquare, ArrowLeftRight, Wallet, LayoutGrid,
+  ShoppingBag, Tractor,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/api';
@@ -15,22 +16,49 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from './ui/select';
-import CreditDebitTabs from './CreditDebitTabs';
 import {
-  EntryRow, EntryField, FieldLabel, getParticularsForMode,
+  getParticularsForMode,
   EntryPersonPicker, useEntryPersonOptions, mapPersonToPayload,
 } from './EntryModal';
 import VoucherUpload from './VoucherUpload';
-import { MAC_APP_ICONS } from './macAppIcons';
-import { cn } from '@/lib/utils';
+import { ACCENT } from './dashboard/accents';
+import { cn, money } from '@/lib/utils';
 
 const MODE_META = {
-  CASH: { icon: Banknote, label: 'Cash', solid: 'bg-emerald-600', tint: 'bg-emerald-100 text-emerald-600' },
-  BANK: { icon: Landmark, label: 'Bank', solid: 'bg-blue-600', tint: 'bg-blue-100 text-blue-600' },
-  CHEQUE: { icon: FileText, label: 'Cheque', solid: 'bg-indigo-600', tint: 'bg-indigo-100 text-indigo-600' },
+  CASH: { icon: Banknote, label: 'Cash' },
+  BANK: { icon: Landmark, label: 'Bank' },
+  CHEQUE: { icon: FileText, label: 'Cheque' },
 };
 
-const INPUT_ROUNDED = 'rounded-xl h-10';
+const INPUT_ROUNDED = 'h-9 rounded-control border-mr-line text-[13px]';
+
+/* Quick top-ups for the amount field — cash entries cluster on round
+   numbers, and typing four zeros is where transposition errors happen. */
+const AMOUNT_STEPS = [500, 1000, 5000, 25000];
+
+/* ── Amount in words (Indian system) ─────────────────────────────────
+   Shown under the amount so a mistyped zero is caught before posting.
+   Purely a read-back of what the user typed — nothing is derived from it. */
+const ONES = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten',
+  'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen'];
+const TENS = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
+const underHundred = (n) => (n < 20 ? ONES[n] : `${TENS[Math.floor(n / 10)]}${n % 10 ? `-${ONES[n % 10]}` : ''}`);
+const underThousand = (n) => [
+  Math.floor(n / 100) ? `${ONES[Math.floor(n / 100)]} hundred` : '',
+  n % 100 ? underHundred(n % 100) : '',
+].filter(Boolean).join(' ');
+
+const amountInWords = (value) => {
+  let n = Math.floor(Math.abs(Number(value) || 0));
+  if (!n || n >= 1e9) return '';   // beyond 99 crore the read-back stops helping
+  const parts = [];
+  const push = (count, unit) => { if (count) parts.push(`${underThousand(count)} ${unit}`.trim()); };
+  push(Math.floor(n / 1e7), 'crore'); n %= 1e7;
+  push(Math.floor(n / 1e5), 'lakh'); n %= 1e5;
+  push(Math.floor(n / 1e3), 'thousand'); n %= 1e3;
+  push(n, '');
+  return `${parts.join(' ')} rupees`.replace(/\s+/g, ' ').trim();
+};
 
 /**
  * Dashboard quick entry — record a Credit or Debit into any money module
@@ -42,14 +70,37 @@ const INPUT_ROUNDED = 'rounded-xl h-10';
 const todayISO = () => new Date().toISOString().split('T')[0];
 
 const MODULES = [
-  { key: 'farmer', label: 'Farmer Payment', appKey: 'farmers', perm: 'farmers' },
-  { key: 'cashflow', label: 'Personal Ledger', appKey: 'cashflow', perm: 'cashflow' },
-  { key: 'vendor', label: 'Vendor Payment', appKey: 'vendors', perm: 'vendors', directions: ['debit'] },
-  { key: 'expense', label: 'Expense', appKey: 'expenses', perm: 'expenses' },
-  { key: 'daybook', label: 'Day Book', appKey: 'daybook', perm: 'daybook' },
-  { key: 'plot', label: 'Plot Payment', appKey: 'plot_payments', perm: 'plot_payments' },
-  { key: 'plot_commission', label: 'Plot Commission', appKey: 'plot_commission', perm: 'commissions' },
+  { key: 'farmer', label: 'Farmer payment', hint: 'Pay or receive against a farmer', icon: Tractor, tone: 'lime', appKey: 'farmers', perm: 'farmers' },
+  { key: 'cashflow', label: 'Personal ledger', hint: 'Given to or returned by a person', icon: Wallet, tone: 'amber', appKey: 'cashflow', perm: 'cashflow' },
+  { key: 'vendor', label: 'Vendor payment', hint: 'Settle a vendor commitment', icon: ShoppingBag, tone: 'coral', appKey: 'vendors', perm: 'vendors', directions: ['debit'] },
+  { key: 'expense', label: 'Expense', hint: 'Site or office expense voucher', icon: CreditCard, tone: 'coral', appKey: 'expenses', perm: 'expenses' },
+  { key: 'daybook', label: 'Day book', hint: 'General entry with no other home', icon: BookOpen, tone: 'blue', appKey: 'daybook', perm: 'daybook' },
+  { key: 'plot', label: 'Plot payment', hint: 'Booking, installment or refund', icon: LayoutGrid, tone: 'aqua', appKey: 'plot_payments', perm: 'plot_payments' },
+  { key: 'plot_commission', label: 'Plot commission', hint: 'Agent commission or recovery', icon: Landmark, tone: 'blue', appKey: 'plot_commission', perm: 'commissions' },
 ];
+
+/* Compact field wrapper — the shared EntryField is roomier than a
+   single-view modal can afford, and it is used by other dialogs. */
+const QField = ({ label, required, hint, className, children }) => (
+  <div className={cn('min-w-0 space-y-1', className)}>
+    <span className="flex items-center gap-1.5 text-[12px] font-medium text-mr-muted">
+      {label}
+      {required ? <span className="text-mr-coral" aria-hidden="true">*</span> : null}
+    </span>
+    {children}
+    {hint ? <p className="text-[11px] text-mr-faint">{hint}</p> : null}
+  </div>
+);
+
+const QLabel = (props) => {
+  const { icon: Icon, children } = props;
+  return (
+    <>
+      <Icon className="h-3.5 w-3.5 shrink-0 text-mr-faint" strokeWidth={1.9} aria-hidden="true" />
+      {children}
+    </>
+  );
+};
 
 const blankForm = () => ({
   date: todayISO(),
@@ -216,17 +267,32 @@ export default function QuickEntry() {
   const isCheque = form.mode === 'CHEQUE';
   const debitCredit = { debit: direction === 'debit' ? amt : 0, credit: direction === 'credit' ? amt : 0 };
 
-  const canSubmit = (() => {
-    if (amt <= 0) return false;
-    if (moduleKey === 'farmer') return !!form.farmer_id && !!form.particular && (!isCheque || !!form.cheque_no.trim());
-    if (moduleKey === 'cashflow') return !!form.month_id && !!form.particular;
-    if (moduleKey === 'vendor') return direction === 'debit' && !!form.vendor_commitment_id;
-    if (moduleKey === 'expense') return true;
-    if (moduleKey === 'daybook') return !!form.description.trim();
-    if (moduleKey === 'plot') return !!form.plot_id;
-    if (moduleKey === 'plot_commission') return !!form.commission_id;
-    return false;
+  // Same rules as before, expressed as a checklist so the summary rail can
+  // show exactly what is still missing instead of a dead Save button.
+  const checks = (() => {
+    const amount = { label: 'Amount above zero', ok: amt > 0 };
+    if (moduleKey === 'farmer') return [amount,
+      { label: 'Farmer selected', ok: !!form.farmer_id },
+      { label: 'Particular chosen', ok: !!form.particular },
+      { label: 'Cheque number', ok: !isCheque || !!form.cheque_no.trim() }];
+    if (moduleKey === 'cashflow') return [amount,
+      { label: 'Ledger selected', ok: !!form.month_id },
+      { label: 'Particular chosen', ok: !!form.particular }];
+    if (moduleKey === 'vendor') return [amount,
+      { label: 'Recorded as money out', ok: direction === 'debit' },
+      { label: 'Vendor commitment selected', ok: !!form.vendor_commitment_id }];
+    if (moduleKey === 'expense') return [amount];
+    if (moduleKey === 'daybook') return [amount,
+      { label: 'Description entered', ok: !!form.description.trim() }];
+    if (moduleKey === 'plot') return [amount,
+      { label: 'Plot selected', ok: !!form.plot_id }];
+    if (moduleKey === 'plot_commission') return [amount,
+      { label: 'Agent selected', ok: !!form.commission_id }];
+    return [{ label: 'Module selected', ok: false }];
   })();
+
+  const canSubmit = checks.every((c) => c.ok);
+  const missing = checks.filter((c) => !c.ok);
 
   const handleSubmit = async () => {
     if (!canSubmit || submitting) return;
@@ -338,15 +404,15 @@ export default function QuickEntry() {
   };
 
   const mod = MODULES.find((m) => m.key === moduleKey);
-  const ModIcon = mod ? MAC_APP_ICONS[mod.appKey] : null;
+  const ModIcon = mod?.icon;
 
-  const entitySelect = (label, listKey, idField, toOption, icon, color, onSelect, placeholderText) => {
+  const entitySelect = (label, listKey, idField, toOption, icon, onSelect, placeholderText) => {
     const opts = (options[listKey] || []).map((it) => ({ value: String(it.id), ...toOption(it) }));
     return (
-      <EntryField label={<FieldLabel icon={icon} color={color}>{label}</FieldLabel>} required>
+      <QField label={<QLabel icon={icon}>{label}</QLabel>} required>
         {loadingOpts && options[listKey] === null ? (
-          <div className={cn(INPUT_ROUNDED, 'border border-slate-200 bg-slate-50 flex items-center px-3 text-sm text-slate-400 gap-2')}>
-            <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading…
+          <div className={cn(INPUT_ROUNDED, 'flex items-center gap-2 border bg-mr-surface-2 px-3 text-mr-faint')}>
+            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> Loading…
           </div>
         ) : (
           <Select value={form[idField] || undefined} onValueChange={(v) => { setF({ [idField]: v }); onSelect?.(v); }}>
@@ -357,13 +423,13 @@ export default function QuickEntry() {
               {opts.map((o) => (
                 <SelectItem key={o.value} value={o.value}>
                   {o.label}
-                  {o.sublabel ? <span className="text-slate-400"> · {o.sublabel}</span> : null}
+                  {o.sublabel ? <span className="text-mr-faint"> · {o.sublabel}</span> : null}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         )}
-      </EntryField>
+      </QField>
     );
   };
 
@@ -377,19 +443,182 @@ export default function QuickEntry() {
   };
 
   const isCredit = direction === 'credit';
+  const flow = isCredit ? ACCENT.lime : ACCENT.coral;
+  const modTone = ACCENT[mod?.tone || 'blue'];
+  const words = amountInWords(form.amount);
+
+  /* Direction is a top-level decision, so it lives in the modal header
+     rather than inside the form. Selection still routes through
+     changeDirection(), which keeps the vendor debit-only guard. */
+  const directionControl = (
+    <div role="radiogroup" aria-label="Entry direction" className="flex items-center gap-1 rounded-full border border-mr-line bg-mr-surface-2 p-1">
+      {[
+        { key: 'credit', label: 'Credit', icon: ArrowDownLeft, on: 'bg-mr-lime text-mr-ink' },
+        { key: 'debit', label: 'Debit', icon: ArrowUpRight, on: 'bg-mr-coral text-white' },
+      ].map((option) => {
+        const { key, label, icon: Icon, on } = option;
+        const active = direction === key;
+        return (
+          <button
+            key={key}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            onClick={() => changeDirection(key)}
+            className={cn(
+              'inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-[12px] font-semibold transition-colors duration-200',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue focus-visible:ring-offset-1',
+              active ? on : 'text-mr-muted hover:text-mr-text',
+            )}
+          >
+            <Icon className="h-3.5 w-3.5" strokeWidth={2.2} aria-hidden="true" />
+            {label}
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  /* Fields that only some modules use. Kept in one array so the middle
+     column can lay them out in a dense two-up grid without the caller
+     tracking which combination is active. */
+  const detailFields = mod ? [
+    moduleKey !== 'vendor' && moduleKey !== 'plot_commission' && (
+      <QField key="particular" label={<QLabel icon={Tag}>Particular</QLabel>}>
+        {form.mode === 'CHEQUE' ? (
+          <div className={cn(INPUT_ROUNDED, 'flex items-center border bg-mr-aqua-soft px-3 font-medium text-mr-aqua-ink')}>
+            CHEQUE
+          </div>
+        ) : (
+          <Select value={form.particular || undefined} onValueChange={(v) => setF({ particular: v })}>
+            <SelectTrigger className={INPUT_ROUNDED}><SelectValue placeholder="Select particular" /></SelectTrigger>
+            <SelectContent>
+              {getParticularsForMode(form.mode).map((opt) => <SelectItem key={opt} value={opt}>{opt}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        )}
+      </QField>
+    ),
+    (moduleKey === 'expense' || moduleKey === 'daybook') && (
+      <QField key="from" label={<QLabel icon={ArrowLeftRight}>Paid from</QLabel>}>
+        <Input placeholder="e.g. OFFICE CASH" value={form.from_entity} onChange={(e) => setF({ from_entity: e.target.value })} className={INPUT_ROUNDED} />
+      </QField>
+    ),
+    moduleKey === 'farmer' && entitySelect('Paid to', 'farmers', 'farmer_id', (f) => ({ label: f.name, sublabel: f.phone || f.mobile || undefined }), User, undefined, 'Select farmer'),
+    moduleKey === 'cashflow' && entitySelect('Paid to', 'months', 'month_id', (m) => ({
+      label: m.ledger_name || [m.month, m.year].filter(Boolean).join('/') || `#${m.id}`,
+    }), NotebookPen, undefined, 'Select ledger'),
+    moduleKey === 'vendor' && entitySelect('Paid to', 'vendorCommitments', 'vendor_commitment_id', (c) => ({
+      label: c.vendor_name || c.vendor_member_name || `Commitment #${c.id}`,
+      sublabel: [c.work_title, c.remaining_amount != null ? `Due ₹${Number(c.remaining_amount).toLocaleString('en-IN')}` : null].filter(Boolean).join(' · ') || undefined,
+    }), User, undefined, 'Select commitment'),
+    moduleKey === 'plot' && entitySelect('Paid to', 'plots', 'plot_id', (pl) => ({
+      label: pl.plot_no ? `Plot ${pl.plot_no}` : `#${pl.id}`,
+      sublabel: pl.buyer_name || undefined,
+    }), MapPin, handlePlotSelected, 'Select plot'),
+    moduleKey === 'plot_commission' && entitySelect('Plot', 'plotCommissions', 'commission_plot_id', (pl) => ({
+      label: pl.plot_no ? `Plot ${pl.plot_no}` : `#${pl.plot_id}`,
+      sublabel: pl.buyer_name || undefined,
+    }), MapPin, handleCommissionPlotSelected, 'Select plot'),
+    (moduleKey === 'expense' || moduleKey === 'daybook') && (
+      <QField key="to" label={<QLabel icon={User}>Paid to</QLabel>}>
+        <Input placeholder="Person or business" value={form.to_entity} onChange={(e) => setF({ to_entity: e.target.value })} className={INPUT_ROUNDED} />
+      </QField>
+    ),
+    moduleKey === 'plot_commission' && (
+      <QField key="agent" label={<QLabel icon={User}>Agent</QLabel>} required>
+        {loadingAgents ? (
+          <div className={cn(INPUT_ROUNDED, 'flex items-center gap-2 border bg-mr-surface-2 px-3 text-mr-faint')}>
+            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> Loading…
+          </div>
+        ) : (
+          <Select
+            value={form.commission_id || undefined}
+            onValueChange={handleCommissionAgentSelected}
+            disabled={!form.commission_plot_id || commissionAgents.length === 0}
+          >
+            <SelectTrigger className={INPUT_ROUNDED}>
+              <SelectValue placeholder={form.commission_plot_id ? 'Select agent' : 'Pick a plot first'} />
+            </SelectTrigger>
+            <SelectContent>
+              {commissionAgents.map((a) => (
+                <SelectItem key={a.commission_id} value={String(a.commission_id)}>
+                  {a.agent_name}
+                  {a.agent_phone ? <span className="text-mr-faint"> · {a.agent_phone}</span> : null}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+      </QField>
+    ),
+    moduleKey === 'expense' && (
+      <QField key="cat" label={<QLabel icon={Tag}>Category</QLabel>}>
+        {loadingOpts && options.categories === null ? (
+          <div className={cn(INPUT_ROUNDED, 'flex items-center gap-2 border bg-mr-surface-2 px-3 text-mr-faint')}>
+            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> Loading…
+          </div>
+        ) : (
+          <Select value={form.category || undefined} onValueChange={(v) => setF({ category: v })}>
+            <SelectTrigger className={INPUT_ROUNDED}><SelectValue placeholder="Select…" /></SelectTrigger>
+            <SelectContent>
+              {(options.categories || []).map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        )}
+      </QField>
+    ),
+    moduleKey === 'daybook' && (
+      <QField key="cat2" label={<QLabel icon={Tag}>Category</QLabel>}>
+        <Input placeholder="Optional" value={form.category} onChange={(e) => setF({ category: e.target.value })} className={INPUT_ROUNDED} />
+      </QField>
+    ),
+    (moduleKey === 'vendor' || moduleKey === 'daybook') && (
+      <QField
+        key="desc"
+        label={<QLabel icon={FileText}>{moduleKey === 'vendor' ? 'Payment note' : 'Description'}</QLabel>}
+        required={moduleKey === 'daybook'}
+      >
+        <Input
+          placeholder={moduleKey === 'vendor' ? 'What is this for?' : isCredit ? 'e.g. PAYMENT RECEIVED' : 'e.g. PAYMENT MADE'}
+          value={form.description}
+          onChange={(e) => setF({ description: e.target.value })}
+          className={INPUT_ROUNDED}
+        />
+      </QField>
+    ),
+    moduleKey === 'vendor' && (
+      <QField key="ref" label={<QLabel icon={FileText}>Reference no.</QLabel>}>
+        <Input placeholder="Optional" value={form.reference_no} onChange={(e) => setF({ reference_no: e.target.value })} className={INPUT_ROUNDED} />
+      </QField>
+    ),
+    moduleKey !== 'cashflow' && (
+      <QField key="person" label={<QLabel icon={Users}>Map to person</QLabel>} hint="Mirrors into their personal ledger">
+        <EntryPersonPicker
+          siteId={siteId}
+          value={mappedPerson}
+          onChange={setMappedPerson}
+          approvers={personApprovers}
+          members={personMembers}
+          onMemberCreated={addPersonMember}
+          openUp
+        />
+      </QField>
+    ),
+  ].filter(Boolean) : [];
 
   return (
     <>
-      <div className="flex gap-2.5">
+      <div className="flex flex-wrap gap-2.5">
         <button
           type="button"
           onClick={() => openWith('credit')}
           disabled={!siteId}
-          title={siteId ? 'Record money received' : 'Select a site first'}
-          className="group flex items-center gap-2 pl-2.5 pr-4 h-10 rounded-full bg-linear-to-br from-emerald-500 to-emerald-600 text-white text-sm font-semibold shadow-sm shadow-emerald-500/25 ring-1 ring-inset ring-white/15 hover:shadow-md hover:shadow-emerald-500/30 hover:-translate-y-px active:translate-y-0 transition-all disabled:opacity-50 disabled:pointer-events-none"
+          title={siteId ? 'Record a credit' : 'Select a site first'}
+          className="inline-flex h-10 items-center gap-2 rounded-full bg-mr-ink pl-2.5 pr-4 text-[13px] font-semibold text-white transition-colors duration-200 hover:bg-mr-ink-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50"
         >
-          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/20 transition-transform group-hover:scale-105">
-            <ArrowDownLeft className="w-3.5 h-3.5" />
+          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-mr-lime text-mr-ink">
+            <ArrowDownLeft className="h-3.5 w-3.5" strokeWidth={2.2} aria-hidden="true" />
           </span>
           Credit
         </button>
@@ -397,331 +626,300 @@ export default function QuickEntry() {
           type="button"
           onClick={() => openWith('debit')}
           disabled={!siteId}
-          title={siteId ? 'Record money paid out' : 'Select a site first'}
-          className="group flex items-center gap-2 pl-2.5 pr-4 h-10 rounded-full bg-linear-to-br from-red-500 to-red-600 text-white text-sm font-semibold shadow-sm shadow-red-500/25 ring-1 ring-inset ring-white/15 hover:shadow-md hover:shadow-red-500/30 hover:-translate-y-px active:translate-y-0 transition-all disabled:opacity-50 disabled:pointer-events-none"
+          title={siteId ? 'Record a debit' : 'Select a site first'}
+          className="inline-flex h-10 items-center gap-2 rounded-full border border-mr-coral-ink/15 bg-mr-coral-soft pl-2.5 pr-4 text-[13px] font-semibold text-mr-coral-ink transition-colors duration-200 hover:brightness-97 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50"
         >
-          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/20 transition-transform group-hover:scale-105">
-            <ArrowUpRight className="w-3.5 h-3.5" />
+          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-mr-coral text-white">
+            <ArrowUpRight className="h-3.5 w-3.5" strokeWidth={2.2} aria-hidden="true" />
           </span>
           Debit
         </button>
       </div>
 
       <Dialog open={open} onOpenChange={(v) => { if (!v) close(); }}>
-        <DialogContent className="sm:max-w-5xl max-h-[96vh] gap-0 p-0 flex flex-col overflow-hidden rounded-3xl border-slate-200/90 bg-white shadow-2xl shadow-slate-900/10">
-          <div className="shrink-0 flex items-center gap-3 border-b border-slate-100 bg-gradient-to-r from-slate-50 via-white to-slate-50 px-5 py-3 sm:px-6">
-            <div className={cn(
-              'flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-white shadow-sm',
-              isCredit ? 'bg-emerald-600 shadow-emerald-600/25' : 'bg-red-600 shadow-red-600/25'
-            )}>
-              {isCredit ? <ArrowDownLeft className="w-5 h-5" /> : <ArrowUpRight className="w-5 h-5" />}
+        <DialogContent className="flex max-h-[94vh] w-[calc(100vw-1.5rem)] flex-col gap-0 overflow-hidden rounded-panel border-mr-line bg-mr-surface p-0 sm:max-w-[1080px]">
+          {/* ── Header ── */}
+          <div className="relative shrink-0 overflow-hidden border-b border-mr-line px-5 py-3.5 sm:px-6">
+            <div
+              className="pointer-events-none absolute inset-0"
+              aria-hidden="true"
+              style={{
+                background: isCredit
+                  ? 'linear-gradient(100deg, rgba(185,255,69,.30) 0%, rgba(80,221,235,.16) 45%, rgba(255,255,255,0) 78%)'
+                  : 'linear-gradient(100deg, rgba(255,101,74,.24) 0%, rgba(255,176,46,.12) 45%, rgba(255,255,255,0) 78%)',
+              }}
+            />
+            <div className="relative flex flex-wrap items-center justify-between gap-3 pr-8">
+              <div className="flex min-w-0 items-center gap-3">
+                <span className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-full', mod ? modTone.chip : flow.chip)}>
+                  {ModIcon
+                    ? <ModIcon className="h-5 w-5" strokeWidth={2} aria-hidden="true" />
+                    : (isCredit
+                      ? <ArrowDownLeft className="h-5 w-5" strokeWidth={2.2} aria-hidden="true" />
+                      : <ArrowUpRight className="h-5 w-5" strokeWidth={2.2} aria-hidden="true" />)}
+                </span>
+                <div className="min-w-0">
+                  <DialogTitle className="text-[18px] font-semibold tracking-[-0.02em] text-mr-text">
+                    {isCredit ? 'Record credit' : 'Record debit'}
+                  </DialogTitle>
+                  <DialogDescription className="mt-0.5 flex flex-wrap items-center gap-x-2 truncate text-[12px] text-mr-muted">
+                    {currentSite?.name ? <span className="font-medium text-mr-text">{currentSite.name}</span> : null}
+                    <span>{mod ? mod.label : 'Step 1 of 2 — choose where this entry belongs'}</span>
+                    {mod && (
+                      <button
+                        type="button"
+                        onClick={() => { setModuleKey(null); setBanner(null); }}
+                        className="inline-flex items-center gap-1 rounded-full px-1.5 font-semibold text-mr-blue transition-colors hover:bg-mr-blue-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue"
+                      >
+                        <ChevronLeft className="h-3 w-3" strokeWidth={2.2} aria-hidden="true" /> change
+                      </button>
+                    )}
+                  </DialogDescription>
+                </div>
+              </div>
+              {directionControl}
             </div>
-            <div className="min-w-0 flex-1">
-              <DialogTitle className="text-base font-semibold text-slate-900">
-                {isCredit ? 'Record a Receipt' : 'Record a Payment'}
-              </DialogTitle>
-              <DialogDescription className="text-xs text-slate-500 mt-0.5 truncate">
-                {mod ? `${mod.label} · complete the details below` : 'Choose where to record this entry'}
-              </DialogDescription>
-            </div>
-            {mod && (
-              <button
-                type="button"
-                onClick={() => { setModuleKey(null); setBanner(null); }}
-                className="shrink-0 flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 hover:bg-slate-50 transition-colors"
-              >
-                <ChevronLeft className="w-3.5 h-3.5" />
-                {ModIcon ? <ModIcon className="w-4 h-4 rounded-[3px]" /> : null}
-                Change module
-              </button>
-            )}
-            <span className={cn(
-              'shrink-0 rounded-full px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-white',
-              isCredit ? 'bg-emerald-600' : 'bg-red-600'
-            )}>
-              {isCredit ? 'Credit · In' : 'Debit · Out'}
-            </span>
           </div>
 
-          <div className="flex-1 min-h-0 overflow-y-auto px-5 py-3 sm:px-6 md:overflow-visible">
+          {/* min-h-0 + overflow-auto is a safety valve for very short windows;
+              at 800px and up the whole form fits without scrolling. */}
+          <div className="min-h-0 flex-1 overflow-y-auto">
             {banner && (
-              <div className={cn(
-                'rounded-2xl border px-3.5 py-2.5 text-sm',
-                banner.type === 'success'
-                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                  : 'border-red-200 bg-red-50 text-red-700'
-              )}>
+              <div
+                role="alert"
+                className={cn(
+                  'mx-5 mt-3 rounded-control border px-3.5 py-2 text-[13px] sm:mx-6',
+                  banner.type === 'success'
+                    ? 'border-mr-lime-ink/15 bg-mr-lime-soft text-mr-lime-ink'
+                    : 'border-mr-coral-ink/15 bg-mr-coral-soft text-mr-coral-ink',
+                )}
+              >
                 {banner.text}
               </div>
             )}
 
             {!mod ? (
-              visibleModules.length === 0 ? (
-                <p className="text-sm text-slate-500 py-6 text-center">You don&apos;t have write access to any money module.</p>
-              ) : (
-                <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-                  {visibleModules.map((m) => {
-                    const Icon = MAC_APP_ICONS[m.appKey];
-                    return (
-                      <button
-                        key={m.key}
-                        type="button"
-                        onClick={() => pickModule(m.key)}
-                        className={cn(
-                          'group flex flex-col items-center gap-2 rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm shadow-slate-900/[0.03] transition-all hover:shadow-md',
-                          isCredit ? 'hover:border-emerald-300 hover:bg-emerald-50/30' : 'hover:border-red-300 hover:bg-red-50/30'
-                        )}
-                      >
-                        <Icon className="w-11 h-11 rounded-[10px] shadow-sm shadow-slate-900/10 transition-transform duration-150 group-hover:scale-105" />
-                        <span className="text-xs font-medium text-slate-700 text-center leading-tight">{m.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )
+              /* ── Step 1 ── */
+              <div className="px-5 py-5 sm:px-6">
+                {visibleModules.length === 0 ? (
+                  <p className="py-10 text-center text-[13px] text-mr-muted">
+                    You don&apos;t have write access to any money module.
+                  </p>
+                ) : (
+                  <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {visibleModules.map((m) => {
+                      const Icon = m.icon;
+                      const t = ACCENT[m.tone];
+                      return (
+                        <li key={m.key}>
+                          <button
+                            type="button"
+                            onClick={() => pickModule(m.key)}
+                            className="group flex h-full w-full items-center gap-3 rounded-control border border-mr-line px-3.5 py-3 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-transparent hover:shadow-md hover:shadow-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue"
+                          >
+                            <span className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-transform duration-200 group-hover:scale-105', t.chip)}>
+                              <Icon className="h-5 w-5" strokeWidth={2} aria-hidden="true" />
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-[14px] font-medium text-mr-text">{m.label}</span>
+                              <span className="mt-0.5 block truncate text-[12px] text-mr-faint">{m.hint}</span>
+                            </span>
+                            <ChevronRight className="h-4 w-4 shrink-0 text-mr-faint" strokeWidth={1.9} aria-hidden="true" />
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
             ) : (
-              <div className="space-y-3">
-                <div className="grid gap-4 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
-                  {/* ── Left column: direction, amount, date, mode ── */}
-                  <div className="space-y-3">
-                    <CreditDebitTabs value={direction} onChange={changeDirection} />
-
-                    <div>
-                      <label className={cn('mb-1.5 block text-[11px] font-semibold uppercase tracking-wide', isCredit ? 'text-emerald-600' : 'text-red-600')}>
-                        Amount Paid
-                      </label>
-                      <div className="relative">
-                        <span className={cn(
-                          'pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold text-white shadow-sm',
-                          isCredit ? 'bg-emerald-600 shadow-emerald-600/25' : 'bg-red-600 shadow-red-600/25'
-                        )}>₹</span>
-                        <input
-                          type="number"
-                          step="0.01"
-                          inputMode="decimal"
-                          placeholder="0.00"
-                          value={form.amount}
-                          onChange={(e) => setF({ amount: e.target.value })}
-                          required
-                          className={cn(
-                            'h-[78px] w-full rounded-2xl border-2 bg-white pl-14 pr-4 text-2xl font-bold text-slate-900 transition-shadow placeholder:text-base placeholder:font-normal placeholder:text-slate-400 outline-none',
-                            isCredit
-                              ? 'border-emerald-200 focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100'
-                              : 'border-red-200 focus:border-red-400 focus:ring-4 focus:ring-red-100'
-                          )}
-                        />
-                      </div>
+              /* ── Step 2: everything in one view ── */
+              <div className="grid lg:grid-cols-[288px_minmax(0,1fr)_262px]">
+                {/* Column 1 — the money */}
+                <div
+                  className="space-y-3 border-b border-mr-line px-5 py-4 sm:px-6 lg:border-b-0 lg:border-r"
+                  style={{
+                    background: isCredit
+                      ? 'linear-gradient(180deg, rgba(185,255,69,.16) 0%, rgba(255,255,255,0) 60%)'
+                      : 'linear-gradient(180deg, rgba(255,101,74,.12) 0%, rgba(255,255,255,0) 60%)',
+                  }}
+                >
+                  <div>
+                    <label htmlFor="qe-amount" className="mb-1.5 block text-[12px] font-medium text-mr-muted">Amount</label>
+                    <div className="relative">
+                      <span className={cn('pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[22px] font-semibold', flow.text)} aria-hidden="true">₹</span>
+                      <input
+                        id="qe-amount"
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        inputMode="decimal"
+                        placeholder="0.00"
+                        autoFocus
+                        value={form.amount}
+                        onChange={(e) => setF({ amount: e.target.value })}
+                        required
+                        aria-describedby="qe-amount-words"
+                        className={cn(
+                          'h-16 w-full rounded-panel-sm border-2 bg-mr-surface pl-10 pr-3 text-[26px] font-semibold tracking-[-0.03em] text-mr-text outline-none transition-colors placeholder:text-[18px] placeholder:font-normal placeholder:text-mr-faint',
+                          isCredit
+                            ? 'border-mr-lime-ink/20 focus:border-mr-lime-ink/60 focus:ring-4 focus:ring-mr-lime-soft'
+                            : 'border-mr-coral-ink/20 focus:border-mr-coral-ink/60 focus:ring-4 focus:ring-mr-coral-soft',
+                        )}
+                      />
                     </div>
-
-                    <EntryField label={<FieldLabel icon={Calendar} color="bg-sky-100 text-sky-600">Date</FieldLabel>} required>
-                      <Input type="date" value={form.date} onChange={(e) => setF({ date: e.target.value })} required className={INPUT_ROUNDED} />
-                      {isCheque && moduleKey !== 'vendor' && (
-                        <Input placeholder="Cheque number" value={form.cheque_no} onChange={(e) => setF({ cheque_no: e.target.value })} className={INPUT_ROUNDED} />
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                      {AMOUNT_STEPS.map((step) => (
+                        <button
+                          key={step}
+                          type="button"
+                          onClick={() => setF({ amount: String((Math.abs(parseFloat(form.amount)) || 0) + step) })}
+                          className="inline-flex h-7 items-center rounded-full bg-mr-surface px-2.5 text-[11px] font-semibold text-mr-muted ring-1 ring-mr-line transition-colors hover:bg-mr-ink hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue"
+                        >
+                          +{step.toLocaleString('en-IN')}
+                        </button>
+                      ))}
+                      {amt > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setF({ amount: '' })}
+                          className="inline-flex h-7 items-center rounded-full px-2 text-[11px] font-medium text-mr-faint transition-colors hover:text-mr-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue"
+                        >
+                          Clear
+                        </button>
                       )}
-                    </EntryField>
-
-                    <EntryField label={<FieldLabel icon={Landmark} color="bg-violet-100 text-violet-600">Payment Mode</FieldLabel>} required>
-                      <div className="flex gap-1.5">
-                        {['CASH', 'BANK', 'CHEQUE'].map((m) => {
-                          const meta = MODE_META[m];
-                          const Icon = meta.icon;
-                          const active = form.mode === m;
-                          return (
-                            <button
-                              key={m}
-                              type="button"
-                              onClick={() => changeMode(m)}
-                              className={cn(
-                                'flex flex-1 items-center justify-center gap-1.5 rounded-xl border h-10 px-1.5 text-xs font-semibold transition-colors',
-                                active ? `${meta.solid} text-white border-transparent` : 'border-slate-200 text-slate-600 hover:bg-slate-50'
-                              )}
-                            >
-                              <span className={cn('flex h-5 w-5 shrink-0 items-center justify-center rounded-full', active ? 'bg-white/20' : meta.tint)}>
-                                <Icon className={cn('w-3 h-3', active ? 'text-white' : '')} />
-                              </span>
-                              {meta.label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </EntryField>
+                    </div>
+                    <p id="qe-amount-words" className={cn('mt-1.5 min-h-4 text-[11px] capitalize', flow.text)}>{words}</p>
                   </div>
 
-                  {/* ── Right column: particular, paid from/to, category, map to person, remarks ── */}
-                  <div className="space-y-3">
-                    <div className="grid grid-cols-2 gap-3">
-                      {moduleKey !== 'vendor' && moduleKey !== 'plot_commission' && (
-                        <EntryField label={<FieldLabel icon={Tag} color="bg-indigo-100 text-indigo-600">Particular</FieldLabel>}>
-                          {form.mode === 'CHEQUE' ? (
-                            <div className={cn(INPUT_ROUNDED, 'flex items-center border border-teal-200 bg-teal-50 px-3 text-sm font-semibold text-teal-700')}>
-                              CHEQUE
-                            </div>
-                          ) : (
-                            <Select value={form.particular || undefined} onValueChange={(v) => setF({ particular: v })}>
-                              <SelectTrigger className={INPUT_ROUNDED}>
-                                <SelectValue placeholder="Select particular" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {getParticularsForMode(form.mode).map((opt) => (
-                                  <SelectItem key={opt} value={opt}>{opt}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          )}
-                        </EntryField>
-                      )}
-                      {(moduleKey === 'expense' || moduleKey === 'daybook') && (
-                        <EntryField label={<FieldLabel icon={ArrowLeftRight} color="bg-orange-100 text-orange-600">Paid from</FieldLabel>}>
-                          <Input placeholder="e.g. OFFICE CASH" value={form.from_entity} onChange={(e) => setF({ from_entity: e.target.value })} className={INPUT_ROUNDED} />
-                        </EntryField>
-                      )}
+                  <QField label={<QLabel icon={Calendar}>Date</QLabel>} required>
+                    <Input type="date" value={form.date} onChange={(e) => setF({ date: e.target.value })} required className={INPUT_ROUNDED} />
+                  </QField>
+
+                  <QField label={<QLabel icon={Landmark}>Payment mode</QLabel>} required>
+                    <div className="flex gap-1.5">
+                      {['CASH', 'BANK', 'CHEQUE'].map((m) => {
+                        const meta = MODE_META[m];
+                        const Icon = meta.icon;
+                        const active = form.mode === m;
+                        return (
+                          <button
+                            key={m}
+                            type="button"
+                            aria-pressed={active}
+                            onClick={() => changeMode(m)}
+                            className={cn(
+                              'flex h-9 flex-1 items-center justify-center gap-1.5 rounded-control border px-1 text-[12px] font-medium transition-colors duration-200',
+                              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue',
+                              active
+                                ? 'border-transparent bg-mr-blue text-white'
+                                : 'border-mr-line bg-mr-surface text-mr-muted hover:bg-mr-blue-soft hover:text-mr-blue',
+                            )}
+                          >
+                            <Icon className="h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden="true" />
+                            {meta.label}
+                          </button>
+                        );
+                      })}
                     </div>
+                  </QField>
 
-                    <div className="grid grid-cols-2 gap-3">
-                      {moduleKey === 'farmer' && entitySelect('Paid to', 'farmers', 'farmer_id', (f) => ({ label: f.name, sublabel: f.phone || f.mobile || undefined }), User, 'bg-teal-100 text-teal-600', undefined, 'Select farmer')}
-                      {moduleKey === 'cashflow' && entitySelect('Paid to', 'months', 'month_id', (m) => ({
-                        label: m.ledger_name || [m.month, m.year].filter(Boolean).join('/') || `#${m.id}`,
-                      }), NotebookPen, 'bg-teal-100 text-teal-600', undefined, 'Select ledger')}
-                      {moduleKey === 'vendor' && entitySelect('Paid to', 'vendorCommitments', 'vendor_commitment_id', (c) => ({
-                        label: c.vendor_name || c.vendor_member_name || `Commitment #${c.id}`,
-                        sublabel: [c.work_title, c.remaining_amount != null ? `Due ₹${Number(c.remaining_amount).toLocaleString('en-IN')}` : null].filter(Boolean).join(' · ') || undefined,
-                      }), User, 'bg-orange-100 text-orange-600', undefined, 'Select vendor commitment')}
-                      {moduleKey === 'plot' && entitySelect('Paid to', 'plots', 'plot_id', (p) => ({
-                        label: p.plot_no ? `Plot ${p.plot_no}` : `#${p.id}`,
-                        sublabel: p.buyer_name || undefined,
-                      }), MapPin, 'bg-teal-100 text-teal-600', handlePlotSelected, 'Select plot')}
-                      {moduleKey === 'plot_commission' && entitySelect('Paid to', 'plotCommissions', 'commission_plot_id', (p) => ({
-                        label: p.plot_no ? `Plot ${p.plot_no}` : `#${p.plot_id}`,
-                        sublabel: p.buyer_name || undefined,
-                      }), MapPin, 'bg-teal-100 text-teal-600', handleCommissionPlotSelected, 'Select plot')}
-                      {(moduleKey === 'expense' || moduleKey === 'daybook') && (
-                        <EntryField label={<FieldLabel icon={User} color="bg-cyan-100 text-cyan-600">Paid to</FieldLabel>}>
-                          <Input placeholder="Person or business" value={form.to_entity} onChange={(e) => setF({ to_entity: e.target.value })} className={INPUT_ROUNDED} />
-                        </EntryField>
-                      )}
+                  {isCheque && moduleKey !== 'vendor' && (
+                    <QField label={<QLabel icon={FileText}>Cheque number</QLabel>} required>
+                      <Input placeholder="Cheque number" value={form.cheque_no} onChange={(e) => setF({ cheque_no: e.target.value })} className={INPUT_ROUNDED} />
+                    </QField>
+                  )}
+                </div>
 
-                      {moduleKey === 'plot_commission' && (
-                        <EntryField label={<FieldLabel icon={User} color="bg-amber-100 text-amber-600">Agent</FieldLabel>} required>
-                          {loadingAgents ? (
-                            <div className={cn(INPUT_ROUNDED, 'border border-slate-200 bg-slate-50 flex items-center px-3 text-sm text-slate-400 gap-2')}>
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading…
-                            </div>
-                          ) : (
-                            <Select
-                              value={form.commission_id || undefined}
-                              onValueChange={handleCommissionAgentSelected}
-                              disabled={!form.commission_plot_id || commissionAgents.length === 0}
-                            >
-                              <SelectTrigger className={INPUT_ROUNDED}>
-                                <SelectValue placeholder={form.commission_plot_id ? 'Select agent' : 'Pick a plot first'} />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {commissionAgents.map((a) => (
-                                  <SelectItem key={a.commission_id} value={String(a.commission_id)}>
-                                    {a.agent_name}
-                                    {a.agent_phone ? <span className="text-slate-400"> · {a.agent_phone}</span> : null}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          )}
-                        </EntryField>
-                      )}
-
-                      {moduleKey === 'expense' && (
-                        <EntryField label={<FieldLabel icon={Tag} color="bg-pink-100 text-pink-600">Category</FieldLabel>}>
-                          {loadingOpts && options.categories === null ? (
-                            <div className={cn(INPUT_ROUNDED, 'border border-slate-200 bg-slate-50 flex items-center px-3 text-sm text-slate-400 gap-2')}>
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading…
-                            </div>
-                          ) : (
-                            <Select value={form.category || undefined} onValueChange={(v) => setF({ category: v })}>
-                              <SelectTrigger className={INPUT_ROUNDED}>
-                                <SelectValue placeholder="Select…" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {(options.categories || []).map((c) => (
-                                  <SelectItem key={c} value={c}>{c}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          )}
-                        </EntryField>
-                      )}
-                      {moduleKey === 'daybook' && (
-                        <EntryField label={<FieldLabel icon={Tag} color="bg-pink-100 text-pink-600">Category</FieldLabel>}>
-                          <Input placeholder="Optional category" value={form.category} onChange={(e) => setF({ category: e.target.value })} className={INPUT_ROUNDED} />
-                        </EntryField>
-                      )}
-                    </div>
-
-                    {(moduleKey === 'vendor' || moduleKey === 'daybook') && (
-                      <div className={cn('grid gap-3', moduleKey === 'vendor' ? 'sm:grid-cols-2' : '')}>
-                        <EntryField label={<FieldLabel icon={FileText} color="bg-slate-100 text-slate-600">{moduleKey === 'vendor' ? 'Payment note' : 'Particular / Description'}</FieldLabel>} required={moduleKey === 'daybook'}>
-                          <Input
-                            placeholder={moduleKey === 'vendor' ? 'What is this payment for?' : direction === 'credit' ? 'e.g. PAYMENT RECEIVED' : 'e.g. PAYMENT MADE'}
-                            value={form.description}
-                            onChange={(e) => setF({ description: e.target.value })}
-                            className={INPUT_ROUNDED}
-                          />
-                        </EntryField>
-                        {moduleKey === 'vendor' && (
-                          <EntryField label={<FieldLabel icon={FileText} color="bg-indigo-100 text-indigo-600">Reference / Cheque no.</FieldLabel>}>
-                            <Input placeholder="Optional reference" value={form.reference_no} onChange={(e) => setF({ reference_no: e.target.value })} className={INPUT_ROUNDED} />
-                          </EntryField>
-                        )}
-                      </div>
-                    )}
-
-                    <div className="grid grid-cols-2 gap-3">
-                      {moduleKey !== 'cashflow' && (
-                        <EntryField
-                          label={<FieldLabel icon={Users} color="bg-fuchsia-100 text-fuchsia-600">Map to person</FieldLabel>}
-                          hint="Optional — mirrors this entry into their Personal Ledger"
-                        >
-                          <EntryPersonPicker
-                            siteId={siteId}
-                            value={mappedPerson}
-                            onChange={setMappedPerson}
-                            approvers={personApprovers}
-                            members={personMembers}
-                            onMemberCreated={addPersonMember}
-                            openUp
-                          />
-                        </EntryField>
-                      )}
-
-                      <EntryField label={<FieldLabel icon={MessageSquare} color="bg-slate-100 text-slate-500">Remarks</FieldLabel>}>
-                        <Textarea
-                          rows={2}
-                          placeholder="Optional note"
-                          value={form.remarks}
-                          onChange={(e) => setF({ remarks: e.target.value })}
-                          className="rounded-xl"
-                        />
-                      </EntryField>
-                    </div>
+                {/* Column 2 — module details */}
+                <div className="space-y-3 border-b border-mr-line px-5 py-4 sm:px-6 lg:border-b-0 lg:border-r">
+                  <div className="grid gap-x-3 gap-y-3 sm:grid-cols-2">
+                    {detailFields}
+                  </div>
+                  <QField label={<QLabel icon={MessageSquare}>Remarks</QLabel>}>
+                    <Textarea
+                      rows={2}
+                      placeholder="Optional note"
+                      value={form.remarks}
+                      onChange={(e) => setF({ remarks: e.target.value })}
+                      className="resize-none rounded-control border-mr-line text-[13px]"
+                    />
+                  </QField>
+                  <div className="[&_label]:text-[12px] [&_label]:font-medium [&_label]:text-mr-muted">
+                    <VoucherUpload
+                      label="Evidence photo · optional"
+                      value={form.voucher_url}
+                      onChange={(url) => setF({ voucher_url: url || '' })}
+                      onUploadingChange={setVoucherUploading}
+                      disabled={submitting}
+                    />
                   </div>
                 </div>
 
-                <VoucherUpload
-                  label="Evidence Photo · Optional"
-                  value={form.voucher_url}
-                  onChange={(url) => setF({ voucher_url: url || '' })}
-                  onUploadingChange={setVoucherUploading}
-                  disabled={submitting}
-                />
+                {/* Column 3 — read-back of exactly what will be posted */}
+                <aside aria-label="Entry summary" className="bg-mr-surface-2/70 px-5 py-4 sm:px-6">
+                  <p className="text-[12px] font-medium text-mr-muted">
+                    {isCredit ? 'Money coming in' : 'Money going out'}
+                  </p>
+                  <p
+                    className={cn(
+                      'mt-1 break-words text-[24px] font-semibold leading-tight tracking-[-0.035em] tabular-nums',
+                      amt > 0 ? flow.text : 'text-mr-faint',
+                    )}
+                    title={money(amt)}
+                  >
+                    {isCredit ? '+' : '−'}{money(amt)}
+                  </p>
+
+                  <dl className="mt-4 space-y-2 border-t border-mr-line pt-3 text-[12px]">
+                    {[
+                      ['Module', mod.label],
+                      ['Date', form.date ? new Date(form.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'],
+                      ['Mode', MODE_META[form.mode]?.label || form.mode],
+                      isCheque && form.cheque_no.trim() ? ['Cheque', form.cheque_no.trim()] : null,
+                      ['Ledger mirror', mappedPerson ? 'Yes' : 'No'],
+                      ['Evidence', form.voucher_url ? 'Attached' : 'None'],
+                    ].filter(Boolean).map((entry) => (
+                      <div key={entry[0]} className="flex items-baseline justify-between gap-3">
+                        <dt className="text-mr-muted">{entry[0]}</dt>
+                        <dd className="min-w-0 truncate text-right font-medium text-mr-text">{entry[1]}</dd>
+                      </div>
+                    ))}
+                  </dl>
+
+                  <div className="mt-4 border-t border-mr-line pt-3">
+                    <p className="text-[12px] font-medium text-mr-muted">
+                      {canSubmit ? 'Ready to record' : 'Still needed'}
+                    </p>
+                    <ul className="mt-2 space-y-1.5">
+                      {(canSubmit ? checks : missing).map((c) => (
+                        <li key={c.label} className="flex items-start gap-2 text-[12px]">
+                          {c.ok
+                            ? <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-mr-lime-ink" strokeWidth={2.4} aria-hidden="true" />
+                            : <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-mr-amber" aria-hidden="true" />}
+                          <span className={c.ok ? 'text-mr-muted' : 'text-mr-amber-ink'}>{c.label}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </aside>
               </div>
             )}
           </div>
 
           {mod && (
-            <div className="shrink-0 flex items-center justify-between gap-2.5 border-t border-slate-100 bg-slate-50/60 px-5 py-3 sm:px-6">
-              <p className="hidden sm:block text-[11px] text-slate-400">
-                Enter: next field · Shift+Tab: previous · Esc: close
+            <div className="flex shrink-0 flex-wrap items-center justify-between gap-2.5 border-t border-mr-line bg-mr-surface px-5 py-3 sm:px-6">
+              <p className="hidden text-[12px] text-mr-faint sm:block">
+                Tab moves between fields · Esc closes without saving
               </p>
               <div className="flex items-center gap-2.5">
-                <Button type="button" variant="outline" onClick={close} disabled={submitting} className="h-10 rounded-full px-5">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={close}
+                  disabled={submitting}
+                  className="h-10 rounded-full border-mr-line px-5 text-[13px]"
+                >
                   Cancel
                 </Button>
                 <Button
@@ -729,12 +927,12 @@ export default function QuickEntry() {
                   onClick={handleSubmit}
                   disabled={submitting || !canSubmit || voucherUploading}
                   className={cn(
-                    'h-10 rounded-full px-5 text-white',
-                    isCredit ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-600 hover:bg-red-700'
+                    'h-10 rounded-full px-5 text-[13px] font-semibold transition-colors disabled:opacity-40',
+                    isCredit ? 'bg-mr-lime-ink text-white hover:brightness-110' : 'bg-mr-coral-ink text-white hover:brightness-110',
                   )}
                 >
-                  {submitting ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Eye className="h-4 w-4 mr-1.5" />}
-                  Review payment
+                  {submitting && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" aria-hidden="true" />}
+                  {submitting ? 'Recording…' : `Record ${isCredit ? 'receipt' : 'payment'}`}
                 </Button>
               </div>
             </div>
