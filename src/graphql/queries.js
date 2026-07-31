@@ -104,10 +104,20 @@ export const GET_FINANCE_FORECAST = gql`
       riskSummary
       inflowTrendPct
       outflowTrendPct
+      inflowTrend
+      outflowTrend
       inflowVolatility
       outflowVolatility
       confidenceScore
       confidenceLevel
+      historicalMonths
+      activeMonths
+      transactionCount
+      runRate {
+        lookbackMonths
+        inflowPerMonth
+        outflowPerMonth
+      }
       history {
         key
         label
@@ -123,19 +133,28 @@ export const GET_FINANCE_FORECAST = gql`
         inflow
         outflow
       }
-      sourceMixRevenue {
+      sourcePattern {
         source
-        amount
-      }
-      sourceMixExpense {
-        source
-        amount
+        label
+        inflow
+        outflow
+        txnCount
       }
       dueItems {
         overdueReceivables
         vendorOverdue
         vendorUnscheduled
         farmerOutstanding
+      }
+      dueSchedule {
+        id
+        type
+        source
+        entity
+        description
+        dueDate
+        amount
+        status
       }
       months {
         key
