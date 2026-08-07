@@ -2,7 +2,7 @@ import { useState } from 'react';
 import {
   ArrowDownLeft, ArrowUpRight, ChevronLeft, ChevronRight, Loader2, Check,
   Calendar, Banknote, Landmark, FileText, User, MapPin, BookOpen, CreditCard,
-  NotebookPen, Tag, Users, MessageSquare, ArrowLeftRight, Wallet, LayoutGrid,
+  NotebookPen, Tag, MessageSquare, ArrowLeftRight, Wallet, LayoutGrid,
   ShoppingBag, Tractor,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -16,10 +16,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from './ui/select';
-import {
-  getParticularsForMode,
-  EntryPersonPicker, useEntryPersonOptions, mapPersonToPayload,
-} from './EntryModal';
+import { getParticularsForMode } from './EntryModal';
 import VoucherUpload from './VoucherUpload';
 import { ACCENT } from './dashboard/accents';
 import { cn, money } from '@/lib/utils';
@@ -135,11 +132,9 @@ export default function QuickEntry() {
   const [banner, setBanner] = useState(null); // {type:'success'|'error', text}
   const [options, setOptions] = useState({ farmers: null, months: null, vendorCommitments: null, categories: null, plots: null, plotCommissions: null });
   const [loadingOpts, setLoadingOpts] = useState(false);
-  const [mappedPerson, setMappedPerson] = useState(null);
   const [commissionAgents, setCommissionAgents] = useState([]);
   const [loadingAgents, setLoadingAgents] = useState(false);
   const [voucherUploading, setVoucherUploading] = useState(false);
-  const { approvers: personApprovers, members: personMembers, addMember: addPersonMember } = useEntryPersonOptions(siteId);
 
   const visibleModules = MODULES.filter((m) =>
     hasPermission(m.perm, 'write') && (!m.directions || m.directions.includes(direction))
@@ -151,7 +146,6 @@ export default function QuickEntry() {
     setModuleKey(null);
     setForm(blankForm());
     setBanner(null);
-    setMappedPerson(null);
     setCommissionAgents([]);
     setVoucherUploading(false);
     setOpen(true);
@@ -162,7 +156,6 @@ export default function QuickEntry() {
     setModuleKey(null);
     setBanner(null);
     setSubmitting(false);
-    setMappedPerson(null);
     setCommissionAgents([]);
     setVoucherUploading(false);
   };
@@ -171,7 +164,6 @@ export default function QuickEntry() {
     setModuleKey(key);
     setForm(blankForm());
     setBanner(null);
-    setMappedPerson(null);
     setCommissionAgents([]);
     const need =
       key === 'farmer' ? 'farmers'
@@ -217,12 +209,9 @@ export default function QuickEntry() {
   };
 
   /** Plot Commission: a plot may have more than one agent over time (reassignment,
-   * resale). Picking a plot loads its agents and defaults to the latest one —
-   * also mirroring the payment into that agent's own Personal Ledger, since the
-   * agent record IS a client/member (agent_id === members.id) already. */
+   * resale). Picking a plot loads its agents and defaults to the latest one. */
   const handleCommissionPlotSelected = async (plotId) => {
     setF({ commission_id: '' });
-    setMappedPerson(null);
     setCommissionAgents([]);
     if (!plotId) return;
     setLoadingAgents(true);
@@ -231,10 +220,7 @@ export default function QuickEntry() {
       const agents = res.data?.agents || [];
       setCommissionAgents(agents);
       const latest = agents[agents.length - 1]; // API returns oldest → newest
-      if (latest) {
-        setF({ commission_id: String(latest.commission_id) });
-        setMappedPerson({ type: 'member', id: latest.agent_id });
-      }
+      if (latest) setF({ commission_id: String(latest.commission_id) });
     } catch {
       setBanner({ type: 'error', text: 'Failed to load agents for this plot.' });
     } finally {
@@ -244,8 +230,6 @@ export default function QuickEntry() {
 
   const handleCommissionAgentSelected = (commissionId) => {
     setF({ commission_id: commissionId });
-    const agent = commissionAgents.find((a) => String(a.commission_id) === String(commissionId));
-    setMappedPerson(agent ? { type: 'member', id: agent.agent_id } : null);
   };
 
   const changeMode = (m) => {
@@ -259,7 +243,6 @@ export default function QuickEntry() {
     if (moduleKey === 'vendor' && nextDirection !== 'debit') {
       setModuleKey(null);
       setForm(blankForm());
-      setMappedPerson(null);
     }
   };
 
@@ -313,7 +296,6 @@ export default function QuickEntry() {
           cheque_no: isCheque ? form.cheque_no.trim() : undefined,
           remarks: form.remarks.trim() || null,
           voucher_url: form.voucher_url || null,
-          ...mapPersonToPayload(mappedPerson),
         });
       } else if (moduleKey === 'cashflow') {
         await api.post('/cashflow/entries', {
@@ -336,7 +318,6 @@ export default function QuickEntry() {
           cheque_no: isCheque ? (form.reference_no.trim() || form.cheque_no.trim() || null) : null,
           note: form.description.trim() || form.remarks.trim() || null,
           voucher_url: form.voucher_url || null,
-          ...mapPersonToPayload(mappedPerson),
         });
       } else if (moduleKey === 'expense') {
         await api.post('/expenses', {
@@ -350,7 +331,6 @@ export default function QuickEntry() {
           remark: form.remarks.trim(),
           category: form.category.trim(),
           voucher_url: form.voucher_url || null,
-          ...mapPersonToPayload(mappedPerson),
         });
       } else if (moduleKey === 'daybook') {
         await api.post('/daybook', {
@@ -365,7 +345,6 @@ export default function QuickEntry() {
           to_entity: form.to_entity.trim() || null,
           category: form.category.trim() || null,
           voucher_url: form.voucher_url || null,
-          ...mapPersonToPayload(mappedPerson),
         });
       } else if (moduleKey === 'plot') {
         const signed = direction === 'debit' ? -amt : amt;
@@ -378,7 +357,6 @@ export default function QuickEntry() {
           cheque_no: isCheque ? form.cheque_no.trim() || null : null,
           narration: form.remarks.trim() || null,
           voucher_url: form.voucher_url || null,
-          ...mapPersonToPayload(mappedPerson),
         });
       } else if (moduleKey === 'plot_commission') {
         // This endpoint has no direction field — sign of amount encodes it:
@@ -392,7 +370,6 @@ export default function QuickEntry() {
           cheque_no: isCheque ? form.cheque_no.trim() || null : null,
           remarks: form.remarks.trim() || null,
           voucher_url: form.voucher_url || null,
-          ...mapPersonToPayload(mappedPerson),
         });
       }
       close();
@@ -431,15 +408,6 @@ export default function QuickEntry() {
         )}
       </QField>
     );
-  };
-
-  /** Plot Payment: a plot already has a buyer identity, so picking a plot tries to
-   * auto-map the transaction to that buyer if they exist as a client/member. */
-  const handlePlotSelected = (plotId) => {
-    const plot = (options.plots || []).find((p) => String(p.id) === String(plotId));
-    const buyerName = plot?.buyer_name?.trim().toUpperCase();
-    const match = buyerName ? personMembers.find((m) => (m.full_name || '').trim().toUpperCase() === buyerName) : null;
-    setMappedPerson(match ? { type: 'member', id: match.id } : null);
   };
 
   const isCredit = direction === 'credit';
@@ -515,7 +483,7 @@ export default function QuickEntry() {
     moduleKey === 'plot' && entitySelect('Paid to', 'plots', 'plot_id', (pl) => ({
       label: pl.plot_no ? `Plot ${pl.plot_no}` : `#${pl.id}`,
       sublabel: pl.buyer_name || undefined,
-    }), MapPin, handlePlotSelected, 'Select plot'),
+    }), MapPin, undefined, 'Select plot'),
     moduleKey === 'plot_commission' && entitySelect('Plot', 'plotCommissions', 'commission_plot_id', (pl) => ({
       label: pl.plot_no ? `Plot ${pl.plot_no}` : `#${pl.plot_id}`,
       sublabel: pl.buyer_name || undefined,
@@ -590,19 +558,6 @@ export default function QuickEntry() {
     moduleKey === 'vendor' && (
       <QField key="ref" label={<QLabel icon={FileText}>Reference no.</QLabel>}>
         <Input placeholder="Optional" value={form.reference_no} onChange={(e) => setF({ reference_no: e.target.value })} className={INPUT_ROUNDED} />
-      </QField>
-    ),
-    moduleKey !== 'cashflow' && (
-      <QField key="person" label={<QLabel icon={Users}>Map to person</QLabel>} hint="Mirrors into their personal ledger">
-        <EntryPersonPicker
-          siteId={siteId}
-          value={mappedPerson}
-          onChange={setMappedPerson}
-          approvers={personApprovers}
-          members={personMembers}
-          onMemberCreated={addPersonMember}
-          openUp
-        />
       </QField>
     ),
   ].filter(Boolean) : [];
@@ -877,7 +832,6 @@ export default function QuickEntry() {
                       ['Date', form.date ? new Date(form.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'],
                       ['Mode', MODE_META[form.mode]?.label || form.mode],
                       isCheque && form.cheque_no.trim() ? ['Cheque', form.cheque_no.trim()] : null,
-                      ['Ledger mirror', mappedPerson ? 'Yes' : 'No'],
                       ['Evidence', form.voucher_url ? 'Attached' : 'None'],
                     ].filter(Boolean).map((entry) => (
                       <div key={entry[0]} className="flex items-baseline justify-between gap-3">

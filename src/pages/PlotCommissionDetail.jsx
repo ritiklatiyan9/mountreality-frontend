@@ -7,7 +7,6 @@ import UserAvatar from '../components/UserAvatar';
 import CreditDebitTabs from '../components/CreditDebitTabs';
 import {
   EntryDialog, EntryFooter, EntryRow, EntryField, EntryAmount, EntryModeChips,
-  EntryPersonPicker, useEntryPersonOptions, mapPersonToPayload,
 } from '../components/EntryModal';
 import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -146,7 +145,6 @@ const PlotCommissionDetail = () => {
   const canUpdate = canManage && hasPermission('commissions', 'update');
   const canDelete = canManage && hasPermission('commissions', 'delete');
   const siteId = siteIdParam || currentSite?.id;
-  const { approvers: personApprovers, members: personMembers, addMember: addPersonMember } = useEntryPersonOptions(siteId);
   // If accessed via old route /plot-commission/:id (commission id), we need to resolve plot_id
   const [resolvedPlotId, setResolvedPlotId] = useState(plotId || null);
 
@@ -173,7 +171,6 @@ const PlotCommissionDetail = () => {
     voucher_url: null,
     assigned_admin_id: null,
   });
-  const [mappedPerson, setMappedPerson] = useState(null);
 
   // Edit payment state
   const [editingPayment, setEditingPayment] = useState(null);
@@ -335,7 +332,6 @@ const PlotCommissionDetail = () => {
       voucher_url: null,
       assigned_admin_id: null,
     });
-    setMappedPerson(null);
     setPaymentDialogOpen(true);
   };
 
@@ -438,7 +434,6 @@ const PlotCommissionDetail = () => {
 
     setPaymentDialogOpen(false);
     setOverpayConfirmOpen(false);
-    setMappedPerson(null);
 
     try {
       setSubmitLoading(true);
@@ -446,7 +441,6 @@ const PlotCommissionDetail = () => {
         master_id: paymentCommissionId,
         ...formData,
         amount: signedAmount,
-        ...mapPersonToPayload(mappedPerson),
       });
       toast.success(paymentAction === 'get' ? 'Money received entry recorded' : 'Payment recorded');
       // Reconcile with server (gets canonical id, verifyUrl, fresh status).
@@ -2301,17 +2295,6 @@ const PlotCommissionDetail = () => {
               />
             </EntryField>
           </EntryRow>
-          <EntryField label="Map to User / Client" hint="Optional — mirrors this entry into their Personal Ledger">
-            <EntryPersonPicker
-              siteId={siteId}
-              value={mappedPerson}
-              onChange={setMappedPerson}
-              approvers={personApprovers}
-              members={personMembers}
-              onMemberCreated={addPersonMember}
-              disabled={submitLoading}
-            />
-          </EntryField>
           <EntryAmount
             direction={paymentAction === 'get' ? 'credit' : 'debit'}
             label={paymentAction === 'get'

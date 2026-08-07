@@ -11,11 +11,30 @@
      amber  pending approvals, attention
      coral  outgoing money, debit, negative condition
    Each accent ships a -soft background and an -ink text shade, so a tint
-   is never used for text that has to be read. ── */
+   is never used for text that has to be read.
+
+   Canvas and surface-2 are cool blue-greys, not the neutral warm greys
+   they were: the product is one blue-tinted field end to end, dashboard
+   included, with `.mr-tech-field` laying the gradient over the top.
+   Surface stays pure white — panels carry dense figures and want the
+   full step up from the canvas behind them. ── */
 @theme {
-  --color-mr-canvas: #f5f6f2;
+  --color-mr-canvas: #eef3fa;
   --color-mr-surface: #ffffff;
-  --color-mr-surface-2: #f0f2ee;
+  --color-mr-surface-2: #e7eef8;
+
+  /* ── Public-page tones ──────────────────────────────────────────────
+     The marketing pages are read, not worked in, and they are mostly
+     full-bleed bands — so pure #ffffff panels put the whole viewport
+     inside a 96–100% luminance range with nothing for the eye to rest on.
+     These two pull that range down and, just as importantly, open a real
+     gap between page and panel so a card still reads as a card at the
+     lower level.
+
+     Shell sits a step below canvas so home → login has no tonal jump
+     while the marketing panels still separate. */
+  --color-mr-shell: #e9eef6;
+  --color-mr-paper: #f6f9fd;
   --color-mr-ink: #101114;
   --color-mr-ink-2: #1b1d22;
   --color-mr-text: #101114;
@@ -24,6 +43,7 @@
   --color-mr-line: rgba(16, 17, 20, 0.08);
   --color-mr-line-strong: rgba(16, 17, 20, 0.14);
   --color-mr-blue: #2f6bff;
+  --color-mr-blue-deep: #2154dd;
   --color-mr-blue-soft: #e9f0ff;
   --color-mr-aqua: #50ddeb;
   --color-mr-aqua-soft: #e2fbfe;
@@ -61,6 +81,58 @@
 }
 .mr-rise {
   animation: mr-rise 240ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+/* ── Hero entrance ───────────────────────────────────────────────────
+   Longer and further than mr-rise: this is the first thing on the page
+   and it carries the headline, so it gets the slower 0.8s settle. The
+   two delayed variants stagger headline → description → button.
+
+   Kept here beside mr-rise rather than in a separate theme file, so the
+   page has one place where an animation is defined — and so the global
+   prefers-reduced-motion rule above already neutralises all three
+   without any extra branch. ── */
+@keyframes fade-rise {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: none; }
+}
+.animate-fade-rise,
+.animate-fade-rise-delay,
+.animate-fade-rise-delay-2 {
+  animation: fade-rise 0.8s ease-out both;
+}
+.animate-fade-rise-delay   { animation-delay: 0.2s; }
+.animate-fade-rise-delay-2 { animation-delay: 0.4s; }
+
+/* ── Tech field ──────────────────────────────────────────────────────
+   The product's background, marketing and app alike. A flat neutral read
+   as dull next to the blue actions, so this lays two low-opacity
+   brand-blue/aqua fields over a cool base — light enough that muted body
+   text still clears 4.5:1 on it, and cheap enough to sit behind a whole
+   scrolling page.
+
+   Gradients, not filter: blur(). A blurred layer this size would cost a
+   full-viewport raster pass on every scroll frame; radial stops are
+   painted once and composited. Surfaces that set their own background
+   (panels, paper, ink) cover it, which is what gives a page its rhythm.
+
+   No background-color of its own — the element brings that with a
+   bg-mr-* class, so the same field composes over the marketing shell and
+   over the app canvas. The stops end at alpha 0 on their own colour
+   rather than the `transparent` keyword, which some engines interpolate
+   through grey and leave a dirty fringe mid-gradient. ── */
+.mr-tech-field {
+  background-image:
+    radial-gradient(72% 48% at 88% 0%, rgba(80, 221, 235, 0.20) 0%, rgba(47, 107, 255, 0.11) 42%, rgba(233, 238, 246, 0) 76%),
+    radial-gradient(58% 42% at 4% 96%, rgba(47, 107, 255, 0.14) 0%, rgba(80, 221, 235, 0.07) 46%, rgba(233, 238, 246, 0) 78%);
+  background-attachment: fixed, fixed;
+}
+
+/* Fixed attachment is a known jank source on mobile, where the address
+   bar resizes the viewport mid-scroll and forces a repaint of the whole
+   field. Scroll with the page there. */
+@media (max-width: 640px) {
+  .mr-tech-field { background-attachment: scroll, scroll; }
 }
 
 /* ── Product-mockup backdrop ─────────────────────────────────────────
@@ -139,8 +211,11 @@
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 
-  /* Public/auth screens: same SF Pro stack, with weight inherited so Tailwind's
-     font-medium/semibold/bold utilities drive the hierarchy. */
+  /* Public/auth screens: the same SF Pro stack as the dashboard, inherited
+     from the base rule above — one typeface across the whole product, no
+     webfont request, and real SF Pro on Apple devices via -apple-system.
+     Weight is inherited so Tailwind's font-medium/semibold utilities drive
+     the hierarchy. */
   .auth-type,
   .auth-type * {
     font-weight: inherit;

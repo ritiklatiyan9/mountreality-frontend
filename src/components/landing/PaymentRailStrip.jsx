@@ -37,7 +37,7 @@ const EDGE_FADE = {
 
 export default function PaymentRailStrip() {
   return (
-    <section aria-labelledby="mr-rails" className="w-full border-y border-mr-line bg-mr-surface py-14 sm:py-16">
+    <section aria-labelledby="mr-rails" className="w-full border-y border-mr-line bg-mr-paper py-14 sm:py-16">
       <p id="mr-rails" className="px-5 text-center text-[12px] font-semibold uppercase tracking-[0.14em] text-mr-muted">
         Payment methods supported
       </p>
@@ -46,16 +46,14 @@ export default function PaymentRailStrip() {
         by Razorpay.
       </p>
 
-      {/* data-native-scroll opts this rail out of the page's eased wheel
-          scrolling, so a horizontal drag here is not hijacked. */}
-      <div className="mr-rail mt-9 overflow-x-auto" data-native-scroll style={EDGE_FADE}>
+      <div className="mr-rail mt-9 overflow-x-auto" style={EDGE_FADE}>
         <ul className="flex min-w-max items-center justify-start gap-x-10 px-5 sm:justify-center sm:gap-x-14 sm:px-8">
           <li className="shrink-0">
             <img
               src={upiLogo}
               alt="UPI"
               draggable="false"
-              className="h-6 w-auto select-none opacity-60 grayscale transition-all duration-200 hover:opacity-100 hover:grayscale-0"
+              className="h-6 w-auto select-none transition-transform duration-200 hover:scale-105"
             />
           </li>
           {RAILS.map((rail) => (
@@ -65,11 +63,14 @@ export default function PaymentRailStrip() {
                 alt={rail.name}
                 title={rail.name}
                 draggable="false"
-                className={`${rail.h} w-auto select-none opacity-60 grayscale transition-all duration-200 hover:opacity-100 hover:grayscale-0`}
+                className={`${rail.h} w-auto select-none transition-transform duration-200 hover:scale-105`}
               />
             </li>
           ))}
-          <li className="shrink-0 text-[15px] font-semibold tracking-[-0.01em] text-mr-muted transition-colors duration-200 hover:text-mr-text">
+          {/* Razorpay ships as a wordmark here, not a logo file — its
+              brand blue keeps it level with the coloured rails beside it
+              instead of reading as a disabled item. */}
+          <li className="shrink-0 text-[15px] font-semibold tracking-[-0.01em] text-[#0C2451] transition-colors duration-200 hover:text-mr-blue">
             Razorpay
           </li>
         </ul>

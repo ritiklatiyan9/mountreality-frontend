@@ -27,7 +27,7 @@ import {
   Edit2, Plus, Trash2, CreditCard, TrendingUp, CheckCircle2, AlertTriangle,
   Clock, CalendarClock, Banknote, Landmark, Wallet, Percent, Hash,
   ArrowDownRight, ArrowUpRight, ArrowDownLeft, CircleDollarSign, ChevronDown, X, Eye, Settings, Printer,
-  Check, ChevronsUpDown, User, Users, Search, UserPlus, PenLine, MessageSquare,
+  Check, ChevronsUpDown, User, Search, UserPlus, PenLine, MessageSquare,
 } from 'lucide-react';
 import SignaturePad from '../components/SignaturePad';
 import { printUnifiedReceipt } from '../lib/printReceipt';
@@ -40,7 +40,6 @@ import { classifyPaymentMode } from '../utils/paymentMode';
 import CreditDebitTabs from '../components/CreditDebitTabs';
 import {
   EntryField, EntryAmount, EntryModeChips, FieldLabel,
-  EntryPersonPicker, useEntryPersonOptions, mapPersonToPayload,
 } from '../components/EntryModal';
 
 // ── Constants ──
@@ -118,7 +117,6 @@ export default function PlotDetail() {
   const canWrite  = canManage && hasPermission('plot_payments', 'write');
   const canUpdate = canManage && hasPermission('plot_payments', 'update');
   const canDelete = canManage && hasPermission('plot_payments', 'delete');
-  const { approvers: personApprovers, members: personMembers, addMember: addPersonMember } = useEntryPersonOptions(currentSite?.id);
 
   // ─── Data ───
   const [plot, setPlot] = useState(null);
@@ -632,7 +630,6 @@ export default function PlotDetail() {
     received_by: '',
   });
   const [editingPaymentId, setEditingPaymentId] = useState(null);
-  const [mappedPerson, setMappedPerson] = useState(null);
   const [paySubmitting, setPaySubmitting] = useState(false);
   const [voucherUploading, setVoucherUploading] = useState(false);
   const [payBuyerOpen, setPayBuyerOpen] = useState(false);
@@ -689,7 +686,6 @@ export default function PlotDetail() {
   const resetPayForm = () => {
     setPayForm({ date: todayStr(), payment_from: '', payment_type: 'CASH', bank_name: '', branch: '', bank_details: '', narration: '', buyer_name: plot?.buyer_name || '', booked_by: '', amount: '', voucher_url: '', assigned_admin_id: null, cheque_no: '', received_by: '' });
     setEditingPaymentId(null);
-    setMappedPerson(null);
     setPayMode('receive');
     setPayBuyerSearch('');
     setPayBookedBySearch('');
@@ -760,7 +756,7 @@ export default function PlotDetail() {
         await api.put(`/plots/payments/${editingPaymentId}`, payload);
         showMsg('success', 'Payment updated');
       } else {
-        await api.post('/plots/payments', { ...payload, plot_id: id, ...mapPersonToPayload(mappedPerson) });
+        await api.post('/plots/payments', { ...payload, plot_id: id });
         showMsg('success', payMode === 'refund' ? 'Refund recorded' : 'Payment recorded');
       }
       setPayOpen(false);
@@ -1838,24 +1834,9 @@ export default function PlotDetail() {
                   />
                 </div>
 
-                {/* ── Right column: map to person, payment from, cheque/bank, booked by, narration, approval ── */}
+                {/* ── Right column: payment from, cheque/bank, booked by, narration, approval ── */}
                 <div className="space-y-3">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {!editingPaymentId && (
-                      <EntryField
-                        label={<FieldLabel icon={Users} color="bg-fuchsia-100 text-fuchsia-600">Map to person</FieldLabel>}
-                        hint="Optional — mirrors this entry into their Personal Ledger"
-                      >
-                        <EntryPersonPicker
-                          siteId={currentSite?.id}
-                          value={mappedPerson}
-                          onChange={setMappedPerson}
-                          approvers={personApprovers}
-                          members={personMembers}
-                          onMemberCreated={addPersonMember}
-                        />
-                      </EntryField>
-                    )}
                     <EntryField label={<FieldLabel icon={Tag} color="bg-orange-100 text-orange-600">Payment From</FieldLabel>}>
                       <div className="flex flex-wrap gap-1.5">
                         {PAYMENT_FROM_OPTIONS.map((f) => (

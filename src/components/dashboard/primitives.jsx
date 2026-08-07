@@ -83,7 +83,7 @@ export function CurrencyValue({ value, size = 'md', tone = 'default', className,
   };
   return (
     <span
-      className={cn('block tabular-nums', VALUE_SIZES[size], tones[tone], className)}
+      className={cn('block tabular-nums whitespace-nowrap', VALUE_SIZES[size], tones[tone], className)}
       title={exact}
       aria-label={exact}
     >

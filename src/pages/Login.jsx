@@ -88,7 +88,7 @@ export const Login = () => {
   const labelClass = 'text-[13px] font-medium text-mr-muted';
 
   return (
-    <div className="auth-type flex min-h-screen w-full flex-col bg-mr-canvas text-mr-text">
+    <div className="auth-type mr-tech-field flex min-h-screen w-full flex-col bg-mr-shell text-mr-text">
       <PublicNav active="login" compact />
 
       <main id="main" className="flex-1">

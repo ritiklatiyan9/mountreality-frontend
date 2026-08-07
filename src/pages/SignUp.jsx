@@ -151,7 +151,7 @@ export const SignUp = () => {
   // The plan step needs the full width for the cards.
   if (step === 'plan') {
     return (
-      <div className="auth-type flex min-h-screen w-full flex-col bg-mr-canvas text-mr-text">
+      <div className="auth-type mr-tech-field flex min-h-screen w-full flex-col bg-mr-shell text-mr-text">
         <PublicNav active="signup" compact />
         {/* pt-10 clears the floating pill nav, which carries its own inset */}
         <main id="main" className="mx-auto w-full max-w-[1120px] flex-1 px-5 pb-16 pt-10 sm:px-8 sm:pt-14">
@@ -200,7 +200,7 @@ export const SignUp = () => {
   }
 
   return (
-    <div className="auth-type flex min-h-screen w-full flex-col bg-mr-canvas text-mr-text">
+    <div className="auth-type mr-tech-field flex min-h-screen w-full flex-col bg-mr-shell text-mr-text">
       <PublicNav active="signup" compact />
 
       <main id="main" className="flex-1">

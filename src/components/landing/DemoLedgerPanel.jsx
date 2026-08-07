@@ -45,27 +45,45 @@ export default function DemoLedgerPanel() {
   const mixTotal = COLLECTION_MIX.reduce((sum, row) => sum + row.value, 0);
 
   return (
-    <div className="grid overflow-hidden rounded-panel border border-mr-line bg-mr-surface lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.66fr)]">
+    /* Container queries, not viewport breakpoints. This panel used to span
+       the page, so `lg:` and its own width meant the same thing; inside the
+       hero column they do not, and a `lg:` split fired on a 1400px viewport
+       while the panel itself was only 660px — which is what crushed the
+       three figures below into two-line fragments. Everything here now
+       measures the panel, so it is correct at any width it is dropped into. */
+    <div className="@container grid overflow-hidden rounded-panel border border-mr-line bg-mr-surface @xl:grid-cols-[minmax(0,1fr)_minmax(280px,0.62fr)]">
       {/* ── Left: the analytics ── */}
-      <div className="flex flex-col gap-6 p-5 sm:p-7">
+      <div className="@container flex flex-col gap-6 p-5 @2xl:p-7">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <p className="text-[15px] font-semibold tracking-[-0.01em] text-mr-text">Demo Colony · Phase II</p>
           <p className="text-[12px] text-mr-muted">{DEMO_LEDGER.period}</p>
         </div>
 
-        {/* Three figures, hairline separated */}
-        <div className="grid grid-cols-3 gap-px overflow-hidden rounded-panel-sm border border-mr-line bg-mr-line">
+        {/* Three figures, hairline separated. Three-across needs ~130px a
+            cell before "Closing balance" starts wrapping under its own dot,
+            so below that the strip becomes label-left / figure-right rows
+            rather than three crushed columns. */}
+        <div className="grid gap-px overflow-hidden rounded-panel-sm border border-mr-line bg-mr-line @md:grid-cols-3">
           {[
             { label: 'Collected', value: INCOMING, tone: 'default', dot: 'bg-mr-aqua-ink' },
             { label: 'Paid out', value: OUTGOING, tone: 'negative', dot: 'bg-mr-coral' },
             { label: 'Closing balance', value: CLOSING, tone: 'positive', dot: 'bg-mr-lime-ink' },
           ].map((metric) => (
-            <div key={metric.label} className="bg-mr-surface p-4">
+            <div
+              key={metric.label}
+              className="flex items-center justify-between gap-3 bg-mr-surface px-4 py-3 @md:block @md:p-4"
+            >
               <p className="flex items-center gap-1.5 text-[12px] text-mr-muted">
                 <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${metric.dot}`} aria-hidden="true" />
                 {metric.label}
               </p>
-              <CurrencyValue value={metric.value} size="sm" tone={metric.tone} className="mt-1" compactAbove={1e5} />
+              <CurrencyValue
+                value={metric.value}
+                size="sm"
+                tone={metric.tone}
+                className="@md:mt-1"
+                compactAbove={1e5}
+              />
             </div>
           ))}
         </div>
@@ -186,7 +204,7 @@ export default function DemoLedgerPanel() {
       </div>
 
       {/* ── Right: the app's own gauge on the app's own ink surface ── */}
-      <div className="relative flex flex-col justify-center bg-mr-ink p-6 sm:p-8">
+      <div className="relative flex flex-col justify-center bg-mr-ink p-6 @2xl:p-8">
         <div
           className="pointer-events-none absolute inset-0"
           aria-hidden="true"

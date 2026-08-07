@@ -64,7 +64,7 @@ import VoucherUpload, { VoucherThumbnail } from '../components/VoucherUpload';
 import ApprovalStatusBadge from '../components/ApprovalStatusBadge';
 import ChequeStatusControl from '../components/ChequeStatusControl';
 import CreditDebitTabs from '../components/CreditDebitTabs';
-import { EntryDialog, EntryFooter, EntryRow, EntryField, EntryAmount, EntryModeChips, EntryParticular, getParticularsForMode, EntryPersonPicker, useEntryPersonOptions, mapPersonToPayload } from '../components/EntryModal';
+import { EntryDialog, EntryFooter, EntryRow, EntryField, EntryAmount, EntryModeChips, EntryParticular, getParticularsForMode } from '../components/EntryModal';
 import QRCode from 'qrcode';
 import { useRowSelection } from '../hooks/useRowSelection';
 import BulkActionsBar from '../components/BulkActionsBar';
@@ -98,14 +98,12 @@ const FarmerPayments = () => {
   const [message, setMessage] = useState({ type: '', text: '' });
   const [submitting, setSubmitting] = useState(false);
   const [approvers, setApprovers] = useState([]);
-  const [mappedPerson, setMappedPerson] = useState(null);
-  const { approvers: personApprovers, members: personMembers, addMember: addPersonMember } = useEntryPersonOptions(currentSite?.id);
   const [proofPhoto, setProofPhoto] = useState(null);
   const [proofPreview, setProofPreview] = useState(null);
   const [editRequestPending, setEditRequestPending] = useState(false);
   const [voucherUploading, setVoucherUploading] = useState(false);
   const [receiptPayment, setReceiptPayment] = useState(null);
-  const [signEntry, setSignEntry] = useState(null);
+  const [sigPadOpen, setSigPadOpen] = useState(false);
   const [receiptDialogOpen, setReceiptDialogOpen] = useState(false);
   const receiptRef = useRef(null);
   const statementRef = useRef(null);
@@ -129,6 +127,8 @@ const FarmerPayments = () => {
     bank_reference: '',
     bank_ifsc: '',
     voucher_url: '',
+    customer_signature_url: '',
+    authority_signature_url: '',
     assigned_admin_id: null,
     cheque_no: '',
   });
@@ -195,6 +195,8 @@ const FarmerPayments = () => {
       bank_reference: '',
       bank_ifsc: '',
       voucher_url: '',
+      customer_signature_url: '',
+      authority_signature_url: '',
       assigned_admin_id: null,
       cheque_no: '',
     });
@@ -205,7 +207,6 @@ const FarmerPayments = () => {
     setEditRequestPending(false);
     setSubmitting(false);
     setVoucherUploading(false);
-    setMappedPerson(null);
   };
 
   const handleProofPhotoChange = (e) => {
@@ -242,6 +243,8 @@ const FarmerPayments = () => {
       bank_reference: payment.bank_reference || '',
       bank_ifsc: payment.bank_ifsc || '',
       voucher_url: payment.voucher_url || '',
+      customer_signature_url: payment.customer_signature_url || '',
+      authority_signature_url: payment.authority_signature_url || '',
       assigned_admin_id: payment.assigned_admin_id || null,
       cheque_no: payment.cheque_no || '',
     });
@@ -332,6 +335,11 @@ const FarmerPayments = () => {
       payment_mode: formData.mode,
       cheque_no: formData.mode === 'CHEQUE' ? (formData.cheque_no || null) : null,
     };
+    // Read off the form before the dialog resets — the awaits below outlive it.
+    const sig = {
+      customer_signature_url: formData.customer_signature_url,
+      authority_signature_url: formData.authority_signature_url,
+    };
 
     try {
       // ── Sub-admin edit-request branch (no optimistic update — admin must approve) ──
@@ -389,9 +397,11 @@ const FarmerPayments = () => {
       try {
         if (editingPayment) {
           await api.put(`/farmers/${id}/payments/${editingPayment}`, payload);
+          await persistSignature(editingPayment, sig);
           setMessage({ type: 'success', text: 'Payment updated' });
         } else {
-          await api.post(`/farmers/${id}/payments`, { ...payload, ...mapPersonToPayload(mappedPerson) });
+          const res = await api.post(`/farmers/${id}/payments`, payload);
+          await persistSignature(res.data?.payment?.id, sig);
           setMessage({ type: 'success', text: 'Payment added' });
         }
         // Reconcile in the background — server computes verifyUrl, totals,
@@ -472,6 +482,18 @@ const FarmerPayments = () => {
   }, [payments]);
 
   const visibleIds = paymentsWithRunning.map((p) => p.id);
+
+  // Credit / debit split of the posted rows, so the table foot states the same
+  // two numbers the columns above it show.
+  const ledgerTotals = useMemo(() => {
+    let credit = 0, debit = 0;
+    for (const p of payments) {
+      if (!isPostedPayment(p)) continue;
+      const amt = parseFloat(p.amount) || 0;
+      if (amt < 0) debit += -amt; else credit += amt;
+    }
+    return { credit, debit, net: credit - debit };
+  }, [payments]);
 
   // Completion percentage
   const progressPct = summary.total_amount > 0 ? Math.min((summary.total_paid / summary.total_amount) * 100, 100) : 0;
@@ -779,14 +801,30 @@ const FarmerPayments = () => {
   };
 
   // ── Signature capture (pad / pen tablet) ──
+  // Captured inside the payment modal, so the farmer signs at the moment the
+  // installment is recorded. The pad only uploads the images here; they are
+  // attached to the row by persistSignature() once it has an id.
   const handleSaveSignature = async ({ customer, authority }) => {
-    const entry = signEntry;
-    const sigPatch = { customer_signature_url: customer };
-    if (authority) sigPatch.authority_signature_url = authority;
-    await api.put(`/signatures/farmer_payment/${entry.id}`, sigPatch);
-    setSignEntry(null);
-    refreshData();
-    handlePrintReceipt({ ...entry, ...sigPatch });
+    setFormData((f) => ({
+      ...f,
+      customer_signature_url: customer || '',
+      authority_signature_url: authority || '',
+    }));
+    setSigPadOpen(false);
+  };
+
+  /** The signature columns are not part of the payment payload — one PUT once the row exists. */
+  const persistSignature = async (paymentId, sig) => {
+    if (!paymentId || !sig.customer_signature_url) return;
+    const patch = { customer_signature_url: sig.customer_signature_url };
+    if (sig.authority_signature_url) patch.authority_signature_url = sig.authority_signature_url;
+    // A failed signature must not roll back a saved payment — the row keeps its
+    // data and the signature can be captured again from the payment modal.
+    try {
+      await api.put(`/signatures/farmer_payment/${paymentId}`, patch);
+    } catch {
+      toast.error('Payment saved, but the signature could not be attached');
+    }
   };
 
   const handleDownloadReceiptPDF = () => {
@@ -815,42 +853,47 @@ const FarmerPayments = () => {
   };
 
   const handleExportExcel = () => {
-    const data = paymentsWithRunning.map((p, i) => ({
+    const data = paymentsWithRunning.map((p, i) => {
+      const amt = parseFloat(p.amount) || 0;
+      return {
       '#': i + 1,
       Date: formatDate(p.date),
       Particular: p.particular || '',
       Mode: p.payment_mode || 'BANK',
-      'Total Amount': parseFloat(p.amount) || 0,
-      'Cash (₹)': parseFloat(p.cash_amount) || 0,
-      'Bank (₹)': parseFloat(p.bank_amount) || 0,
+      'Credit (paid to farmer)': amt > 0 ? amt : '',
+      'Debit (refund back)': amt < 0 ? -amt : '',
+      'Cash (₹)': Math.abs(parseFloat(p.cash_amount) || 0),
+      'Bank (₹)': Math.abs(parseFloat(p.bank_amount) || 0),
       By: p.by_note || '',
-      'Running Total': parseFloat(p.running_total) || 0,
+      'Balance (net paid)': parseFloat(p.running_total) || 0,
       'Bank Name': p.bank_name || '',
       'Account No': p.bank_account_no || '',
       'IFSC': p.bank_ifsc || '',
       'Bank Ref': p.bank_reference || '',
       Remarks: p.remarks || '',
-    }));
+      };
+    });
     // Add summary row
     data.push({});
     data.push({
       '#': '',
       Date: 'SUMMARY',
-      Particular: `Total Amount: ₹${formatCurrency(summary.total_amount)}`,
+      Particular: `Committed: ₹${formatCurrency(summary.total_amount)}`,
       Mode: '',
-      'Total Amount': parseFloat(summary.total_paid) || 0,
+      'Credit (paid to farmer)': ledgerTotals.credit,
+      'Debit (refund back)': ledgerTotals.debit,
       'Cash (₹)': parseFloat(summary.cash_paid) || 0,
       'Bank (₹)': parseFloat(summary.bank_paid) || 0,
       By: '',
-      'Running Total': '',
+      'Balance (net paid)': ledgerTotals.net,
       Remarks: `Remaining: ₹${formatCurrency(summary.remaining)}`,
     });
     const ws = XLSX.utils.json_to_sheet(data);
     // Set column widths
     ws['!cols'] = [
-      { wch: 5 }, { wch: 14 }, { wch: 22 }, { wch: 8 }, { wch: 14 },
+      { wch: 5 }, { wch: 14 }, { wch: 22 }, { wch: 8 }, { wch: 20 }, { wch: 18 },
       { wch: 12 }, { wch: 12 }, { wch: 14 },
-      { wch: 14 }, { wch: 16 }, { wch: 16 }, { wch: 12 }, { wch: 16 }, { wch: 20 },
+      { wch: 18 }, { wch: 16 }, { wch: 16 }, { wch: 12 }, { wch: 16 }, { wch: 20 },
     ];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Farmer Payments');
@@ -1077,12 +1120,28 @@ const FarmerPayments = () => {
 
       {/* ── Payment history ── */}
       <section className="overflow-hidden rounded-panel border border-mr-line bg-mr-surface">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-mr-line px-5 py-4 sm:px-6">
-          <div>
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-mr-line px-5 py-4 sm:px-6">
+          <div className="min-w-0">
             <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-mr-text">Payment history</h2>
             <p className="mt-0.5 text-[12px] text-mr-muted">Every installment recorded against this farmer</p>
+            {/* The two money columns are named once, in words, so nobody has to
+                infer direction from a minus sign or a colour. */}
+            <ul className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12px] text-mr-muted">
+              <li className="inline-flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-mr-lime-ink" aria-hidden="true" />
+                <span><span className="font-medium text-mr-text">Credit</span> — paid to farmer</span>
+              </li>
+              <li className="inline-flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-mr-coral-ink" aria-hidden="true" />
+                <span><span className="font-medium text-mr-text">Debit</span> — refunded back by farmer</span>
+              </li>
+              <li className="inline-flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-mr-faint" aria-hidden="true" />
+                <span><span className="font-medium text-mr-text">Balance</span> — net paid up to that row</span>
+              </li>
+            </ul>
           </div>
-          <span className="text-[12px] text-mr-muted">
+          <span className="shrink-0 text-[12px] text-mr-muted">
             {paymentsWithRunning.length} entr{paymentsWithRunning.length === 1 ? 'y' : 'ies'}
           </span>
         </div>
@@ -1107,11 +1166,13 @@ const FarmerPayments = () => {
                   No sticky side columns and no content-visibility — both were
                   what made the old table shear and jump while scrolling. */}
               <div className="hidden max-h-[65vh] overflow-y-auto overflow-x-auto md:block">
-                <table className="w-full min-w-[900px] border-collapse text-left">
-                  <caption className="sr-only">Payment history for {farmer.name}</caption>
+                <table className="w-full min-w-[1040px] border-collapse text-left">
+                  <caption className="sr-only">
+                    Payment history for {farmer.name}. Credit is money paid to the farmer, debit is money refunded back.
+                  </caption>
                   <thead className="sticky top-0 z-10">
                     <tr>
-                      <th scope="col" className="w-10 border-b border-mr-line bg-mr-surface-2 px-4 py-3">
+                      <th scope="col" className="w-10 border-b border-mr-line bg-mr-surface-2 px-4 py-2.5">
                         <Checkbox
                           checked={selection.isAllSelected(visibleIds) ? true : (selection.count > 0 && visibleIds.some((vid) => selection.isSelected(vid))) ? 'indeterminate' : false}
                           onCheckedChange={() => selection.toggleAll(visibleIds)}
@@ -1119,20 +1180,24 @@ const FarmerPayments = () => {
                         />
                       </th>
                       {[
-                        { label: 'Date', align: '' },
-                        { label: 'Particular', align: '' },
-                        { label: 'Mode', align: '' },
-                        { label: 'Amount', align: 'text-right' },
-                        { label: 'Running total', align: 'text-right' },
-                        { label: 'Status', align: '' },
-                        { label: 'Actions', align: 'text-right' },
+                        { label: 'Date', sub: null, align: '', tone: '' },
+                        { label: 'Particular', sub: null, align: '', tone: '' },
+                        { label: 'Mode', sub: null, align: '', tone: '' },
+                        { label: 'Credit', sub: 'paid to farmer', align: 'text-right', tone: 'text-mr-lime-ink' },
+                        { label: 'Debit', sub: 'refund back', align: 'text-right', tone: 'text-mr-coral-ink' },
+                        { label: 'Balance', sub: 'net paid', align: 'text-right', tone: '' },
+                        { label: 'Status', sub: null, align: '', tone: '' },
+                        { label: 'Actions', sub: null, align: 'text-right', tone: '' },
                       ].map((col) => (
                         <th
                           key={col.label}
                           scope="col"
-                          className={`border-b border-mr-line bg-mr-surface-2 px-4 py-3 text-[12px] font-medium text-mr-muted ${col.align}`}
+                          className={`border-b border-mr-line bg-mr-surface-2 px-4 py-2.5 align-bottom text-[12px] font-medium text-mr-muted ${col.align}`}
                         >
-                          {col.label}
+                          <span className={`block ${col.tone || 'text-mr-muted'}`}>{col.label}</span>
+                          {col.sub && (
+                            <span className="mt-0.5 block text-[11px] font-normal normal-case text-mr-faint">{col.sub}</span>
+                          )}
                         </th>
                       ))}
                     </tr>
@@ -1140,8 +1205,10 @@ const FarmerPayments = () => {
                   <tbody>
                     {paymentsWithRunning.map((payment, idx) => {
                       const isPayAdvance = payment.particular?.toUpperCase().includes('PAY ADVANCE');
-                      const cash = parseFloat(payment.cash_amount) || 0;
-                      const bank = parseFloat(payment.bank_amount) || 0;
+                      const amt = parseFloat(payment.amount) || 0;
+                      const isRefund = amt < 0;
+                      const cash = Math.abs(parseFloat(payment.cash_amount) || 0);
+                      const bank = Math.abs(parseFloat(payment.bank_amount) || 0);
                       const meta = [
                         payment.by_note && `By ${payment.by_note}`,
                         payment.assigned_admin_id && getAssignedAdminLabel(payment),
@@ -1192,21 +1259,53 @@ const FarmerPayments = () => {
                             />
                           </td>
 
-                          <td className="whitespace-nowrap px-4 py-3.5 text-right">
-                            <span className={`block text-[14px] font-semibold tabular-nums ${parseFloat(payment.amount) < 0 ? 'text-mr-coral-ink' : 'text-mr-text'}`}>
-                              ₹{formatCurrency(payment.amount)}
-                            </span>
-                            {(cash > 0 || bank > 0) && (
-                              <span className="mt-0.5 block text-[12px] tabular-nums text-mr-faint">
-                                {cash > 0 && <span className="text-mr-aqua-ink">Cash ₹{formatCurrency(cash)}</span>}
-                                {cash > 0 && bank > 0 && ' · '}
-                                {bank > 0 && <span className="text-mr-blue">Bank ₹{formatCurrency(bank)}</span>}
-                              </span>
+                          {/* Credit — money paid to the farmer. Empty on a refund row. */}
+                          <td className="whitespace-nowrap bg-mr-lime-soft/25 px-4 py-3.5 text-right">
+                            {isRefund ? (
+                              <span className="text-[13px] text-mr-faint" aria-label="No credit">—</span>
+                            ) : (
+                              <>
+                                <span className="block text-[14px] font-semibold tabular-nums text-mr-lime-ink">
+                                  ₹{formatCurrency(amt)}
+                                </span>
+                                {(cash > 0 || bank > 0) && (
+                                  <span className="mt-0.5 block text-[12px] tabular-nums text-mr-faint">
+                                    {cash > 0 && <span className="text-mr-aqua-ink">Cash ₹{formatCurrency(cash)}</span>}
+                                    {cash > 0 && bank > 0 && ' · '}
+                                    {bank > 0 && <span className="text-mr-blue">Bank ₹{formatCurrency(bank)}</span>}
+                                  </span>
+                                )}
+                              </>
                             )}
                           </td>
 
-                          <td className="whitespace-nowrap px-4 py-3.5 text-right text-[13px] font-medium tabular-nums text-mr-muted">
-                            ₹{formatCurrency(payment.running_total)}
+                          {/* Debit — money the farmer returned. Empty on a payment row. */}
+                          <td className="whitespace-nowrap bg-mr-coral-soft/25 px-4 py-3.5 text-right">
+                            {isRefund ? (
+                              <>
+                                <span className="block text-[14px] font-semibold tabular-nums text-mr-coral-ink">
+                                  ₹{formatCurrency(-amt)}
+                                </span>
+                                {(cash > 0 || bank > 0) && (
+                                  <span className="mt-0.5 block text-[12px] tabular-nums text-mr-faint">
+                                    {cash > 0 && <span className="text-mr-aqua-ink">Cash ₹{formatCurrency(cash)}</span>}
+                                    {cash > 0 && bank > 0 && ' · '}
+                                    {bank > 0 && <span className="text-mr-blue">Bank ₹{formatCurrency(bank)}</span>}
+                                  </span>
+                                )}
+                              </>
+                            ) : (
+                              <span className="text-[13px] text-mr-faint" aria-label="No debit">—</span>
+                            )}
+                          </td>
+
+                          <td className="whitespace-nowrap px-4 py-3.5 text-right">
+                            <span className="block text-[13px] font-semibold tabular-nums text-mr-text">
+                              ₹{formatCurrency(payment.running_total)}
+                            </span>
+                            {!isPostedPayment(payment) && (
+                              <span className="mt-0.5 block text-[11px] text-mr-faint">not counted yet</span>
+                            )}
                           </td>
 
                           <td className="whitespace-nowrap px-4 py-3.5">
@@ -1225,17 +1324,6 @@ const FarmerPayments = () => {
                               >
                                 <Printer className="h-4 w-4" strokeWidth={1.9} />
                               </Button>
-                              {canUpdate && (
-                                <Button
-                                  variant="ghost"
-                                  onClick={() => setSignEntry(payment)}
-                                  className={`h-8 w-8 rounded-full p-0 ${payment.customer_signature_url ? 'text-mr-lime-ink hover:bg-mr-lime-soft' : 'text-mr-faint hover:bg-mr-surface-2 hover:text-mr-text'}`}
-                                  title={payment.customer_signature_url ? 'Signed — capture again' : 'Capture signature'}
-                                  aria-label={payment.customer_signature_url ? 'Signed, capture again' : 'Capture signature'}
-                                >
-                                  <PenLine className="h-4 w-4" strokeWidth={1.9} />
-                                </Button>
-                              )}
                               <Button
                                 variant="ghost"
                                 onClick={() => handleOpenEdit(payment)}
@@ -1268,8 +1356,10 @@ const FarmerPayments = () => {
               {/* Mobile: one card per payment */}
               <ul className="divide-y divide-mr-line md:hidden">
                 {paymentsWithRunning.map((payment, idx) => {
-                  const cash = parseFloat(payment.cash_amount) || 0;
-                  const bank = parseFloat(payment.bank_amount) || 0;
+                  const amt = parseFloat(payment.amount) || 0;
+                  const isRefund = amt < 0;
+                  const cash = Math.abs(parseFloat(payment.cash_amount) || 0);
+                  const bank = Math.abs(parseFloat(payment.bank_amount) || 0);
                   return (
                     <li key={`m-${payment.id}`} className="px-4 py-4">
                       <div className="flex items-start justify-between gap-3">
@@ -1279,9 +1369,14 @@ const FarmerPayments = () => {
                             #{idx + 1} · {formatDate(payment.date)}
                           </p>
                         </div>
-                        <span className={`shrink-0 text-[15px] font-semibold tabular-nums ${parseFloat(payment.amount) < 0 ? 'text-mr-coral-ink' : 'text-mr-text'}`}>
-                          ₹{formatCurrency(payment.amount)}
-                        </span>
+                        <div className="shrink-0 text-right">
+                          <span className={`block text-[15px] font-semibold tabular-nums ${isRefund ? 'text-mr-coral-ink' : 'text-mr-lime-ink'}`}>
+                            {isRefund ? '−' : '+'} ₹{formatCurrency(Math.abs(amt))}
+                          </span>
+                          <span className={`mt-0.5 block text-[11px] font-medium ${isRefund ? 'text-mr-coral-ink' : 'text-mr-lime-ink'}`}>
+                            {isRefund ? 'Debit · refund back' : 'Credit · paid to farmer'}
+                          </span>
+                        </div>
                       </div>
 
                       <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
@@ -1292,14 +1387,13 @@ const FarmerPayments = () => {
                         {payment.cheque_no && <span className="text-[12px] text-mr-faint">Cheque {payment.cheque_no}</span>}
                       </div>
 
-                      {(cash > 0 || bank > 0) && (
-                        <p className="mt-2 text-[12px] tabular-nums text-mr-faint">
-                          {cash > 0 && <span className="text-mr-aqua-ink">Cash ₹{formatCurrency(cash)}</span>}
-                          {cash > 0 && bank > 0 && ' · '}
-                          {bank > 0 && <span className="text-mr-blue">Bank ₹{formatCurrency(bank)}</span>}
-                          {' · Running ₹'}{formatCurrency(payment.running_total)}
-                        </p>
-                      )}
+                      <p className="mt-2 text-[12px] tabular-nums text-mr-faint">
+                        {cash > 0 && <span className="text-mr-aqua-ink">Cash ₹{formatCurrency(cash)}</span>}
+                        {cash > 0 && bank > 0 && ' · '}
+                        {bank > 0 && <span className="text-mr-blue">Bank ₹{formatCurrency(bank)}</span>}
+                        {(cash > 0 || bank > 0) && ' · '}
+                        Balance <span className="font-semibold text-mr-text">₹{formatCurrency(payment.running_total)}</span>
+                      </p>
 
                       <div className="mt-2 flex items-center justify-end gap-1">
                         <Button
@@ -1335,20 +1429,37 @@ const FarmerPayments = () => {
               </ul>
 
               {/* Totals live below the scroll area, not in a sticky tfoot that
-                  fought the sticky columns for z-order. */}
-              <div className="flex flex-wrap items-center justify-between gap-x-8 gap-y-3 border-t border-mr-line bg-mr-surface-2/60 px-4 py-4 sm:px-6">
-                <span className="text-[12px] font-medium text-mr-muted">
-                  Total · {payments.length} payment{payments.length === 1 ? '' : 's'}
-                </span>
-                <div className="flex flex-wrap items-baseline gap-x-6 gap-y-2">
-                  <span className="text-[12px] text-mr-muted">
-                    Cash <span className="ml-1 text-[14px] font-semibold tabular-nums text-mr-aqua-ink">₹{formatCurrency(summary.cash_paid)}</span>
+                  fought the sticky columns for z-order. The credit/debit pair
+                  restates the two money columns, then the arithmetic that
+                  produces the net — no mental subtraction required. */}
+              <div className="border-t border-mr-line bg-mr-surface-2/60 px-4 py-4 sm:px-6">
+                <div className="flex flex-wrap items-center justify-between gap-x-8 gap-y-3">
+                  <span className="text-[12px] font-medium text-mr-muted">
+                    Total · {payments.length} payment{payments.length === 1 ? '' : 's'}
                   </span>
-                  <span className="text-[12px] text-mr-muted">
-                    Bank <span className="ml-1 text-[14px] font-semibold tabular-nums text-mr-blue">₹{formatCurrency(summary.bank_paid)}</span>
+                  <div className="flex flex-wrap items-baseline gap-x-6 gap-y-2 tabular-nums">
+                    <span className="text-[12px] text-mr-muted">
+                      Credit <span className="ml-1 text-[15px] font-semibold text-mr-lime-ink">₹{formatCurrency(ledgerTotals.credit)}</span>
+                    </span>
+                    <span className="text-[12px] text-mr-faint">−</span>
+                    <span className="text-[12px] text-mr-muted">
+                      Debit <span className="ml-1 text-[15px] font-semibold text-mr-coral-ink">₹{formatCurrency(ledgerTotals.debit)}</span>
+                    </span>
+                    <span className="text-[12px] text-mr-faint">=</span>
+                    <span className="text-[12px] text-mr-muted">
+                      Net paid <span className="ml-1 text-[17px] font-semibold text-mr-text">₹{formatCurrency(ledgerTotals.net)}</span>
+                    </span>
+                  </div>
+                </div>
+                <div className="mt-2.5 flex flex-wrap items-baseline gap-x-6 gap-y-2 border-t border-mr-line pt-2.5 text-[12px] text-mr-muted">
+                  <span>
+                    Cash leg <span className="ml-1 font-semibold tabular-nums text-mr-aqua-ink">₹{formatCurrency(summary.cash_paid)}</span>
                   </span>
-                  <span className="text-[12px] text-mr-muted">
-                    Paid <span className="ml-1 text-[17px] font-semibold tabular-nums text-mr-text">₹{formatCurrency(summary.total_paid)}</span>
+                  <span>
+                    Bank leg <span className="ml-1 font-semibold tabular-nums text-mr-blue">₹{formatCurrency(summary.bank_paid)}</span>
+                  </span>
+                  <span>
+                    Remaining <span className={`ml-1 font-semibold tabular-nums ${summary.remaining > 0 ? 'text-mr-amber-ink' : 'text-mr-lime-ink'}`}>₹{formatCurrency(summary.remaining)}</span>
                   </span>
                 </div>
               </div>
@@ -1518,21 +1629,6 @@ const FarmerPayments = () => {
             />
           </EntryField>
 
-          {!editingPayment && (
-            <EntryField label="Map to Farmer" hint="Optional — mirrors this entry into the farmer's Personal Ledger">
-              <EntryPersonPicker
-                siteId={currentSite?.id}
-                value={mappedPerson}
-                onChange={setMappedPerson}
-                approvers={personApprovers}
-                members={personMembers}
-                memberTypeFilter={['FARMER']}
-                lockRole="FARMER"
-                onMemberCreated={addPersonMember}
-              />
-            </EntryField>
-          )}
-
           {approvers.length > 0 && (
             <EntryField label="Send To Admin For Approval">
               <Select
@@ -1558,6 +1654,45 @@ const FarmerPayments = () => {
             disabled={submitting}
           />
 
+          {/* Farmer signs here, while the payment is being recorded. */}
+          <EntryField
+            label="Customer signature"
+            hint="Signature pad, pen tablet, mouse or finger — attached to this payment's receipt"
+          >
+            {formData.customer_signature_url ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <img
+                  src={formData.customer_signature_url}
+                  alt="Captured customer signature"
+                  className="h-14 rounded-lg border border-slate-200 bg-white object-contain px-2"
+                />
+                <Button type="button" variant="outline" size="sm" onClick={() => setSigPadOpen(true)} disabled={submitting}>
+                  <PenLine className="mr-1.5 h-3.5 w-3.5" /> Sign again
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="text-slate-500"
+                  disabled={submitting}
+                  onClick={() => setFormData((f) => ({ ...f, customer_signature_url: '', authority_signature_url: '' }))}
+                >
+                  <X className="mr-1.5 h-3.5 w-3.5" /> Clear
+                </Button>
+              </div>
+            ) : (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setSigPadOpen(true)}
+                disabled={submitting}
+                className="w-full justify-center border-dashed"
+              >
+                <PenLine className="mr-1.5 h-4 w-4" /> Capture signature
+              </Button>
+            )}
+          </EntryField>
+
           {/* Proof Photo Upload (sub-admin editing only) - OPTIONAL */}
           {editingPayment && !canUpdate && (
             <div className="space-y-1.5">
@@ -1576,11 +1711,11 @@ const FarmerPayments = () => {
 
       {/* ── Receipt Viewer Dialog ── */}
       <SignaturePad
-        open={!!signEntry}
-        onOpenChange={(o) => { if (!o) setSignEntry(null); }}
+        open={sigPadOpen}
+        onOpenChange={setSigPadOpen}
         onSave={handleSaveSignature}
         askAuthority={!nameSignOn()}
-        signeeLabel={signEntry ? `Farmer Payment #${signEntry.id} · ₹${parseFloat(signEntry.amount || 0).toLocaleString('en-IN')}` : ''}
+        signeeLabel={`${farmer.name} · ₹${formatCurrency(formData.amount || 0)}`}
       />
 
       <Dialog open={receiptDialogOpen} onOpenChange={setReceiptDialogOpen}>
@@ -1790,36 +1925,44 @@ const FarmerPayments = () => {
                 <th style={{ padding: '6px 8px', textAlign: 'left', fontWeight: '600' }}>Date</th>
                 <th style={{ padding: '6px 8px', textAlign: 'left', fontWeight: '600' }}>Particular</th>
                 <th style={{ padding: '6px 8px', textAlign: 'left', fontWeight: '600' }}>Mode</th>
-                <th style={{ padding: '6px 8px', textAlign: 'right', fontWeight: '600' }}>Amount</th>
+                <th style={{ padding: '6px 8px', textAlign: 'right', fontWeight: '600' }}>Credit (paid)</th>
+                <th style={{ padding: '6px 8px', textAlign: 'right', fontWeight: '600' }}>Debit (refund)</th>
                 <th style={{ padding: '6px 8px', textAlign: 'right', fontWeight: '600' }}>Cash</th>
                 <th style={{ padding: '6px 8px', textAlign: 'right', fontWeight: '600' }}>Bank</th>
                 <th style={{ padding: '6px 8px', textAlign: 'left', fontWeight: '600' }}>By</th>
-                <th style={{ padding: '6px 8px', textAlign: 'right', fontWeight: '600' }}>Running</th>
+                <th style={{ padding: '6px 8px', textAlign: 'right', fontWeight: '600' }}>Balance</th>
                 <th style={{ padding: '6px 8px', textAlign: 'left', fontWeight: '600' }}>Remarks</th>
               </tr>
             </thead>
             <tbody>
-              {paymentsWithRunning.map((p, i) => (
+              {paymentsWithRunning.map((p, i) => {
+                const amt = parseFloat(p.amount) || 0;
+                return (
                 <tr key={p.id} style={{ borderBottom: '1px solid #e2e8f0', background: i % 2 === 0 ? '#fff' : '#f8fafc' }}>
                   <td style={{ padding: '5px 8px' }}>{i + 1}</td>
                   <td style={{ padding: '5px 8px', whiteSpace: 'nowrap' }}>{formatDate(p.date)}</td>
                   <td style={{ padding: '5px 8px' }}>{p.particular}</td>
                   <td style={{ padding: '5px 8px' }}>{p.payment_mode || 'BANK'}</td>
-                  <td style={{ padding: '5px 8px', textAlign: 'right', fontWeight: '500' }}>₹{formatCurrency(p.amount)}</td>
-                  <td style={{ padding: '5px 8px', textAlign: 'right', color: '#15803d' }}>₹{formatCurrency(p.cash_amount || 0)}</td>
-                  <td style={{ padding: '5px 8px', textAlign: 'right', color: '#1d4ed8' }}>₹{formatCurrency(p.bank_amount || 0)}</td>
+                  <td style={{ padding: '5px 8px', textAlign: 'right', fontWeight: '500', color: '#15803d' }}>{amt > 0 ? `₹${formatCurrency(amt)}` : '—'}</td>
+                  <td style={{ padding: '5px 8px', textAlign: 'right', fontWeight: '500', color: '#b91c1c' }}>{amt < 0 ? `₹${formatCurrency(-amt)}` : '—'}</td>
+                  <td style={{ padding: '5px 8px', textAlign: 'right' }}>₹{formatCurrency(Math.abs(p.cash_amount || 0))}</td>
+                  <td style={{ padding: '5px 8px', textAlign: 'right' }}>₹{formatCurrency(Math.abs(p.bank_amount || 0))}</td>
                   <td style={{ padding: '5px 8px' }}>{p.by_note || '—'}</td>
                   <td style={{ padding: '5px 8px', textAlign: 'right', fontWeight: '500' }}>₹{formatCurrency(p.running_total)}</td>
                   <td style={{ padding: '5px 8px', fontSize: '10px' }}>{p.remarks || '—'}</td>
                 </tr>
-              ))}
+                );
+              })}
               {/* Totals */}
               <tr style={{ background: '#0f172a', color: '#fff', fontWeight: '700' }}>
                 <td colSpan={4} style={{ padding: '7px 8px', fontSize: '11px' }}>TOTAL ({payments.length} payments)</td>
-                <td style={{ padding: '7px 8px', textAlign: 'right' }}>₹{formatCurrency(summary.total_paid)}</td>
+                <td style={{ padding: '7px 8px', textAlign: 'right', color: '#86efac' }}>₹{formatCurrency(ledgerTotals.credit)}</td>
+                <td style={{ padding: '7px 8px', textAlign: 'right', color: '#fca5a5' }}>₹{formatCurrency(ledgerTotals.debit)}</td>
                 <td style={{ padding: '7px 8px', textAlign: 'right', color: '#86efac' }}>₹{formatCurrency(summary.cash_paid)}</td>
                 <td style={{ padding: '7px 8px', textAlign: 'right', color: '#93c5fd' }}>₹{formatCurrency(summary.bank_paid)}</td>
-                <td colSpan={3} style={{ padding: '7px 8px' }}></td>
+                <td style={{ padding: '7px 8px' }}></td>
+                <td style={{ padding: '7px 8px', textAlign: 'right' }}>₹{formatCurrency(ledgerTotals.net)}</td>
+                <td style={{ padding: '7px 8px' }}></td>
               </tr>
             </tbody>
           </table>
