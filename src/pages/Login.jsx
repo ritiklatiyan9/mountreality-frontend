@@ -7,6 +7,7 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Alert, AlertDescription } from '../components/ui/alert';
 import PublicNav from '../components/ui/public-nav';
+import { currentTenantSlug, orgDomainHost } from '../lib/tenant';
 import SiteFooter from '../components/SiteFooter';
 import AuthShell from '../components/landing/AuthShell';
 import { BTN_INK, LINK_SM, META, RING } from '../components/landing/layout';
@@ -94,7 +95,9 @@ export const Login = () => {
       <main id="main" className="flex-1">
         <AuthShell
           title="Welcome back"
-          subtitle="Sign in to your workspace to continue."
+          subtitle={currentTenantSlug()
+            ? `Sign in to ${orgDomainHost(currentTenantSlug())}.`
+            : 'Sign in to your workspace to continue.'}
           footer={(
             <>
               <p>

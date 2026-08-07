@@ -9,7 +9,8 @@ import api from '../api/api';
 import {
   PageHeader, PageTabs, SectionHead, Row, FIELD_LG, GHOST_BTN, PRIMARY_BTN,
 } from '../components/ui/page';
-import { BadgeCheck, Building2, Eye, EyeOff, Info, Loader2 } from 'lucide-react';
+import { BadgeCheck, Building2, Copy, Eye, EyeOff, Globe, Info, Loader2 } from 'lucide-react';
+import { orgDomainHost, orgDomainUrl } from '../lib/tenant';
 
 const SMS_DEFAULTS = { enabled: false, days_before: [7, 3, 1], include_overdue: true, send_hour: 10 };
 
@@ -63,7 +64,7 @@ const PasswordField = ({ id, name, value, onChange, disabled, placeholder, shown
 );
 
 export const Settings = () => {
-  const { user, updateProfile, currentSite, isAdmin } = useAuth();
+  const { user, organization, updateProfile, currentSite, isAdmin } = useAuth();
   const [nameSign, setNameSign] = useState(() => localStorage.getItem('nameSign') !== '0');
   const [profileData, setProfileData] = useState({ name: user?.name || '', email: user?.email || '', phone: user?.phone || '' });
   const [profileLoading, setProfileLoading] = useState(false);
@@ -274,6 +275,32 @@ export const Settings = () => {
 
       <div id="settings-panel" role="tabpanel" aria-labelledby={`settings-tab-${active}`} className="pt-8">
         {/* ── My details ── */}
+        {active === 'profile' && organization?.subdomain && (
+          <div className="mb-8 flex flex-wrap items-center gap-3 rounded-panel-sm border border-mr-blue/20 bg-mr-blue-soft px-4 py-3.5">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-control bg-mr-blue text-white">
+              <Globe className="h-4 w-4" strokeWidth={1.9} aria-hidden="true" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[12px] font-medium text-mr-muted">Workspace domain</span>
+              <a
+                href={orgDomainUrl(organization.subdomain)}
+                target="_blank"
+                rel="noreferrer"
+                className="block truncate text-[14px] font-semibold tracking-[-0.01em] text-mr-blue-deep hover:underline"
+              >
+                {orgDomainHost(organization.subdomain)}
+              </a>
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => { navigator.clipboard?.writeText(orgDomainUrl(organization.subdomain)); toast.success('Link copied'); }}
+            >
+              <Copy className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden="true" /> Copy
+            </Button>
+          </div>
+        )}
         {active === 'profile' && (
           <form onSubmit={handleUpdateProfile}>
             <SectionHead

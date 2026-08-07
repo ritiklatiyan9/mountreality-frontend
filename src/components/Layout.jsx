@@ -15,6 +15,7 @@ import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import LanguageSwitcher from './LanguageSwitcher';
 import { useDocViewer } from './DocViewer';
 import AppSidebar from './sidebar/AppSidebar';
+import WorkspaceDomainModal from './WorkspaceDomainModal';
 import { useSidebarPreferences } from './sidebar/useSidebarPreferences';
 import {
   SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH, buildNavigation, flattenNavigation,
@@ -793,6 +794,9 @@ const Layout = () => {
             </button>
           </div>
         </nav>
+
+      {/* First-login intro: appears once, only after a successful sign-in. */}
+      <WorkspaceDomainModal />
 
       {/* ── Notifications / Approvals Modal ── */}
       {notifOpen && (
