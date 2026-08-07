@@ -17,6 +17,7 @@ const INACTIVITY_CHECK_INTERVAL = 60 * 1000; // poll instead of one long setTime
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
+  const [organization, setOrganization] = useState(null);
   const [sites, setSites] = useState([]);
   const [currentSite, setCurrentSiteState] = useState(null);
   const [permissions, setPermissions] = useState([]);
@@ -27,11 +28,13 @@ export const AuthProvider = ({ children }) => {
   const fetchMe = useCallback(async () => {
     try {
       const response = await api.get('/auth/me');
-      const { user: userData, sites: userSites, permissions: userPerms } = response.data;
+      const { user: userData, organization: org, sites: userSites, permissions: userPerms } = response.data;
 
       setUser(userData);
+      setOrganization(org || null);
       setSites(userSites || []);
       localStorage.setItem('user', JSON.stringify(userData));
+      if (org) localStorage.setItem('organization', JSON.stringify(org)); else localStorage.removeItem('organization');
       localStorage.setItem('sites', JSON.stringify(userSites || []));
 
       if (userPerms) {
@@ -171,6 +174,8 @@ export const AuthProvider = ({ children }) => {
     }
 
     setUser(data.user);
+    setOrganization(data.organization || null);
+    if (data.organization) localStorage.setItem('organization', JSON.stringify(data.organization));
     setSites(data.sites || []);
 
     // Auto-select first site
@@ -345,8 +350,24 @@ export const AuthProvider = ({ children }) => {
     return perm[`can_${action}`] === true;
   }, [user, permissions]);
 
+  // First-login workspace-domain modal: mark seen server-side so it never
+  // returns on another device, and flip the local user immediately.
+  const dismissDomainIntro = useCallback(() => {
+    setUser((current) => {
+      if (current) {
+        const next = { ...current, domain_intro_seen: true };
+        localStorage.setItem('user', JSON.stringify(next));
+        return next;
+      }
+      return current;
+    });
+    api.post('/auth/domain-intro-seen').catch(() => {});
+  }, []);
+
   const value = {
     user,
+    organization,
+    dismissDomainIntro,
     sites,
     currentSite,
     setCurrentSite,

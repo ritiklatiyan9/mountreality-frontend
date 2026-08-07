@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
 import {
   ArrowRight, BookOpenCheck, FileStack, Handshake,
   LandPlot, ReceiptText, ShieldCheck, Sprout,
@@ -15,6 +15,7 @@ import {
   BODY, BTN_LINE, BTN_PRIMARY, CARD, H2, H3, LINK_SM,
   MEASURE, MEASURE_TEXT, META, PANEL, SectionHead,
 } from '../components/landing/layout';
+import { isAppHost } from '../lib/tenant';
 
 /* ── MountReality landing ────────────────────────────────────────────
    Full-bleed. Sections own their backgrounds and borders; the inner
@@ -90,6 +91,12 @@ export const Landing = () => {
     videoRef.current?.pause();
     if (videoRef.current) videoRef.current.currentTime = 0;
   };
+
+  /* console.mountreality.com and {tenant}.mountreality.com serve this same
+     bundle — wildcard DNS — but their front door is the sign-in page, not
+     the pitch. After the hooks: an early return above a hook breaks the
+     rules of hooks. */
+  if (isAppHost()) return <Navigate to="/login" replace />;
 
   return (
     <div className="auth-type mr-tech-field min-h-screen w-full bg-mr-shell text-mr-text">
