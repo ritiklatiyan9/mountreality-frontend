@@ -11,7 +11,6 @@ import UserAvatar from '../components/UserAvatar';
 import CreditDebitTabs from '../components/CreditDebitTabs';
 import {
   EntryDialog, EntryFooter, EntryRow, EntryField, EntryAmount, EntryModeChips,
-  EntryPersonPicker, useEntryPersonOptions, mapPersonToPayload,
 } from '../components/EntryModal';
 import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -378,7 +377,6 @@ const PlotPayments = () => {
   const [invalidatePlotCache] = useMutation(INVALIDATE_PLOT_CACHE);
 
   const [approvers, setApprovers] = useState([]);
-  const { approvers: personApprovers, members: personMembers, addMember: addPersonMember } = useEntryPersonOptions(siteId);
 
   // Plot selection for printing
   const [selectedPlotIds, setSelectedPlotIds] = useState(new Set());
@@ -609,7 +607,6 @@ const PlotPayments = () => {
     voucher_url: '',
     assigned_admin_id: null,
   });
-  const [mappedPerson, setMappedPerson] = useState(null);
 
   // ── Fetch Approvers (Admins + site sub-admins) ──
   const fetchApprovers = useCallback(async () => {
@@ -1050,7 +1047,6 @@ const PlotPayments = () => {
     clearProofPhoto();
     setPayBuyerSearch('');
     setPayBookedBySearch('');
-    setMappedPerson(null);
   };
 
   const handleOpenCreatePayment = () => { resetPayForm(); setPaymentDialogOpen(true); };
@@ -1111,7 +1107,7 @@ const PlotPayments = () => {
         fetchPayments();
         fetchPlots();
       } else {
-        await api.post('/plots/payments', { ...payload, ...mapPersonToPayload(mappedPerson) });
+        await api.post('/plots/payments', payload);
         setMessage({ type: 'success', text: 'Payment added' });
         setPaymentDialogOpen(false);
         fetchPayments();
@@ -3453,19 +3449,6 @@ const PlotPayments = () => {
                       : setPayForm({ ...payForm, payment_type: 'CASH', payment_from: 'CASH' })} />
                 </EntryField>
               </EntryRow>
-
-              {!editingPaymentId && (
-                <EntryField label="Map to User / Client" hint="Optional — mirrors this entry into their Personal Ledger">
-                  <EntryPersonPicker
-                    siteId={siteId}
-                    value={mappedPerson}
-                    onChange={setMappedPerson}
-                    approvers={personApprovers}
-                    members={personMembers}
-                    onMemberCreated={addPersonMember}
-                  />
-                </EntryField>
-              )}
 
               <EntryAmount
                 direction={payMode === 'refund' ? 'debit' : 'credit'}

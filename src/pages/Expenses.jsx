@@ -56,7 +56,6 @@ import { Tabs, TabsList, TabsTrigger } from '../components/ui/tabs';
 import CreditDebitTabs from '../components/CreditDebitTabs';
 import {
   EntryDialog, EntryFooter, EntryRow, EntryField, EntryAmount, EntryModeChips,
-  EntryPersonPicker, useEntryPersonOptions, mapPersonToPayload,
 } from '../components/EntryModal';
 import BulkActionsBar from '../components/BulkActionsBar';
 import { EmptyState, SkeletonBlock } from '../components/dashboard/primitives';
@@ -292,8 +291,6 @@ const Expenses = () => {
     assigned_user_id: null, voucher_url: '',
     assigned_admin_id: null,
   });
-  const [mappedPerson, setMappedPerson] = useState(null);
-  const { approvers: personApprovers, members: personMembers, addMember: addPersonMember } = useEntryPersonOptions(siteId);
 
   // ── Debounce search ──
   useEffect(() => {
@@ -552,7 +549,6 @@ const Expenses = () => {
     setMemberSearch('');
     setEditingId(null);
     setMessage({ type: '', text: '' });
-    setMappedPerson(null);
     if (voucherInputRef.current) voucherInputRef.current.value = '';
   };
 
@@ -615,7 +611,7 @@ const Expenses = () => {
         await api.put(`/expenses/${editingId}`, payload);
         setMessage({ type: 'success', text: 'Expense updated' });
       } else {
-        await api.post('/expenses', { ...payload, ...mapPersonToPayload(mappedPerson) });
+        await api.post('/expenses', payload);
         setMessage({ type: 'success', text: 'Expense added' });
       }
       // Close dialog instantly; reconcile in background.
@@ -1875,19 +1871,6 @@ const Expenses = () => {
                 />
               </EntryField>
             </EntryRow>
-
-            {!editingId && (
-              <EntryField label="Map to User / Client" hint="Optional — mirrors this entry into their Personal Ledger">
-                <EntryPersonPicker
-                  siteId={siteId}
-                  value={mappedPerson}
-                  onChange={setMappedPerson}
-                  approvers={personApprovers}
-                  members={personMembers}
-                  onMemberCreated={addPersonMember}
-                />
-              </EntryField>
-            )}
 
             <EntryAmount
               direction={txnType}

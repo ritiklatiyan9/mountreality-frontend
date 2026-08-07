@@ -11,24 +11,35 @@
 export const MEASURE = 'mx-auto w-full max-w-[1400px] px-5 sm:px-8 lg:px-12';
 export const MEASURE_TEXT = 'mx-auto w-full max-w-[760px]';
 
-/* Type scale — nothing below 12px anywhere on the public site. */
-export const H1 = 'text-balance text-[clamp(2.25rem,5.6vw,4.25rem)] font-semibold leading-[0.98] tracking-[-0.05em] text-mr-text';
-export const H2 = 'text-[clamp(1.875rem,3.6vw,3rem)] font-semibold leading-[1.04] tracking-[-0.042em] text-mr-text';
-export const H3 = 'text-[17px] font-semibold tracking-[-0.02em] text-mr-text';
-export const LEAD = 'text-[clamp(1rem,1.3vw,1.1875rem)] leading-[1.5] tracking-[-0.01em] text-mr-muted';
-export const BODY = 'text-[15px] leading-[1.6] text-mr-muted';
+/* Type scale — nothing below 12px anywhere on the public site. One family
+   throughout: the SF Pro stack set in index.css. Tracking tightens as the
+   size grows, which is what SF Pro Display does optically on Apple's own
+   surfaces — the large sizes need it, 15px body does not. */
+export const H1 = 'text-balance text-[clamp(2.5rem,5.8vw,4.5rem)] font-semibold leading-[1.02] tracking-[-0.045em] text-mr-text';
+export const H2 = 'text-balance text-[clamp(1.875rem,3.6vw,2.875rem)] font-semibold leading-[1.08] tracking-[-0.038em] text-mr-text';
+export const H3 = 'text-[17px] font-semibold tracking-[-0.015em] text-mr-text';
+export const LEAD = 'text-[clamp(1rem,1.3vw,1.1875rem)] leading-[1.55] tracking-[-0.008em] text-mr-muted';
+export const BODY = 'text-[15px] leading-[1.65] text-mr-muted';
 export const CARD = 'text-[14px] leading-[1.6] text-mr-muted';
 export const META = 'text-[12px] text-mr-muted';
-export const LABEL = 'text-[12px] font-semibold uppercase tracking-[0.14em] text-mr-muted';
+export const LABEL = 'text-[12px] font-semibold uppercase tracking-[0.14em] text-mr-blue-deep';
 
 /* Focus rings — pick the one matching the surface the control sits on,
    so the offset ring is not drawn against the wrong colour. */
 export const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue focus-visible:ring-offset-2 focus-visible:ring-offset-mr-canvas';
 export const RING_ON_SURFACE = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue focus-visible:ring-offset-2 focus-visible:ring-offset-mr-surface';
 
+/* Buttons. Blue is the marketing primary — the design system's "one
+   confident brand colour" — while ink stays for the band where blue has
+   no contrast. Geometry is shared so they line up side by side. */
+export const BTN_PRIMARY = `inline-flex h-12 items-center gap-2 rounded-control bg-mr-blue-deep px-6 text-[15px] font-semibold text-white shadow-[0_8px_20px_-10px_rgba(33,84,221,0.5)] transition-colors duration-150 hover:bg-mr-ink ${RING}`;
 export const BTN_INK = `inline-flex h-12 items-center gap-2 rounded-control bg-mr-ink px-6 text-[15px] font-semibold text-white transition-colors duration-150 hover:bg-mr-ink-2 ${RING}`;
-export const BTN_LINE = `inline-flex h-12 items-center gap-2 rounded-control border border-mr-line bg-mr-surface px-6 text-[15px] font-semibold text-mr-text transition-colors duration-150 hover:border-mr-line-strong hover:bg-mr-surface-2 ${RING}`;
+export const BTN_LINE = `inline-flex h-12 items-center gap-2 rounded-control border border-mr-line bg-mr-paper px-6 text-[15px] font-semibold text-mr-text transition-colors duration-150 hover:border-mr-line-strong hover:bg-mr-shell ${RING}`;
 export const LINK_SM = `rounded-sm text-[12px] font-semibold text-mr-blue underline-offset-4 transition-colors hover:underline ${RING}`;
+
+/* The one card treatment marketing sections use: paper surface, hairline,
+   soft diffuse shadow. Declared once so every band's panels match. */
+export const PANEL = 'rounded-panel border border-mr-line bg-mr-paper shadow-[0_10px_32px_-18px_rgba(16,17,20,0.12)]';
 
 /* Hairline grid: gap-px over a line-coloured background gives dividers
    with no per-cell border and no first/last-child arithmetic. */

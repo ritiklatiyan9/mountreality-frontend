@@ -589,7 +589,7 @@ const Layout = () => {
       <div
         ref={shellRef}
         style={{ '--mr-sidebar-width': `${collapsed ? 72 : width}px` }}
-        className={`flex h-screen overflow-hidden bg-mr-canvas print:h-auto print:flex-col print:overflow-visible md:grid md:grid-cols-[var(--mr-sidebar-width)_minmax(0,1fr)] ${
+        className={`mr-tech-field flex h-screen overflow-hidden bg-mr-canvas print:h-auto print:flex-col print:overflow-visible md:grid md:grid-cols-[var(--mr-sidebar-width)_minmax(0,1fr)] ${
           dragging ? '' : 'md:transition-[grid-template-columns] md:duration-200 md:ease-out'
         }`}
       >

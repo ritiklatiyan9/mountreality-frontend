@@ -7,7 +7,7 @@ import SiteFooter from '../components/SiteFooter';
 import PaymentRailStrip from '../components/landing/PaymentRailStrip';
 import { Reveal } from '../components/landing/scrollMotion';
 import {
-  BODY, BTN_INK, BTN_LINE, CARD, H2, H3, HAIRLINE_GRID, LEAD, LINK_SM,
+  BODY, BTN_INK, BTN_LINE, CARD, H2, H3, HAIRLINE_GRID, LABEL, LEAD, LINK_SM,
   MEASURE, MEASURE_TEXT, META, RING, SectionHead,
 } from '../components/landing/layout';
 import { PUBLIC_PLANS, annualPrice, siteLimitLabel } from '../lib/plans';
@@ -23,22 +23,35 @@ import { formatINR } from '../lib/razorpay';
      column and no storage quota anywhere in the backend, so the old
      "Up to 500 users" and "Unlimited storage" lines are gone.
    · There is no free tier and no trial — signup goes straight to
-     Razorpay — and the FAQ now says so plainly instead of dodging it.
+     Razorpay — and the FAQ says so plainly instead of dodging it.
    · The 15% yearly discount is a hardcoded constant on both client and
-     server, so it does not expire. The countdown that implied it does
-     is deleted.
+     server, so it does not expire. No countdown implies otherwise.
    · "No feature gates, no hidden tiers" is gone too: PUBLIC_PLANS exists
-     precisely to hide the enterprise tier from this page. ── */
+     precisely to hide the enterprise tier from this page.
 
-/* Card accents. Only the recommended card carries a wash, and it is one
-   soft three-stop ramp of existing tokens — restrained, not a rainbow. */
-const CARD_TONE = {
-  recommended: {
-    wash: 'linear-gradient(180deg, rgba(80,221,235,0.30) 0%, rgba(185,255,69,0.16) 34%, rgba(255,255,255,0) 72%)',
-    tick: 'text-mr-aqua-ink',
-  },
-  plain: { wash: null, tick: 'text-mr-lime-ink' },
-};
+   ── Layout ──
+   The page's own headline is "plans differ by sites, not by features",
+   so the layout says that structurally instead of contradicting it. The
+   plans are ONE hairline-divided slab, not three floating cards, and the
+   included-features list is written ONCE underneath rather than repeated
+   identically inside every card — three near-identical bullet lists were
+   what made this read as a template. The only thing that visibly varies
+   column to column is the site allowance and the price, which is exactly
+   what actually varies.
+
+   Nothing here forces a viewport height. The old
+   `min-h-[calc(100svh-72px)]` left a dead band of canvas under the fold
+   whenever the cards came up shorter than the screen. ── */
+
+/* Sites are the differentiator, so they get the tonal chip. Aqua marks
+   the recommended column, neutral marks the rest — never colour alone,
+   the word "Recommended" is always present too. */
+const SITE_CHIP = 'inline-flex items-center rounded-full px-3 py-1.5 text-[13px] font-semibold';
+
+/* The ink column needs its own outlined button. Layering overrides after
+   BTN_LINE would not reliably win — Tailwind resolves same-specificity
+   utilities by CSS source order, not by position in the class string. */
+const BTN_ON_INK = 'inline-flex h-12 w-full shrink-0 items-center justify-center gap-2 rounded-control border border-white/25 bg-white/10 px-6 text-[15px] font-semibold text-white transition-colors duration-150 hover:border-white/40 hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-aqua focus-visible:ring-offset-2 focus-visible:ring-offset-mr-ink sm:w-auto';
 
 const INCLUDED = [
   'Plot bookings & instalments',
@@ -49,6 +62,12 @@ const INCLUDED = [
   'Registry & documents',
   'Role-based access',
   'Audit trail on every entry',
+];
+
+const ENTERPRISE_POINTS = [
+  'Site count set to your portfolio',
+  'Same approval and audit controls',
+  'Migration help from your sheets',
 ];
 
 const FAQS = [
@@ -99,9 +118,19 @@ export const Pricing = () => {
 
   /* The widest site allowance is the recommended plan. Deriving it beats
      hardcoding a plan code — the last hardcoded one ("growth") went stale
-     in migration 087 and is still a fossil in PlanCards' icon map. */
+     in migration 087 and is still a fossil in PlanCards' icon map.
+
+     Price breaks the tie, because it currently IS tied: Professional and
+     Growth both carry site_limit 10 at ₹9,499 and ₹9,994. Without the
+     tiebreak the badge lands on whichever the API happens to return
+     first, which would sometimes recommend the dearer of two identical
+     allowances. */
   const recommendedId = plans.length
-    ? plans.reduce((best, p) => (Number(p.site_limit) > Number(best.site_limit) ? p : best), plans[0]).id
+    ? plans.reduce((best, p) => {
+      const sites = Number(p.site_limit) - Number(best.site_limit);
+      if (sites !== 0) return sites > 0 ? p : best;
+      return Number(p.price_inr) < Number(best.price_inr) ? p : best;
+    }, plans[0]).id
     : null;
 
   const choosePlan = (plan) => {
@@ -111,30 +140,41 @@ export const Pricing = () => {
   };
 
   return (
-    <div className="auth-type min-h-screen w-full bg-mr-canvas text-mr-text">
+    <div className="auth-type mr-tech-field min-h-screen w-full bg-mr-shell text-mr-text">
       <PublicNav active="pricing" />
 
       <main id="main" className="w-full">
-        {/* ── 1. Hero + plans — sized to land in one viewport ──
-             min-h uses svh so mobile browser chrome does not push the
-             cards below the fold on first paint. */}
-        <section className="flex w-full flex-col lg:min-h-[calc(100svh-72px)]">
-          <div className={`${MEASURE} pb-8 pt-10 sm:pb-10 sm:pt-14`}>
-            <div className={MEASURE_TEXT}>
-              <h1 className="text-balance text-[clamp(1.875rem,3.6vw,2.75rem)] font-semibold leading-[1.02] tracking-[-0.045em] text-mr-text">
-                Plans differ by sites, not by features.
-              </h1>
-              <p className={`mr-rise mt-4 max-w-[58ch] ${LEAD}`} style={{ animationDelay: '60ms' }}>
-                Every plan ships the whole platform — day book, plot bookings, farmer payments,
-                broker commission, registry and reports. The only thing you choose is how many sites
-                you run, and whether you pay monthly or yearly.
-              </p>
+        {/* ── 1. Hero + plan slab ──
+             isolate + one aurora is the page's single dominant gradient
+             zone; it sits behind solid surfaces so nothing loses contrast. */}
+        <section className="relative isolate w-full overflow-hidden">
+          <div
+            className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[560px]"
+            aria-hidden="true"
+            style={{ background: 'radial-gradient(110% 60% at 50% 0%, rgba(80,221,235,0.20) 0%, rgba(47,107,255,0.08) 44%, rgba(245,246,242,0) 74%)' }}
+          />
+
+          <div className={`${MEASURE} pt-14 sm:pt-20`}>
+            {/* Headline left, billing control right — the control is the
+                only decision above the slab, so it sits at the same
+                optical level as the sentence that explains it. */}
+            <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end lg:gap-16">
+              <div className={MEASURE_TEXT}>
+                <p className={LABEL}>Pricing</p>
+                <h1 className="mt-5 text-balance text-[clamp(2.125rem,4.4vw,3.375rem)] font-semibold leading-[1.02] tracking-[-0.045em] text-mr-text">
+                  Plans differ by sites, not by features.
+                </h1>
+                <p className={`mr-rise mt-5 max-w-[56ch] ${LEAD}`} style={{ animationDelay: '60ms' }}>
+                  Every plan ships the whole platform. The only thing you choose is how many sites you
+                  run, and whether you pay monthly or yearly.
+                </p>
+              </div>
 
               {/* Native radios in a fieldset: arrow-key selection, one tab
                   stop, a group name and checked state, with no JS beyond
                   setCycle. A role="radio" button group would need
                   hand-written arrow handling and a roving tabindex. */}
-              <fieldset className="mr-rise mt-6" style={{ animationDelay: '120ms' }}>
+              <fieldset className="mr-rise shrink-0" style={{ animationDelay: '120ms' }}>
                 <legend className="sr-only">Billing period</legend>
                 <div className="inline-grid grid-cols-2 gap-px overflow-hidden rounded-control border border-mr-line bg-mr-line">
                   {[
@@ -150,187 +190,219 @@ export const Pricing = () => {
                         onChange={() => setCycle(option.value)}
                         className="peer sr-only"
                       />
-                      <span className="flex h-10 cursor-pointer items-center justify-center bg-mr-surface px-5 text-[14px] font-medium text-mr-muted transition-colors duration-150 hover:text-mr-text peer-checked:bg-mr-ink peer-checked:font-semibold peer-checked:text-white peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-inset peer-focus-visible:ring-mr-blue">
+                      <span className="flex h-11 cursor-pointer items-center justify-center bg-mr-surface px-6 text-[14px] font-medium text-mr-muted transition-colors duration-150 hover:text-mr-text peer-checked:bg-mr-ink peer-checked:font-semibold peer-checked:text-white peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-inset peer-focus-visible:ring-mr-blue">
                         {option.label}
                       </span>
                     </label>
                   ))}
                 </div>
+                <p className={`mt-2.5 max-w-[30ch] ${META}`}>
+                  Yearly is twelve months less 15%, charged once at checkout.
+                </p>
               </fieldset>
-
-              <p className={`mt-3 ${META}`}>
-                Yearly is twelve months less 15%, charged once. The discount is applied at checkout,
-                not after.
-              </p>
             </div>
           </div>
 
-          {/* ── 2. Plans ── */}
-          <div className={`${MEASURE} pb-14 sm:pb-16`}>
+          {/* ── 2. The slab ──
+               One surface, hairline-divided columns. gap-px over a
+               line-coloured background gives the dividers with no per-cell
+               border and no first/last-child arithmetic. */}
+          <div className={`${MEASURE} pb-16 pt-12 sm:pb-20 sm:pt-14`}>
             {status === 'loading' && (
               <>
-                {/* Two placeholder cells, matching the two public plans —
-                    the old three-cell skeleton reflowed into an empty gap. */}
-                <div className={`${HAIRLINE_GRID} sm:grid-cols-2`} aria-busy="true">
-                  {[0, 1].map((i) => (
-                    <div key={i} className="bg-mr-surface p-5 sm:p-8">
-                      <div className="h-5" />
-                      <div className="mt-1 h-4 w-28 rounded-sm bg-mr-surface-2" />
-                      <div className="mt-6 h-10 w-40 rounded-sm bg-mr-surface-2" />
-                      <div className="mt-2 h-4 w-48 rounded-sm bg-mr-surface-2" />
-                      <div className="mt-8 h-11 rounded-control bg-mr-surface-2" />
-                    </div>
-                  ))}
+                <div className="overflow-hidden rounded-panel border border-mr-line">
+                  <div className="flex flex-col gap-px bg-mr-line lg:flex-row" aria-busy="true">
+                    {[0, 1, 2].map((i) => (
+                      <div key={i} className="flex-1 bg-mr-surface p-7 sm:p-8">
+                        <div className="h-4 w-20 rounded-sm bg-mr-surface-2" />
+                        <div className="mt-5 h-8 w-24 rounded-full bg-mr-surface-2" />
+                        <div className="mt-6 h-11 w-40 rounded-sm bg-mr-surface-2" />
+                        <div className="mt-3 h-4 w-48 rounded-sm bg-mr-surface-2" />
+                        <div className="mt-8 h-12 rounded-control bg-mr-surface-2" />
+                        <div className="mt-8 space-y-3 border-t border-mr-line pt-7">
+                          {[0, 1, 2, 3, 4, 5].map((r) => (
+                            <div key={r} className="h-4 rounded-sm bg-mr-surface-2" />
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
                 <p className="sr-only" role="status">Loading plans…</p>
               </>
             )}
 
             {status === 'error' && (
-              <div className={HAIRLINE_GRID}>
-                <div className="bg-mr-surface p-5 sm:p-8" role="alert">
-                  <p className={H3}>Plans could not be loaded</p>
-                  <p className={`mt-1.5 max-w-[52ch] ${BODY}`}>
-                    Prices come from our billing service, so we would rather show nothing than show a
-                    stale figure. Try again, or write to us and we will send the current plans.
-                  </p>
-                  <div className="mt-5 flex flex-wrap items-center gap-5">
-                    <button type="button" onClick={() => { setStatus('loading'); setAttempt((n) => n + 1); }} className={BTN_INK}>
-                      Try again
-                    </button>
-                    <a href="mailto:support@mountreality.in" className={LINK_SM}>
-                      support@mountreality.in →
-                    </a>
-                  </div>
+              <div className="rounded-panel border border-mr-line bg-mr-surface p-7 sm:p-8" role="alert">
+                <p className={H3}>Plans could not be loaded</p>
+                <p className={`mt-2 max-w-[52ch] ${BODY}`}>
+                  Prices come from our billing service, so we would rather show nothing than show a
+                  stale figure. Try again, or write to us and we will send the current plans.
+                </p>
+                <div className="mt-6 flex flex-wrap items-center gap-5">
+                  <button type="button" onClick={() => { setStatus('loading'); setAttempt((n) => n + 1); }} className={BTN_INK}>
+                    Try again
+                  </button>
+                  <a href="mailto:support@mountreality.in" className={LINK_SM}>
+                    support@mountreality.in →
+                  </a>
                 </div>
               </div>
             )}
 
             {status === 'ready' && (
-              <Reveal className="grid gap-5 lg:grid-cols-3">
-                {plans.map((plan) => {
-                  const monthly = Number(plan.price_inr) || 0;
-                  const yearly = annualPrice(monthly);
-                  const recommended = plan.id === recommendedId;
-                  const tone = recommended ? CARD_TONE.recommended : CARD_TONE.plain;
+              <Reveal>
+                <div className="overflow-hidden rounded-panel border border-mr-line shadow-[0_8px_28px_-12px_rgba(16,17,20,0.10)]">
+                  {/* flex-row, not grid-cols-N. A fixed column count only
+                      fits one plan count: with grid-cols-3 the API's three
+                      public plans plus the contact cell made four items,
+                      so the fourth wrapped and left two empty cells showing
+                      the line-coloured slab background. Even flex-1
+                      children divide by however many plans exist. */}
+                  <div className="flex flex-col gap-px bg-mr-line lg:flex-row">
+                    {plans.map((plan) => {
+                      const monthly = Number(plan.price_inr) || 0;
+                      const yearly = annualPrice(monthly);
+                      const recommended = plan.id === recommendedId;
 
-                  return (
-                    <div
-                      key={plan.id}
-                      className="relative flex flex-col overflow-hidden rounded-panel border border-mr-line bg-mr-surface"
-                    >
-                      {/* One soft wash, recommended card only */}
-                      {tone.wash && (
-                        <div
-                          className="pointer-events-none absolute inset-x-0 top-0 h-[260px]"
-                          aria-hidden="true"
-                          style={{ background: tone.wash }}
-                        />
-                      )}
-
-                      <div className="relative flex flex-1 flex-col p-6 sm:p-7">
-                        <div className="flex items-baseline justify-between gap-3">
-                          <h2 className="text-[19px] font-semibold tracking-[-0.02em] text-mr-text">{plan.name}</h2>
+                      return (
+                        <div key={plan.id} className="relative flex flex-1 flex-col bg-mr-surface p-7 sm:p-8">
+                          {/* The one tonal wash, recommended column only.
+                              A soft two-stop ramp of existing tokens —
+                              restrained, and it fades out well above the
+                              price so the figure stays on flat white. */}
                           {recommended && (
-                            <span className="rounded-full bg-mr-ink px-2.5 py-1 text-[12px] font-medium text-white">
-                              Recommended
-                            </span>
+                            <div
+                              className="pointer-events-none absolute inset-x-0 top-0 h-[180px]"
+                              aria-hidden="true"
+                              style={{ background: 'linear-gradient(180deg, rgba(80,221,235,0.22) 0%, rgba(185,255,69,0.10) 46%, rgba(255,255,255,0) 100%)' }}
+                            />
                           )}
+
+                          <div className="relative flex flex-1 flex-col">
+                            <div className="flex items-center justify-between gap-3">
+                              <h2 className="text-[17px] font-semibold tracking-[-0.02em] text-mr-text">
+                                {plan.name}
+                              </h2>
+                              {recommended && (
+                                <span className="rounded-full bg-mr-ink px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-white">
+                                  Recommended
+                                </span>
+                              )}
+                            </div>
+
+                            {/* The actual differentiator, given its own
+                                line instead of being buried beside the
+                                price in 13px grey. */}
+                            <p className="mt-5">
+                              <span className={`${SITE_CHIP} ${recommended ? 'bg-mr-aqua-soft text-mr-aqua-ink' : 'bg-mr-surface-2 text-mr-text'}`}>
+                                {siteLimitLabel(plan)}
+                              </span>
+                            </p>
+
+                            <p className="mt-6 flex items-baseline gap-2">
+                              <span className="text-[42px] font-semibold leading-none tracking-[-0.045em] tabular-nums text-mr-text">
+                                {formatINR(isAnnual ? yearly : monthly)}
+                              </span>
+                              <span className="text-[13px] font-medium text-mr-muted">
+                                {isAnnual ? '/ year' : '/ month'}
+                              </span>
+                            </p>
+
+                            {/* min-h keeps the CTAs on one baseline across
+                                columns whichever cycle is selected. */}
+                            <p className={`mt-3 min-h-[36px] max-w-[34ch] tabular-nums ${META}`}>
+                              {isAnnual
+                                ? `${formatINR(monthly * 12)} if billed monthly — you save ${formatINR(monthly * 12 - yearly)}`
+                                : `${formatINR(yearly)} a year on yearly billing`}
+                            </p>
+
+                            <button
+                              type="button"
+                              onClick={() => choosePlan(plan)}
+                              className={`mt-7 w-full justify-center ${recommended ? BTN_INK : BTN_LINE}`}
+                            >
+                              Get started
+                              {recommended && <ArrowRight className="h-4 w-4" strokeWidth={2} aria-hidden="true" />}
+                            </button>
+
+                            {/* The full list sits in every card. It is the
+                                same list in each because the plans really
+                                do ship the same platform — and a pricing
+                                card with nothing under the button reads as
+                                unfinished, whatever the headline says. */}
+                            <div className="mt-8 border-t border-mr-line pt-7">
+                              <p className={LABEL}>Included</p>
+                              <ul className="mt-4 space-y-2.5">
+                                {INCLUDED.map((item) => (
+                                  <li key={item} className="flex items-start gap-2.5 text-[14px] leading-[1.45] text-mr-text">
+                                    <Check
+                                      className={`mt-0.5 h-4 w-4 shrink-0 ${recommended ? 'text-mr-aqua-ink' : 'text-mr-lime-ink'}`}
+                                      strokeWidth={2.4}
+                                      aria-hidden="true"
+                                    />
+                                    {item}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          </div>
                         </div>
+                      );
+                    })}
 
-                        <p className="mt-5 flex items-baseline gap-2">
-                          <span className="text-[40px] font-semibold leading-none tracking-[-0.045em] tabular-nums text-mr-text">
-                            {formatINR(isAnnual ? yearly : monthly)}
-                          </span>
-                          <span className="text-[13px] leading-tight text-mr-muted">
-                            {isAnnual ? 'per year' : 'per month'}
-                            <br />
-                            {siteLimitLabel(plan)}
-                          </span>
-                        </p>
+                  </div>
+                </div>
 
-                        <p className={`mt-2 min-h-[32px] tabular-nums ${META}`}>
-                          {isAnnual
-                            ? `${formatINR(monthly * 12)} billed monthly — you save ${formatINR(monthly * 12 - yearly)}`
-                            : `${formatINR(yearly)}/year on yearly billing`}
-                        </p>
-
-                        <button
-                          type="button"
-                          onClick={() => choosePlan(plan)}
-                          className={`mt-6 w-full justify-center ${recommended ? BTN_INK : BTN_LINE}`}
-                        >
-                          Get started
-                          {recommended && <ArrowRight className="h-4 w-4" strokeWidth={2} aria-hidden="true" />}
-                        </button>
-
-                        <ul className="mt-7 space-y-3 border-t border-mr-line pt-6">
-                          {INCLUDED.slice(0, 6).map((item) => (
-                            <li key={item} className="flex items-start gap-2.5 text-[14px] leading-[1.5] text-mr-text">
-                              <Check className={`mt-0.5 h-4 w-4 shrink-0 ${tone.tick}`} strokeWidth={2.4} aria-hidden="true" />
-                              {item}
-                            </li>
-                          ))}
-                        </ul>
-
-                        <p className={`mt-auto pt-6 ${META}`}>
-                          Every feature on every plan · {siteLimitLabel(plan)}
-                        </p>
-                      </div>
+                {/* ── 3. More sites ──
+                     The enterprise tier exists but is deliberately not sold
+                     self-serve (PUBLIC_PLANS hides it), so this is a real
+                     route to it rather than an invented plan. A full-width
+                     band rather than another column: it is a different kind
+                     of thing from a priced plan, and as a column it could
+                     never divide evenly with an unknown plan count. */}
+                <div className="mt-5 overflow-hidden rounded-panel bg-mr-ink">
+                  <div className="flex flex-col gap-8 p-7 sm:p-9 lg:flex-row lg:items-center lg:justify-between lg:gap-12">
+                    <div className="max-w-[46ch]">
+                      <h2 className="text-[21px] font-semibold tracking-[-0.025em] text-white">
+                        More sites than any plan above?
+                      </h2>
+                      <p className="mt-2.5 text-[14px] leading-[1.6] text-white/65">
+                        Tell us the size of your portfolio and we will set the site count to match.
+                        Same platform, same approval and audit controls, and help moving off your
+                        existing sheets.
+                      </p>
                     </div>
-                  );
-                })}
 
-                {/* Third cell. The enterprise tier exists but is deliberately
-                    not sold self-serve (PUBLIC_PLANS hides it), so this is a
-                    real route to it rather than an invented plan. */}
-                <div className="relative flex flex-col overflow-hidden rounded-panel border border-mr-line bg-mr-ink">
-                  <div
-                    className="pointer-events-none absolute inset-x-0 top-0 h-[260px]"
-                    aria-hidden="true"
-                    style={{ background: 'linear-gradient(180deg, rgba(80,221,235,0.22) 0%, rgba(47,107,255,0.12) 40%, rgba(16,17,20,0) 76%)' }}
-                  />
-                  <div className="relative flex flex-1 flex-col p-6 sm:p-7">
-                    <h2 className="text-[19px] font-semibold tracking-[-0.02em] text-white">More sites</h2>
-
-                    <p className="mt-5 text-[40px] font-semibold leading-none tracking-[-0.045em] text-white">
-                      Let&rsquo;s talk
-                    </p>
-                    <p className="mt-2 min-h-[32px] text-[12px] text-white/60">
-                      For portfolios past the plans on the left
-                    </p>
-
-                    <a href="mailto:support@mountreality.in" className={`mt-6 w-full justify-center ${BTN_LINE}`}>
-                      Contact us
-                    </a>
-
-                    <ul className="mt-7 space-y-3 border-t border-mr-aqua/25 pt-6">
-                      {['Every feature on every plan', 'Site count set to your portfolio', 'Same approval and audit controls', 'Razorpay billing, GST invoiced', 'Migration help from your sheets', 'A person who answers the phone'].map((item) => (
-                        <li key={item} className="flex items-start gap-2.5 text-[14px] leading-[1.5] text-white">
-                          <Check className="mt-0.5 h-4 w-4 shrink-0 text-mr-aqua" strokeWidth={2.4} aria-hidden="true" />
-                          {item}
-                        </li>
-                      ))}
-                    </ul>
-
-                    <p className="mt-auto pt-6 text-[12px] text-white/60">
-                      Existing enterprise subscriptions renew as normal.
-                    </p>
+                    <div className="flex flex-col gap-5 lg:items-end">
+                      <ul className="flex flex-wrap gap-x-6 gap-y-2.5">
+                        {ENTERPRISE_POINTS.map((item) => (
+                          <li key={item} className="flex items-center gap-2 text-[13px] leading-[1.4] text-white/80">
+                            <Check className="h-3.5 w-3.5 shrink-0 text-mr-aqua" strokeWidth={2.6} aria-hidden="true" />
+                            {item}
+                          </li>
+                        ))}
+                      </ul>
+                      <a href="mailto:support@mountreality.in" className={BTN_ON_INK}>
+                        Contact us
+                        <ArrowRight className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
+                      </a>
+                    </div>
                   </div>
                 </div>
               </Reveal>
             )}
 
-            <p className={`mt-6 ${META}`}>
+            <p className={`mt-12 ${META}`}>
               Payments secured by Razorpay · Cancel or change plans any time · GST invoice on every payment
             </p>
           </div>
         </section>
 
-        {/* ── 3. Payment rails ── */}
+        {/* ── 4. Payment rails ── */}
         <Reveal><PaymentRailStrip /></Reveal>
 
-        {/* ── 4. Questions ── */}
+        {/* ── 5. Questions ── */}
         <section className="w-full border-b border-mr-line">
           <div className={`${MEASURE} py-24 sm:py-32`}>
             <Reveal>
@@ -359,7 +431,7 @@ export const Pricing = () => {
           </div>
         </section>
 
-        {/* ── 5. Close ── */}
+        {/* ── 6. Close ── */}
         <section className="w-full">
           <div className={`${MEASURE} py-24 sm:py-32`}>
             <Reveal>

@@ -13,7 +13,6 @@ import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
 import {
   EntryDialog, EntryFooter, EntryRow, EntryField, EntryAmount, EntryModeChips,
-  EntryPersonPicker, useEntryPersonOptions, mapPersonToPayload,
 } from '../components/EntryModal';
 import {
   Dialog,
@@ -84,7 +83,6 @@ const VendorCommitmentDetail = () => {
   const openDoc = useDocViewer();
   const siteId = currentSite?.id;
   const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
-  const { approvers: personApprovers, members: personMembers, addMember: addPersonMember } = useEntryPersonOptions(siteId);
 
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -127,7 +125,6 @@ const VendorCommitmentDetail = () => {
   });
   // per-item delivery + split amounts inside the unified modal
   const [itemRows, setItemRows] = useState([]); // [{ order_id, item_name, unit, qty_pending, order_value, already_paid, outstanding, delivery_qty: '', alloc_amount: '' }]
-  const [mappedPerson, setMappedPerson] = useState(null);
 
   const fetchDetail = useCallback(async () => {
     if (!siteId || !id) return;
@@ -498,7 +495,6 @@ const VendorCommitmentDetail = () => {
       voucher_url: '',
       assigned_admin_id: null,
     });
-    setMappedPerson(null);
     setPaymentDialogOpen(true);
   };
 
@@ -567,7 +563,6 @@ const VendorCommitmentDetail = () => {
           note: paymentForm.note,
           voucher_url: paymentForm.voucher_url,
           assigned_admin_id: paymentForm.assigned_admin_id,
-          ...mapPersonToPayload(mappedPerson),
         }),
       ];
       if (allocations.length > 0) {
@@ -1328,17 +1323,6 @@ const VendorCommitmentDetail = () => {
             />
           </EntryField>
         </EntryRow>
-
-        <EntryField label="Map to User / Client" hint="Optional — mirrors this entry into their Personal Ledger">
-          <EntryPersonPicker
-            siteId={siteId}
-            value={mappedPerson}
-            onChange={setMappedPerson}
-            approvers={personApprovers}
-            members={personMembers}
-            onMemberCreated={addPersonMember}
-          />
-        </EntryField>
 
         <EntryAmount
           direction="debit"

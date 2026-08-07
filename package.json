@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "check": "node src/lib/money.check.mjs && node src/lib/plans.check.mjs && node src/components/landing/demoLedger.check.mjs",
+    "prebuild": "npm run check"
   },
   "dependencies": {
     "@apollo/client": "^4.1.7",

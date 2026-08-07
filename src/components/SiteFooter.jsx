@@ -28,7 +28,7 @@ const LEGAL = [
 const LINK = 'rounded-sm text-mr-muted transition-colors duration-150 hover:text-mr-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue focus-visible:ring-offset-2';
 
 export const SiteFooter = () => (
-  <footer className="border-t border-mr-line bg-mr-canvas py-12">
+  <footer className="border-t border-mr-line bg-mr-shell py-12">
     <div className="mx-auto w-full max-w-[1120px] px-5 sm:px-8">
       <div className="flex flex-wrap items-baseline justify-between gap-6">
         <div>

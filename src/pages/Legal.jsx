@@ -344,7 +344,7 @@ export const Legal = () => {
   if (docKey !== 'contact' && !DOCS[docKey]) return <Navigate to="/" replace />;
 
   return (
-    <div className="auth-type flex min-h-screen flex-col bg-mr-canvas text-mr-text">
+    <div className="auth-type mr-tech-field flex min-h-screen flex-col bg-mr-shell text-mr-text">
       <PublicNav />
       <main id="main" className="flex-1">
         {docKey === 'contact' ? <ContactPage /> : <DocPage doc={DOCS[docKey]} />}

@@ -6,7 +6,6 @@ import VoucherUpload, { VoucherThumbnail } from '../components/VoucherUpload';
 import CreditDebitTabs from '../components/CreditDebitTabs';
 import {
   EntryRow, EntryField, EntryAmount, EntryModeChips, FieldLabel,
-  EntryPersonPicker, useEntryPersonOptions, mapPersonToPayload,
 } from '../components/EntryModal';
 import { cn } from '@/lib/utils';
 import { classifyPaymentMode, BUCKETS, BUCKET_LABELS, NON_CASH_BUCKETS } from '../utils/paymentMode';
@@ -275,9 +274,7 @@ const DayBook = () => {
   const [message, setMessage] = useState({ type: '', text: '' });
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState(blankForm());
-  const [mappedPerson, setMappedPerson] = useState(null);
   const [voucherUploading, setVoucherUploading] = useState(false);
-  const { approvers: personApprovers, members: personMembers, addMember: addPersonMember } = useEntryPersonOptions(siteId);
   const [genDir, setGenDir] = useState('debit'); // generic-entry direction tab; maps to debit/credit payload fields
   const [receiptEntry, setReceiptEntry] = useState(null);
   const [signEntry, setSignEntry] = useState(null);
@@ -516,7 +513,7 @@ const DayBook = () => {
     : 'Overall activity';
 
   /* ── Form Helpers ── */
-  const resetForm = () => { setForm(blankForm(selectedDate)); setGenDir('debit'); setEditingId(null); setMessage({ type: '', text: '' }); clearProofPhoto(); setMappedPerson(null); setVoucherUploading(false); };
+  const resetForm = () => { setForm(blankForm(selectedDate)); setGenDir('debit'); setEditingId(null); setMessage({ type: '', text: '' }); clearProofPhoto(); setVoucherUploading(false); };
   const openCreate = () => { resetForm(); setDialogOpen(true); };
   const isEditingExpense = editingId && typeof editingId === 'string' && editingId.startsWith('expense_');
   const isEditingFarmerPayment = editingId && typeof editingId === 'string' && editingId.startsWith('fp_');
@@ -778,10 +775,7 @@ const DayBook = () => {
         }
         if (canUpdate) setMessage({ type: 'success', text: 'Entry updated' });
       } else {
-        // Only the standard/general branch dual-writes mapped_member_id/mapped_user_id —
-        // the five specialized types below silently ignore them (own module tables).
-        const isSpecialType = isFarmerPayment || isCommission || isCashFlow || isFirmTxn || isPlotPayment;
-        await api.post('/daybook', { ...p, ...(isSpecialType ? {} : mapPersonToPayload(mappedPerson)) });
+        await api.post('/daybook', p);
         setMessage({ type: 'success', text: isCommission ? 'Commission recorded in Day Book & Plot Commissions' : isFarmerPayment ? 'Farmer payment recorded in Day Book & Farmer Payments' : isCashFlow ? `Cash flow entry recorded in Day Book & "${form.ledger_name}" ledger` : isFirmTxn ? 'Firm transaction recorded in Day Book & Firm Transactions' : isPlotPayment ? 'Plot payment recorded in Day Book & Plot Payments' : 'Entry created' });
       }
       await fetchEntries(); setTimeout(() => setDialogOpen(false), 500);
@@ -2658,31 +2652,9 @@ const DayBook = () => {
                     </EntryField>
                   )}
 
-                  {/* Map to person (create-only, non-specialized) paired with Remarks; else Remarks alone */}
-                  {!editingId && !isSpecializedType ? (
-                    <EntryRow>
-                      <EntryField
-                        label={<FieldLabel icon={Users} color="bg-fuchsia-100 text-fuchsia-600">Map to person</FieldLabel>}
-                        hint="Optional — mirrors this entry into their Personal Ledger"
-                      >
-                        <EntryPersonPicker
-                          siteId={siteId}
-                          value={mappedPerson}
-                          onChange={setMappedPerson}
-                          approvers={personApprovers}
-                          members={personMembers}
-                          onMemberCreated={addPersonMember}
-                        />
-                      </EntryField>
-                      <EntryField label={<FieldLabel icon={MessageSquare} color="bg-slate-100 text-slate-500">Remarks</FieldLabel>}>
-                        <Textarea value={form.remarks} onChange={(e) => setForm({ ...form, remarks: e.target.value.toUpperCase() })} placeholder="ADJUST A19 DG, TRF TO A7, IN BANK…" rows={2} className="text-sm resize-none" />
-                      </EntryField>
-                    </EntryRow>
-                  ) : (
-                    <EntryField label={<FieldLabel icon={MessageSquare} color="bg-slate-100 text-slate-500">Remarks</FieldLabel>}>
-                      <Textarea value={form.remarks} onChange={(e) => setForm({ ...form, remarks: e.target.value.toUpperCase() })} placeholder="ADJUST A19 DG, TRF TO A7, IN BANK…" rows={2} className="text-sm resize-none" />
-                    </EntryField>
-                  )}
+                  <EntryField label={<FieldLabel icon={MessageSquare} color="bg-slate-100 text-slate-500">Remarks</FieldLabel>}>
+                    <Textarea value={form.remarks} onChange={(e) => setForm({ ...form, remarks: e.target.value.toUpperCase() })} placeholder="ADJUST A19 DG, TRF TO A7, IN BANK…" rows={2} className="text-sm resize-none" />
+                  </EntryField>
                 </div>
               </div>
 

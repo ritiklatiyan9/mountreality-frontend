@@ -54,7 +54,6 @@ import VoucherUpload, { VoucherThumbnail } from '../components/VoucherUpload';
 import CreditDebitTabs from '../components/CreditDebitTabs';
 import {
   EntryDialog, EntryFooter, EntryRow, EntryField, EntryAmount, EntryModeChips,
-  EntryPersonPicker, useEntryPersonOptions, mapPersonToPayload,
 } from '../components/EntryModal';
 import ApprovalStatusBadge from '../components/ApprovalStatusBadge';
 import { classifyPaymentMode } from '../utils/paymentMode';
@@ -451,8 +450,6 @@ const FirmDetail = () => {
     voucher_url: '',
     assigned_admin_id: null,
   });
-  const [mappedPerson, setMappedPerson] = useState(null);
-  const { approvers: personApprovers, members: personMembers, addMember: addPersonMember } = useEntryPersonOptions(currentSite?.id);
 
   // Fetch firm details
   useEffect(() => {
@@ -692,7 +689,6 @@ const FirmDetail = () => {
     setTxnDirection('credit');
     setEditingTxnId(null);
     setMessage({ type: '', text: '' });
-    setMappedPerson(null);
   };
 
   const handleOpenAddTxn = () => {
@@ -776,7 +772,7 @@ const FirmDetail = () => {
         await api.put(`/firms/transactions/${targetEditing}`, payload);
         setMessage({ type: 'success', text: 'Transaction updated!' });
       } else {
-        await api.post('/firms/transactions', { ...payload, ...mapPersonToPayload(mappedPerson) });
+        await api.post('/firms/transactions', payload);
         setMessage({ type: 'success', text: 'Transaction added!' });
       }
       // Reconcile in the background — replaces temp negative-id row with the
@@ -1778,19 +1774,6 @@ const FirmDetail = () => {
               />
             </EntryField>
           </EntryRow>
-
-          {!editingTxnId && (
-            <EntryField label="Map to User / Client" hint="Optional — mirrors this entry into their Personal Ledger">
-              <EntryPersonPicker
-                siteId={currentSite?.id}
-                value={mappedPerson}
-                onChange={setMappedPerson}
-                approvers={personApprovers}
-                members={personMembers}
-                onMemberCreated={addPersonMember}
-              />
-            </EntryField>
-          )}
 
           <EntryAmount
             direction={txnDirection}

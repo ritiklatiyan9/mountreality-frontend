@@ -49,7 +49,6 @@ import VoucherUpload, { VoucherThumbnail } from '../components/VoucherUpload';
 import CreditDebitTabs from '../components/CreditDebitTabs';
 import {
   EntryDialog, EntryFooter, EntryRow, EntryField, EntryAmount, EntryModeChips,
-  EntryPersonPicker, useEntryPersonOptions, mapPersonToPayload,
 } from '../components/EntryModal';
 import ApprovalStatusBadge from '../components/ApprovalStatusBadge';
 import ChequeStatusControl from '../components/ChequeStatusControl';
@@ -122,8 +121,6 @@ const FirmTransactions = () => {
   const [sortOrder, setSortOrder] = useState('asc');
   const [cashflowLedgers, setCashflowLedgers] = useState([]);
   const [loadingCfLedgers, setLoadingCfLedgers] = useState(false);
-  const [mappedPerson, setMappedPerson] = useState(null);
-  const { approvers: personApprovers, members: personMembers, addMember: addPersonMember } = useEntryPersonOptions(siteId);
 
   // Firm form
   const [firmForm, setFirmForm] = useState({
@@ -345,7 +342,6 @@ const FirmTransactions = () => {
     setTxnDirection('credit');
     setEditingTxnId(null);
     setMessage({ type: '', text: '' });
-    setMappedPerson(null);
   };
 
   const handleOpenCreateTxn = () => { resetTxnForm(); setTxnDialogOpen(true); };
@@ -461,7 +457,7 @@ const FirmTransactions = () => {
         await api.put(`/firms/transactions/${targetEditing}`, payload);
         setMessage({ type: 'success', text: 'Transaction updated' });
       } else {
-        await api.post('/firms/transactions', { ...payload, ...mapPersonToPayload(mappedPerson) });
+        await api.post('/firms/transactions', payload);
         setMessage({ type: 'success', text: 'Transaction added' });
       }
       refreshTransactions();
@@ -1554,19 +1550,6 @@ const FirmTransactions = () => {
                     </EntryField>
                   )}
                 </EntryRow>
-              )}
-
-              {!editingTxnId && (
-                <EntryField label="Map to User / Client" hint="Optional — mirrors this entry into their Personal Ledger">
-                  <EntryPersonPicker
-                    siteId={siteId}
-                    value={mappedPerson}
-                    onChange={setMappedPerson}
-                    approvers={personApprovers}
-                    members={personMembers}
-                    onMemberCreated={addPersonMember}
-                  />
-                </EntryField>
               )}
 
               {/* Amount (direction picked via CreditDebitTabs above) */}
