@@ -1,8 +1,10 @@
+import { writePrintDocument } from '../lib/safePrint';
 import { createElement, useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useDocViewer } from '../components/DocViewer';
 import api from '../api/api';
+import { MemberKycDialog } from '../components/MemberKycDialog';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -174,6 +176,8 @@ const ClientDetail = () => {
   const [message, setMessage] = useState({ type: '', text: '' });
   const [submitting, setSubmitting] = useState(false);
   const fileInputRef = useRef(null);
+  const [kycOpen, setKycOpen] = useState(false);
+  const [kycForm, setKycForm] = useState({ ...EMPTY_FORM });
 
   // Fetch member details
   const fetchMember = useCallback(async () => {
@@ -234,7 +238,9 @@ const ClientDetail = () => {
   };
 
   const openKycDialog = () => {
-    if (member) navigate(`/clients/${id}/kyc`);
+    if (!member) return;
+    setKycForm({ ...EMPTY_FORM, ...member, full_name: member.full_name || '', phone: member.phone || '' });
+    setKycOpen(true);
   };
 
   const handleOpenEdit = () => {
@@ -284,6 +290,16 @@ const ClientDetail = () => {
   const handlePhotoSelect = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setMessage({ type: 'error', text: 'Choose a JPG, PNG or WebP profile image.' });
+      e.target.value = '';
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setMessage({ type: 'error', text: 'Profile image must be smaller than 5 MB.' });
+      e.target.value = '';
+      return;
+    }
     setPhotoFile(file);
     setRemovePhoto(false);
     const reader = new FileReader();
@@ -376,8 +392,8 @@ const ClientDetail = () => {
         if (val) formData.append(`remove_${fieldKey}`, 'true');
       });
 
-      const config = { headers: { 'Content-Type': 'multipart/form-data' } };
-      const { data } = await api.put(`/members/${id}`, formData, config);
+      // Let Axios set the multipart boundary that multer needs to receive files.
+      const { data } = await api.put(`/members/${id}`, formData);
       setMessage({ type: 'success', text: 'Member updated successfully' });
       setMember(data.member);
       setTimeout(() => setDialogOpen(false), 600);
@@ -422,6 +438,10 @@ const ClientDetail = () => {
   const m = member;
   const memberNet = Number(memberTxnSummary.net || 0);
   const kycVerified = m.shared_kyc_status === 'VERIFIED';
+  const kycDocPreviews = KYC_DOC_FIELDS.reduce((previews, document) => {
+    if (m[document.key]) previews[document.key] = m[document.key];
+    return previews;
+  }, {});
 
   const printProfile = () => {
     const esc = (s) => String(s ?? '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -561,7 +581,7 @@ const ClientDetail = () => {
     const printWindow = window.open('', '_blank', 'height=900,width=1200');
     if (!printWindow) return;
     printWindow.document.open();
-    printWindow.document.write(docHtml);
+    writePrintDocument(printWindow, docHtml);
     printWindow.document.close();
     printWindow.focus();
     printWindow.print();
@@ -897,14 +917,14 @@ const ClientDetail = () => {
 
       </TabsContent>
 
-      <TabsContent value="ledger" className="space-y-5 mt-4">
-        <section>
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white px-4 py-3.5 sm:px-5">
+      <TabsContent value="ledger" className="mt-7 space-y-5">
+        <section className="overflow-hidden rounded-panel border border-mr-line bg-mr-surface">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-mr-line px-4 py-4 sm:px-5">
               <div>
-                <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.16em] text-slate-700"><Wallet className="w-3.5 h-3.5 text-indigo-500" /> Financial activity</p>
-                <p className="mt-1 text-xs text-slate-500">Records connected to this member across operational modules.</p>
+                <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.16em] text-mr-text"><Wallet className="w-3.5 h-3.5 text-mr-muted" /> Financial activity</p>
+                <p className="mt-1 text-xs text-mr-muted">Records connected to this member across operational modules.</p>
               </div>
-              <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">Module view</span>
+              <span className="rounded-full border border-mr-line bg-mr-surface-2 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-mr-muted">Member ledger</span>
             </div>
 
             {finLoading ? (
@@ -914,34 +934,34 @@ const ClientDetail = () => {
             ) : !finData ? (
               <p className="text-xs text-slate-500 text-center py-10">Failed to load financial info</p>
             ) : (
-              <div className="space-y-3 p-3 sm:p-4">
-                <div className="grid gap-2 rounded-2xl border border-slate-100 bg-slate-50/80 p-2 sm:grid-cols-5">
+              <div className="space-y-4 p-3 sm:p-5">
+                <div className="grid overflow-hidden rounded-panel-sm border border-mr-line bg-mr-surface sm:grid-cols-5">
                   {[
-                    { key: 'expenses', label: 'Expenses', icon: Receipt, count: finData.summary.expenses.count, amount: finData.summary.expenses.debit || finData.summary.expenses.credit, activeBg: 'bg-orange-50 border-orange-300', iconCls: 'text-orange-500' },
-                    { key: 'commissions', label: 'Commissions', icon: TrendingUp, count: finData.summary.commissions.count, amount: finData.summary.commissions.total, activeBg: 'bg-blue-50 border-blue-300', iconCls: 'text-blue-500' },
-                    { key: 'plot_payments', label: 'Plot Registry', icon: Landmark, count: finData.summary.plot_payments.count, amount: finData.summary.plot_payments.total, activeBg: 'bg-emerald-50 border-emerald-300', iconCls: 'text-emerald-500' },
-                    { key: 'farmer_payments', label: 'Farmer Pay', icon: Tractor, count: finData.summary.farmer_payments.count, amount: finData.summary.farmer_payments.total, activeBg: 'bg-amber-50 border-amber-300', iconCls: 'text-amber-500' },
-                    { key: 'firm_transactions', label: 'Firm Txns', icon: Building2, count: finData.summary.firm_transactions.count, amount: finData.summary.firm_transactions.debit || finData.summary.firm_transactions.credit, activeBg: 'bg-violet-50 border-violet-300', iconCls: 'text-violet-500' },
+                    { key: 'expenses', label: 'Expenses', icon: Receipt, count: finData.summary.expenses.count, amount: finData.summary.expenses.debit || finData.summary.expenses.credit },
+                    { key: 'commissions', label: 'Commissions', icon: TrendingUp, count: finData.summary.commissions.count, amount: finData.summary.commissions.total },
+                    { key: 'plot_payments', label: 'Plot Registry', icon: Landmark, count: finData.summary.plot_payments.count, amount: finData.summary.plot_payments.total },
+                    { key: 'farmer_payments', label: 'Farmer Pay', icon: Tractor, count: finData.summary.farmer_payments.count, amount: finData.summary.farmer_payments.total },
+                    { key: 'firm_transactions', label: 'Firm Txns', icon: Building2, count: finData.summary.firm_transactions.count, amount: finData.summary.firm_transactions.debit || finData.summary.firm_transactions.credit },
                   ].map(({ key, label, icon: Ic, count, amount, activeBg, iconCls }) => (
                     <button
                       key={key}
                       onClick={() => setFinTab(key)}
-                      className={`rounded-xl border bg-white p-3 text-left transition ${
-                        finTab === key ? `border-transparent shadow-sm ring-1 ${activeBg}` : 'border-transparent hover:border-slate-200 hover:bg-slate-50'
+                      className={`border-b border-mr-line p-4 text-left transition last:border-b-0 sm:border-b-0 sm:border-r sm:last:border-r-0 ${
+                        finTab === key ? 'bg-mr-surface-2' : 'hover:bg-mr-surface-2/60'
                       }`}
                     >
-                      <div className="mb-2 flex items-center gap-2">
-                        <span className={`flex h-7 w-7 items-center justify-center rounded-lg bg-white shadow-sm ${iconCls}`}>{createElement(Ic, { className: 'h-3.5 w-3.5' })}</span>
-                        <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.18em]">{label}</span>
+                      <div className="mb-3 flex items-center justify-between gap-2">
+                        <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-mr-faint">{label}</span>
+                        {createElement(Ic, { className: 'h-3.5 w-3.5 text-mr-muted' })}
                       </div>
-                      <p className="text-sm font-bold text-slate-800 tabular-nums">{fmtCur(amount)}</p>
-                      <p className="mt-1 text-[10px] text-slate-400">{count} entr{count === 1 ? 'y' : 'ies'}</p>
+                      <p className="text-base font-semibold tabular-nums text-mr-text">{fmtCur(amount)}</p>
+                      <p className="mt-1 text-[10px] text-mr-muted">{count} entr{count === 1 ? 'y' : 'ies'}</p>
                     </button>
                   ))}
                 </div>
 
-                <div className="overflow-hidden rounded-2xl border border-slate-200">
-                  <div className="flex gap-1 overflow-x-auto border-b border-slate-100 bg-slate-50/70 px-3 py-2 text-[10px] sm:px-4">
+                <div className="overflow-hidden rounded-panel-sm border border-mr-line">
+                  <div className="flex gap-1 overflow-x-auto border-b border-mr-line bg-mr-surface-2/60 px-3 py-2 text-[10px] sm:px-4">
                     {[
                       { key: 'expenses', label: 'Expenses' },
                       { key: 'commissions', label: 'Commissions' },
@@ -955,7 +975,7 @@ const ClientDetail = () => {
                         className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
                           finTab === tab.key
                             ? 'border-slate-900 bg-slate-900 text-white'
-                            : 'border-transparent text-slate-600 hover:border-slate-200 hover:bg-white'
+                            : 'border-transparent text-mr-muted hover:border-mr-line hover:bg-mr-surface'
                         }`}
                       >
                         {tab.label}
@@ -968,7 +988,7 @@ const ClientDetail = () => {
                       finData.expenses.length === 0 ? (
                         <p className="py-10 text-center text-xs text-slate-500">No expenses found</p>
                       ) : (
-                        <Table>
+                        <Table className="mr-dark-table">
                           <TableHeader>
                             <TableRow className="bg-slate-50/80">
                               <TableHead className="text-[10px] font-semibold w-[80px]">Date</TableHead>
@@ -1017,7 +1037,7 @@ const ClientDetail = () => {
                       finData.commissions.length === 0 ? (
                         <p className="py-10 text-center text-xs text-slate-500">No commissions found</p>
                       ) : (
-                        <Table>
+                        <Table className="mr-dark-table">
                           <TableHeader>
                             <TableRow className="bg-slate-50/80">
                               <TableHead className="text-[10px] font-semibold w-[80px]">Date</TableHead>
@@ -1056,7 +1076,7 @@ const ClientDetail = () => {
                       finData.plot_payments.length === 0 ? (
                         <p className="py-10 text-center text-xs text-slate-500">No plot registry entries found</p>
                       ) : (
-                        <Table>
+                        <Table className="mr-dark-table">
                           <TableHeader>
                             <TableRow className="bg-slate-50/80">
                               <TableHead className="text-[10px] font-semibold w-[80px]">Date</TableHead>
@@ -1093,7 +1113,7 @@ const ClientDetail = () => {
                       finData.farmer_payments.length === 0 ? (
                         <p className="py-10 text-center text-xs text-slate-500">No farmer payments found</p>
                       ) : (
-                        <Table>
+                        <Table className="mr-dark-table">
                           <TableHeader>
                             <TableRow className="bg-slate-50/80">
                               <TableHead className="text-[10px] font-semibold w-[80px]">Date</TableHead>
@@ -1130,7 +1150,7 @@ const ClientDetail = () => {
                       finData.firm_transactions.length === 0 ? (
                         <p className="py-10 text-center text-xs text-slate-500">No firm transactions found</p>
                       ) : (
-                        <Table>
+                        <Table className="mr-dark-table">
                           <TableHeader>
                             <TableRow className="bg-slate-50/80">
                               <TableHead className="text-[10px] font-semibold w-[80px]">Date</TableHead>
@@ -1206,7 +1226,7 @@ const ClientDetail = () => {
           ) : (
             <div className="overflow-hidden rounded-xl border border-slate-200">
               <div className="max-h-[400px] overflow-y-auto">
-                <Table>
+                <Table className="mr-dark-table">
                   <TableHeader>
                     <TableRow className="bg-slate-50/80">
                       <TableHead className="text-[10px] font-semibold w-[80px]">Date</TableHead>
@@ -1284,7 +1304,7 @@ const ClientDetail = () => {
                       <Camera className="w-6 h-6 text-slate-400" />
                     </div>
                   )}
-                  <input type="file" ref={fileInputRef} accept="image/jpeg,image/png,image/jpg" onChange={handlePhotoSelect} className="hidden" />
+                <input type="file" ref={fileInputRef} accept="image/jpeg,image/png,image/webp" onChange={handlePhotoSelect} className="hidden" />
                   <button type="button" onClick={() => fileInputRef.current?.click()}
                     className="absolute inset-0 rounded-xl bg-black/0 group-hover:bg-black/30 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
                     <Camera className="w-5 h-5 text-white" />
@@ -1581,6 +1601,23 @@ const ClientDetail = () => {
           </form>
         </DialogContent>
       </Dialog>
+
+      <MemberKycDialog
+        open={kycOpen}
+        onOpenChange={setKycOpen}
+        editingId={Number(m.id)}
+        form={kycForm}
+        setForm={setKycForm}
+        currentSite={currentSite}
+        docPreviews={kycDocPreviews}
+        photoPreview={m.photo || null}
+        autoStart
+        onVerified={() => {
+          setKycOpen(false);
+          fetchMember();
+          fetchTransactions();
+        }}
+      />
     </div>
   );
 };

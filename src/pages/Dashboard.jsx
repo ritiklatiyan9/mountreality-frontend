@@ -199,7 +199,7 @@ export const Dashboard = () => {
     return 'YEAR'; // overall
   }, [timePreset]);
 
-  const { data: kpiData, loading: kpiLoading, refetch: refetchKpi } = useQuery(GET_KPI_CARDS, {
+  const { data: kpiData, previousData: kpiPrevious, loading: kpiLoading, refetch: refetchKpi } = useQuery(GET_KPI_CARDS, {
     variables: { siteId: String(currentSite?.id), range, excludeOldPlots },
     skip: !currentSite?.id || (!isAdmin && !dashPerms),
     // cache-and-network: render instantly from Apollo's in-memory cache
@@ -210,7 +210,11 @@ export const Dashboard = () => {
     nextFetchPolicy: 'cache-first',
   });
 
-  const kpi = kpiData?.kpiCards;
+  /* Changing a toggle changes the query variables, and Apollo hands back
+     undefined data until the new response lands — which flashed every KPI
+     back to a skeleton mid-animation. Hold the previous figures on screen
+     and let the count-up run from them to the new ones. */
+  const kpi = kpiData?.kpiCards || kpiPrevious?.kpiCards;
 
   // ── KPI detail modal ──
   const [kpiModal, setKpiModal] = useState(null); // 'totalIncoming' | 'totalExpense' | 'profit' | 'personalLedger' | null
@@ -699,7 +703,7 @@ export const Dashboard = () => {
       </div>
 
       {memberSearchQuery.trim() && (
-        <div className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-panel-sm border border-mr-line bg-mr-surface shadow-lg shadow-black/5 mr-rise">
+        <div className="absolute left-0 right-0 top-full z-[70] mt-2 overflow-hidden rounded-panel-sm border border-mr-line bg-mr-surface shadow-xl shadow-black/10 mr-rise">
           {memberSearchLoading ? (
             <div className="space-y-3 px-4 py-4">
               {[0, 1, 2].map((index) => (

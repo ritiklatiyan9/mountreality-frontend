@@ -1,3 +1,4 @@
+import { writePrintDocument } from '../lib/safePrint';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useDocViewer } from '../components/DocViewer';
@@ -334,7 +335,7 @@ const PendingApprovals = () => {
       alert('Allow pop-ups for this site to open the print viewer.');
       return;
     }
-    printWindow.document.write(html);
+    writePrintDocument(printWindow, html);
     printWindow.document.close();
     printWindow.focus();
   };

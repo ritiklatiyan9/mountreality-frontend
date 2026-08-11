@@ -7,23 +7,8 @@ const UNLIMITED_SITE_LIMIT = 999999;
 
 const PLAN_ICON = { starter: Building2, professional: Layers, growth: TrendingUp, enterprise: Rocket };
 
-// Every plan gets the full platform — differences are capacity, not features.
-const FEATURES = [
-  'Dashboard & reports',
-  'Plot management',
-  'Farmer payments',
-  'Registry management',
-  'Expense management',
-  'Inventory & construction',
-  'Unlimited storage',
-];
-
-const USER_LIMIT_LABEL = {
-  starter: 'Up to 500 users',
-  professional: 'Unlimited users',
-  growth: 'Unlimited users',
-  enterprise: 'Unlimited users',
-};
+// Features and user limits are owner-editable (Owner Panel → Plans) — read straight off the plan.
+const userLimitLabel = (plan) => (plan.max_users == null ? 'Unlimited users' : `Up to ${plan.max_users} users`);
 
 const siteLimitLabel = (plan) => {
   if (Number(plan.site_limit) >= UNLIMITED_SITE_LIMIT) return 'Unlimited sites';
@@ -46,7 +31,7 @@ const PlanCards = ({
       const isAnnual = billingCycle === 'annual';
       const displayPrice = isAnnual ? annualPrice : monthlyPrice;
       const savings = Math.round(monthlyPrice * 12 - annualPrice);
-      const userLimit = USER_LIMIT_LABEL[plan.code];
+      const userLimit = userLimitLabel(plan);
       const Icon = PLAN_ICON[plan.code] || Layers;
 
       return (
@@ -130,7 +115,7 @@ const PlanCards = ({
                 {userLimit}
               </li>
             )}
-            {FEATURES.map((f) => (
+            {(plan.features || []).map((f) => (
               <li key={f} className="flex items-start gap-2.5">
                 <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-emerald-500/12">
                   <Check className="h-2.5 w-2.5 text-emerald-600" strokeWidth={3.5} />

@@ -36,9 +36,9 @@ export default function WorkflowStrip({ items, title = 'Business workflow', desc
               <li key={item.to} className="min-w-[136px] shrink-0 lg:min-w-0">
                 <Link
                   to={item.to}
-                  className="group relative flex h-full flex-col gap-2 rounded-control px-3 py-2 transition-colors duration-200 hover:bg-mr-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue"
+                  className="mr-press group relative flex h-full flex-col gap-2 rounded-control px-3 py-2 hover:bg-mr-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue"
                 >
-                  <span className={`flex h-11 w-11 items-center justify-center rounded-full ring-4 ring-mr-surface transition-transform duration-200 group-hover:scale-105 ${accent.chip}`}>
+                  <span className={`flex h-11 w-11 items-center justify-center rounded-full shadow-[inset_0_1px_0_rgba(255,255,255,0.55),0_6px_14px_-8px_rgba(16,17,20,0.35)] ring-4 ring-mr-surface transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:-translate-y-0.5 group-hover:scale-105 ${accent.chip}`}>
                     <Icon className="h-[19px] w-[19px]" strokeWidth={2} aria-hidden="true" />
                   </span>
                   <span className="min-w-0">

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { cn } from "../../lib/utils";
 import api from "../../api/api";
+import { resetThemeToWhite } from "../../lib/appearance";
 import { toast } from "sonner";
 import { ChevronLeft, ChevronRight, LogOut, User } from "lucide-react";
 import { Skeleton } from "./skeleton";
@@ -47,6 +48,7 @@ export function ActivityCard() {
                 localStorage.removeItem("accessToken");
                 localStorage.removeItem("refreshToken");
                 localStorage.removeItem("sessionId");
+                resetThemeToWhite();
                 window.location.href = "/login";
                 return;
             }

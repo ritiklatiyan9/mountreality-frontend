@@ -45,7 +45,7 @@ const SIZE_MAP = {
  *   dashClass — tailwind classes applied to the fallback dash when name is empty.
  *   className — extra classes for the outer wrapper.
  */
-function UserAvatar({ name, label, size = 'sm', dashClass = 'text-xs text-slate-300', className = '' }) {
+function UserAvatar({ name, src, label, size = 'sm', dashClass = 'text-xs text-slate-300', className = '' }) {
   const trimmed = String(name || '').trim();
   if (!trimmed) return <span className={dashClass}>—</span>;
 
@@ -59,9 +59,9 @@ function UserAvatar({ name, label, size = 'sm', dashClass = 'text-xs text-slate-
         <TooltipTrigger asChild>
           <div
             aria-label={label ? `${label}: ${trimmed}` : trimmed}
-            className={`rounded-full flex items-center justify-center font-bold cursor-default shrink-0 ring-1 ${palette.bg} ${palette.text} ${palette.ring} ${sizeCls} ${className}`}
+            className={`overflow-hidden rounded-full flex items-center justify-center font-bold cursor-default shrink-0 ring-1 ${palette.bg} ${palette.text} ${palette.ring} ${sizeCls} ${className}`}
           >
-            {letter}
+            {src ? <img src={src} alt="" className="h-full w-full object-cover" /> : letter}
           </div>
         </TooltipTrigger>
         <TooltipContent side="top" className="text-xs">

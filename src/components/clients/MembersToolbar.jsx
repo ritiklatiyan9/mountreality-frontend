@@ -1,9 +1,9 @@
-import { Search, X } from 'lucide-react';
+import { ArrowUpDown, Search, X } from 'lucide-react';
 import { Input } from '../ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { MEMBER_TYPES } from './memberMeta';
 
-const TRIGGER = 'h-9 min-w-[112px] rounded-control border-mr-line bg-mr-surface text-[13px] font-medium text-mr-text shadow-none hover:bg-mr-surface-2 focus:ring-2 focus:ring-mr-blue';
+const TRIGGER = 'h-10 min-w-[112px] rounded-full border-mr-line bg-mr-surface-2 px-3.5 text-[13px] font-medium text-mr-text shadow-none hover:bg-mr-surface focus:ring-2 focus:ring-mr-blue';
 
 /* ── Members toolbar ─────────────────────────────────────────────────
    Search, type/status/KYC/team filters and the result count. Owns no
@@ -15,13 +15,13 @@ export default function MembersToolbar({
   filterStatus, onStatusChange, statusOptions,
   filterKyc, onKycChange,
   filterTeam, onTeamChange, teams,
-  resultCount, onClear,
+  resultCount, onClear, sortOrder, onToggleSort,
 }) {
   const dirty = searchQuery || filterType !== 'ALL' || filterStatus !== 'ALL'
     || filterTeam !== 'ALL' || filterKyc !== 'ALL';
 
   return (
-    <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
+    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
         <div className="relative min-w-0 flex-1 sm:min-w-[260px]">
           <label htmlFor="mr-member-search" className="sr-only">Search members</label>
@@ -31,7 +31,7 @@ export default function MembersToolbar({
             placeholder="Search name, phone, city…"
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
-            className="h-9 rounded-control border-mr-line bg-mr-surface pl-9 text-[13px] shadow-none focus-visible:border-mr-blue focus-visible:ring-2 focus-visible:ring-mr-blue/20"
+            className="h-10 rounded-full border-mr-line bg-mr-surface-2 pl-9 text-[13px] shadow-none focus-visible:border-mr-blue focus-visible:bg-mr-surface focus-visible:ring-2 focus-visible:ring-mr-blue/20"
           />
         </div>
 
@@ -96,7 +96,18 @@ export default function MembersToolbar({
             <X className="h-3.5 w-3.5" strokeWidth={2} aria-hidden="true" /> Clear filters
           </button>
         )}
-        <span className="text-[12px] text-mr-muted">
+        {onToggleSort && (
+          <button
+            type="button"
+            onClick={onToggleSort}
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-mr-line bg-mr-surface-2 text-mr-muted transition-colors hover:bg-mr-surface hover:text-mr-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue"
+            aria-label={`Sort members ${sortOrder === 'asc' ? 'descending' : 'ascending'}`}
+            title={`Sort ${sortOrder === 'asc' ? 'descending' : 'ascending'}`}
+          >
+            <ArrowUpDown className="h-4 w-4" strokeWidth={1.8} aria-hidden="true" />
+          </button>
+        )}
+        <span className="whitespace-nowrap text-[12px] text-mr-muted">
           {resultCount} member{resultCount === 1 ? '' : 's'}
         </span>
       </div>

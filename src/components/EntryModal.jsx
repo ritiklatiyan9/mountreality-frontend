@@ -34,15 +34,15 @@ export const FieldLabel = ({ icon, color, children }) => (
 export function EntryDialog({ open, onOpenChange, title, description, children, footer }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="text-lg font-semibold text-slate-900">{title}</DialogTitle>
+      <DialogContent className="max-h-[94vh] w-[calc(100vw-1.5rem)] overflow-y-auto rounded-panel border-mr-line bg-mr-surface p-0 sm:max-w-2xl">
+        <DialogHeader className="border-b border-mr-line bg-mr-surface-2/50 px-5 py-4 sm:px-6">
+          <DialogTitle className="text-[18px] font-semibold tracking-[-0.02em] text-mr-text">{title}</DialogTitle>
           {description ? (
-            <DialogDescription className="text-sm text-slate-500">{description}</DialogDescription>
+            <DialogDescription className="mt-0.5 text-[12px] text-mr-muted">{description}</DialogDescription>
           ) : null}
         </DialogHeader>
-        <div className="space-y-4 py-1">{children}</div>
-        {footer ? <DialogFooter className="pt-2">{footer}</DialogFooter> : null}
+        <div className="space-y-5 px-5 py-5 sm:px-6 [&_input]:h-10 [&_select]:h-10 [&_textarea]:min-h-10">{children}</div>
+        {footer ? <DialogFooter className="border-t border-mr-line bg-mr-surface px-5 py-3 sm:px-6">{footer}</DialogFooter> : null}
       </DialogContent>
     </Dialog>
   );
@@ -52,10 +52,10 @@ export function EntryDialog({ open, onOpenChange, title, description, children, 
 export function EntryFooter({ onCancel, onSubmit, submitLabel = 'Save', submitting = false, disabled = false, submitClassName }) {
   return (
     <>
-      <Button type="button" variant="outline" onClick={onCancel} disabled={submitting}>
+      <Button type="button" variant="outline" onClick={onCancel} disabled={submitting} className="h-10 rounded-full border-mr-line px-5 text-[13px]">
         Cancel
       </Button>
-      <Button type={onSubmit ? 'button' : 'submit'} onClick={onSubmit} disabled={submitting || disabled} className={submitClassName}>
+      <Button type={onSubmit ? 'button' : 'submit'} onClick={onSubmit} disabled={submitting || disabled} className={cn('h-10 rounded-full px-5 text-[13px] font-semibold', submitClassName)}>
         {submitting ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : null}
         {submitLabel}
       </Button>
@@ -63,23 +63,23 @@ export function EntryFooter({ onCancel, onSubmit, submitLabel = 'Save', submitti
   );
 }
 
-/** Two-column responsive field row (single column on small screens). */
+/** Shared field grid: three columns where space allows, two on tablets, one on phones. */
 export function EntryRow({ children, className }) {
-  return <div className={cn('grid grid-cols-1 sm:grid-cols-2 gap-3', className)}>{children}</div>;
+  return <div className={cn('grid grid-cols-1 items-start gap-x-4 gap-y-4 sm:grid-cols-2 lg:grid-cols-3', className)}>{children}</div>;
 }
 
 /** Label + control wrapper with the standard label style. */
 export function EntryField({ label, required = false, hint, className, children }) {
   return (
-    <div className={cn('space-y-1.5', className)}>
+    <div className={cn('min-w-0 space-y-1.5', className)}>
       {label ? (
-        <Label className="text-sm font-medium text-slate-700">
+        <Label className="flex min-h-5 items-center text-[12px] font-medium text-mr-muted">
           {label}
-          {required ? <span className="text-red-500 ml-0.5">*</span> : null}
+            {required ? <span className="ml-0.5 text-mr-coral">*</span> : null}
         </Label>
       ) : null}
       {children}
-      {hint ? <p className="text-[11px] text-slate-400">{hint}</p> : null}
+        {hint ? <p className="text-[11px] text-mr-faint">{hint}</p> : null}
     </div>
   );
 }
@@ -92,10 +92,10 @@ export function EntryAmount({ label = 'Amount (₹)', direction = 'credit', visu
   const credit = visual ? visual === 'in' : direction === 'credit';
   return (
     <div className={cn(
-      'rounded-lg border p-3',
-      credit ? 'border-emerald-200 bg-emerald-50/40' : 'border-red-200 bg-red-50/40'
+      'rounded-panel-sm border p-3.5',
+      credit ? 'border-mr-lime-ink/20 bg-mr-lime-soft/40' : 'border-mr-coral-ink/20 bg-mr-coral-soft/40'
     )}>
-      <Label className={cn('text-sm font-medium', credit ? 'text-emerald-700' : 'text-red-700')}>
+      <Label className={cn('text-[12px] font-medium', credit ? 'text-mr-lime-ink' : 'text-mr-coral-ink')}>
         {label}
         {required ? <span className="ml-0.5">*</span> : null}
       </Label>
@@ -106,12 +106,12 @@ export function EntryAmount({ label = 'Amount (₹)', direction = 'credit', visu
         step="any"
         {...inputProps}
         className={cn(
-          'mt-1.5 bg-white text-lg font-semibold',
-          credit ? 'focus-visible:ring-emerald-500' : 'focus-visible:ring-red-500',
+          'mt-1.5 h-12 rounded-control border-mr-line bg-mr-surface text-lg font-semibold',
+          credit ? 'focus-visible:ring-mr-lime-ink' : 'focus-visible:ring-mr-coral-ink',
           inputProps.className
         )}
       />
-      {hint ? <p className={cn('mt-1 text-[11px]', credit ? 'text-emerald-600/70' : 'text-red-600/70')}>{hint}</p> : null}
+      {hint ? <p className={cn('mt-1 text-[11px]', credit ? 'text-mr-lime-ink' : 'text-mr-coral-ink')}>{hint}</p> : null}
     </div>
   );
 }

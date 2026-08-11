@@ -1,3 +1,4 @@
+import { writePrintDocument } from '../lib/safePrint';
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { money, moneyCompact } from '@/lib/utils';
 
@@ -68,6 +69,7 @@ import { EntryDialog, EntryFooter, EntryRow, EntryField, EntryAmount, EntryModeC
 import QRCode from 'qrcode';
 import { useRowSelection } from '../hooks/useRowSelection';
 import BulkActionsBar from '../components/BulkActionsBar';
+import BankAccountSelect from '../components/BankAccountSelect';
 import { classifyPaymentMode } from '../utils/paymentMode';
 import { GHOST_BTN, PRIMARY_BTN } from '../components/ui/page';
 import { CountUp, ProgressBar } from '../components/ui/animate';
@@ -113,9 +115,10 @@ const FarmerPayments = () => {
 
   const [formData, setFormData] = useState({
     date: todayISO(),
-    transaction_type: 'credit',
+    transaction_type: 'debit',
     particular: 'CASH',
     mode: 'CASH',
+    bank_account_id: '',
     amount: '',
     by_note: '',
     remarks: '',
@@ -181,9 +184,10 @@ const FarmerPayments = () => {
   const resetForm = () => {
     setFormData({
       date: todayISO(),
-      transaction_type: 'credit',
+      transaction_type: 'debit',
       particular: 'CASH',
       mode: 'CASH',
+      bank_account_id: '',
       amount: '',
       by_note: '',
       remarks: '',
@@ -226,12 +230,14 @@ const FarmerPayments = () => {
     const paymentBucket = classifyPaymentMode(payment.payment_mode);
     const mode = paymentBucket === 'cash' ? 'CASH' : paymentBucket === 'cheque' ? 'CHEQUE' : 'BANK';
     const absAmount = Math.abs(parseFloat(payment.amount) || 0);
-    const transactionType = (parseFloat(payment.amount) || 0) < 0 ? 'debit' : 'credit';
+    // Debit = money paid to the farmer (stored positive); credit = refund back (negative).
+    const transactionType = (parseFloat(payment.amount) || 0) < 0 ? 'credit' : 'debit';
     setFormData({
       date: payment.date ? payment.date.split('T')[0] : '',
       particular: payment.particular || 'CASH',
       transaction_type: transactionType,
       mode,
+      bank_account_id: payment.bank_account_id ? String(payment.bank_account_id) : '',
       amount: absAmount || '',
       by_note: payment.by_note || '',
       remarks: payment.remarks || '',
@@ -319,11 +325,17 @@ const FarmerPayments = () => {
       setMessage({ type: 'error', text: 'Please wait for the voucher photo to finish uploading.' });
       return;
     }
+    if (classifyPaymentMode(formData.mode) !== 'cash' && !formData.bank_account_id) {
+      setMessage({ type: 'error', text: 'Select the bank account used for this payment.' });
+      return;
+    }
     setMessage({ type: '', text: '' });
     setSubmitting(true);
 
     const baseAmt = parseFloat(formData.amount) || 0;
-    const totalAmt = formData.transaction_type === 'debit' ? -Math.abs(baseAmt) : Math.abs(baseAmt);
+    // Debit ("Dr the receiver") = payment to the farmer, stored positive;
+    // credit = refund from the farmer, stored negative.
+    const totalAmt = formData.transaction_type === 'credit' ? -Math.abs(baseAmt) : Math.abs(baseAmt);
     const paymentBucket = classifyPaymentMode(formData.mode);
     const payload = {
       ...formData,
@@ -483,16 +495,17 @@ const FarmerPayments = () => {
 
   const visibleIds = paymentsWithRunning.map((p) => p.id);
 
-  // Credit / debit split of the posted rows, so the table foot states the same
-  // two numbers the columns above it show.
+  // Debit / credit split of the posted rows, so the table foot states the same
+  // two numbers the columns above it show. Debit = paid to the farmer
+  // (positive rows), credit = refunded back (negative rows).
   const ledgerTotals = useMemo(() => {
     let credit = 0, debit = 0;
     for (const p of payments) {
       if (!isPostedPayment(p)) continue;
       const amt = parseFloat(p.amount) || 0;
-      if (amt < 0) debit += -amt; else credit += amt;
+      if (amt < 0) credit += -amt; else debit += amt;
     }
-    return { credit, debit, net: credit - debit };
+    return { credit, debit, net: debit - credit };
   }, [payments]);
 
   // Completion percentage
@@ -663,7 +676,7 @@ const FarmerPayments = () => {
 </body></html>`;
 
     const win = window.open('', '_blank', 'width=1000,height=750');
-    win.document.write(html);
+    writePrintDocument(win, html);
     win.document.close();
   };
 
@@ -796,7 +809,7 @@ const FarmerPayments = () => {
       toast.error('Popup blocked — allow popups for this site to print');
       return;
     }
-    win.document.write(html);
+    writePrintDocument(win, html);
     win.document.close();
   };
 
@@ -860,8 +873,8 @@ const FarmerPayments = () => {
       Date: formatDate(p.date),
       Particular: p.particular || '',
       Mode: p.payment_mode || 'BANK',
-      'Credit (paid to farmer)': amt > 0 ? amt : '',
-      'Debit (refund back)': amt < 0 ? -amt : '',
+      'Debit (paid to farmer)': amt > 0 ? amt : '',
+      'Credit (refund back)': amt < 0 ? -amt : '',
       'Cash (₹)': Math.abs(parseFloat(p.cash_amount) || 0),
       'Bank (₹)': Math.abs(parseFloat(p.bank_amount) || 0),
       By: p.by_note || '',
@@ -880,8 +893,8 @@ const FarmerPayments = () => {
       Date: 'SUMMARY',
       Particular: `Committed: ₹${formatCurrency(summary.total_amount)}`,
       Mode: '',
-      'Credit (paid to farmer)': ledgerTotals.credit,
-      'Debit (refund back)': ledgerTotals.debit,
+      'Debit (paid to farmer)': ledgerTotals.debit,
+      'Credit (refund back)': ledgerTotals.credit,
       'Cash (₹)': parseFloat(summary.cash_paid) || 0,
       'Bank (₹)': parseFloat(summary.bank_paid) || 0,
       By: '',
@@ -1129,11 +1142,11 @@ const FarmerPayments = () => {
             <ul className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12px] text-mr-muted">
               <li className="inline-flex items-center gap-1.5">
                 <span className="h-2 w-2 rounded-full bg-mr-lime-ink" aria-hidden="true" />
-                <span><span className="font-medium text-mr-text">Credit</span> — paid to farmer</span>
+                <span><span className="font-medium text-mr-text">Debit</span> — paid to farmer</span>
               </li>
               <li className="inline-flex items-center gap-1.5">
                 <span className="h-2 w-2 rounded-full bg-mr-coral-ink" aria-hidden="true" />
-                <span><span className="font-medium text-mr-text">Debit</span> — refunded back by farmer</span>
+                <span><span className="font-medium text-mr-text">Credit</span> — refunded back by farmer</span>
               </li>
               <li className="inline-flex items-center gap-1.5">
                 <span className="h-2 w-2 rounded-full bg-mr-faint" aria-hidden="true" />
@@ -1168,7 +1181,7 @@ const FarmerPayments = () => {
               <div className="hidden max-h-[65vh] overflow-y-auto overflow-x-auto md:block">
                 <table className="w-full min-w-[1040px] border-collapse text-left">
                   <caption className="sr-only">
-                    Payment history for {farmer.name}. Credit is money paid to the farmer, debit is money refunded back.
+                    Payment history for {farmer.name}. Debit is money paid to the farmer, credit is money refunded back.
                   </caption>
                   <thead className="sticky top-0 z-10">
                     <tr>
@@ -1183,8 +1196,8 @@ const FarmerPayments = () => {
                         { label: 'Date', sub: null, align: '', tone: '' },
                         { label: 'Particular', sub: null, align: '', tone: '' },
                         { label: 'Mode', sub: null, align: '', tone: '' },
-                        { label: 'Credit', sub: 'paid to farmer', align: 'text-right', tone: 'text-mr-lime-ink' },
-                        { label: 'Debit', sub: 'refund back', align: 'text-right', tone: 'text-mr-coral-ink' },
+                        { label: 'Debit', sub: 'paid to farmer', align: 'text-right', tone: 'text-mr-lime-ink' },
+                        { label: 'Credit', sub: 'refund back', align: 'text-right', tone: 'text-mr-coral-ink' },
                         { label: 'Balance', sub: 'net paid', align: 'text-right', tone: '' },
                         { label: 'Status', sub: null, align: '', tone: '' },
                         { label: 'Actions', sub: null, align: 'text-right', tone: '' },
@@ -1259,10 +1272,10 @@ const FarmerPayments = () => {
                             />
                           </td>
 
-                          {/* Credit — money paid to the farmer. Empty on a refund row. */}
+                          {/* Debit — money paid to the farmer. Empty on a refund row. */}
                           <td className="whitespace-nowrap bg-mr-lime-soft/25 px-4 py-3.5 text-right">
                             {isRefund ? (
-                              <span className="text-[13px] text-mr-faint" aria-label="No credit">—</span>
+                              <span className="text-[13px] text-mr-faint" aria-label="No debit">—</span>
                             ) : (
                               <>
                                 <span className="block text-[14px] font-semibold tabular-nums text-mr-lime-ink">
@@ -1279,7 +1292,7 @@ const FarmerPayments = () => {
                             )}
                           </td>
 
-                          {/* Debit — money the farmer returned. Empty on a payment row. */}
+                          {/* Credit — money the farmer returned. Empty on a payment row. */}
                           <td className="whitespace-nowrap bg-mr-coral-soft/25 px-4 py-3.5 text-right">
                             {isRefund ? (
                               <>
@@ -1295,7 +1308,7 @@ const FarmerPayments = () => {
                                 )}
                               </>
                             ) : (
-                              <span className="text-[13px] text-mr-faint" aria-label="No debit">—</span>
+                              <span className="text-[13px] text-mr-faint" aria-label="No credit">—</span>
                             )}
                           </td>
 
@@ -1374,7 +1387,7 @@ const FarmerPayments = () => {
                             {isRefund ? '−' : '+'} ₹{formatCurrency(Math.abs(amt))}
                           </span>
                           <span className={`mt-0.5 block text-[11px] font-medium ${isRefund ? 'text-mr-coral-ink' : 'text-mr-lime-ink'}`}>
-                            {isRefund ? 'Debit · refund back' : 'Credit · paid to farmer'}
+                            {isRefund ? 'Credit · refund back' : 'Debit · paid to farmer'}
                           </span>
                         </div>
                       </div>
@@ -1439,11 +1452,11 @@ const FarmerPayments = () => {
                   </span>
                   <div className="flex flex-wrap items-baseline gap-x-6 gap-y-2 tabular-nums">
                     <span className="text-[12px] text-mr-muted">
-                      Credit <span className="ml-1 text-[15px] font-semibold text-mr-lime-ink">₹{formatCurrency(ledgerTotals.credit)}</span>
+                      Debit <span className="ml-1 text-[15px] font-semibold text-mr-lime-ink">₹{formatCurrency(ledgerTotals.debit)}</span>
                     </span>
                     <span className="text-[12px] text-mr-faint">−</span>
                     <span className="text-[12px] text-mr-muted">
-                      Debit <span className="ml-1 text-[15px] font-semibold text-mr-coral-ink">₹{formatCurrency(ledgerTotals.debit)}</span>
+                      Credit <span className="ml-1 text-[15px] font-semibold text-mr-coral-ink">₹{formatCurrency(ledgerTotals.credit)}</span>
                     </span>
                     <span className="text-[12px] text-mr-faint">=</span>
                     <span className="text-[12px] text-mr-muted">
@@ -1506,16 +1519,16 @@ const FarmerPayments = () => {
         )}
 
         <form ref={paymentFormRef} onSubmit={handleSubmit} className="space-y-4">
-          {/* ── Transaction Type: Credit / Debit ── */}
+          {/* ── Transaction Type: Debit (pay farmer) / Credit (refund) ── */}
           <CreditDebitTabs
             value={formData.transaction_type}
             onChange={(v) => handleFormChange('transaction_type', v)}
-            creditLabel="Payment to Farmer"
-            debitLabel="Refund from Farmer"
-            creditHint="Installment paid to the farmer (adds to Paid)"
-            debitHint="Farmer returns money (subtracts from Paid)"
-            creditVisual="out"
-            debitVisual="in"
+            debitLabel="Payment to Farmer"
+            creditLabel="Refund from Farmer"
+            debitHint="Installment paid to the farmer (adds to Paid)"
+            creditHint="Farmer returns money (subtracts from Paid)"
+            debitVisual="out"
+            creditVisual="in"
           />
 
           <EntryRow>
@@ -1542,9 +1555,9 @@ const FarmerPayments = () => {
           </EntryRow>
 
           <EntryAmount
-            direction={formData.transaction_type === 'debit' ? 'debit' : 'credit'}
-            visual={formData.transaction_type === 'debit' ? 'in' : 'out'}
-            label={formData.transaction_type === 'debit'
+            direction={formData.transaction_type}
+            visual={formData.transaction_type === 'credit' ? 'in' : 'out'}
+            label={formData.transaction_type === 'credit'
               ? (formData.mode === 'CASH' ? 'Refund in Cash (₹)' : formData.mode === 'BANK' ? 'Refund in Bank (₹)' : 'Refund Cheque (₹)')
               : (formData.mode === 'CASH' ? 'Paid in Cash (₹)' : formData.mode === 'BANK' ? 'Paid in Bank (₹)' : 'Cheque Amount (₹)')}
             inputProps={{
@@ -1554,6 +1567,14 @@ const FarmerPayments = () => {
               onChange: (e) => handleFormChange('amount', e.target.value),
               required: true,
             }}
+          />
+
+          <BankAccountSelect
+            value={formData.bank_account_id}
+            onChange={(value) => handleFormChange('bank_account_id', value)}
+            paymentMode={formData.mode}
+            disabled={submitting}
+            required
           />
 
           <EntryRow>
@@ -1925,8 +1946,8 @@ const FarmerPayments = () => {
                 <th style={{ padding: '6px 8px', textAlign: 'left', fontWeight: '600' }}>Date</th>
                 <th style={{ padding: '6px 8px', textAlign: 'left', fontWeight: '600' }}>Particular</th>
                 <th style={{ padding: '6px 8px', textAlign: 'left', fontWeight: '600' }}>Mode</th>
-                <th style={{ padding: '6px 8px', textAlign: 'right', fontWeight: '600' }}>Credit (paid)</th>
-                <th style={{ padding: '6px 8px', textAlign: 'right', fontWeight: '600' }}>Debit (refund)</th>
+                <th style={{ padding: '6px 8px', textAlign: 'right', fontWeight: '600' }}>Debit (paid)</th>
+                <th style={{ padding: '6px 8px', textAlign: 'right', fontWeight: '600' }}>Credit (refund)</th>
                 <th style={{ padding: '6px 8px', textAlign: 'right', fontWeight: '600' }}>Cash</th>
                 <th style={{ padding: '6px 8px', textAlign: 'right', fontWeight: '600' }}>Bank</th>
                 <th style={{ padding: '6px 8px', textAlign: 'left', fontWeight: '600' }}>By</th>
@@ -1956,8 +1977,8 @@ const FarmerPayments = () => {
               {/* Totals */}
               <tr style={{ background: '#0f172a', color: '#fff', fontWeight: '700' }}>
                 <td colSpan={4} style={{ padding: '7px 8px', fontSize: '11px' }}>TOTAL ({payments.length} payments)</td>
-                <td style={{ padding: '7px 8px', textAlign: 'right', color: '#86efac' }}>₹{formatCurrency(ledgerTotals.credit)}</td>
-                <td style={{ padding: '7px 8px', textAlign: 'right', color: '#fca5a5' }}>₹{formatCurrency(ledgerTotals.debit)}</td>
+                <td style={{ padding: '7px 8px', textAlign: 'right', color: '#86efac' }}>₹{formatCurrency(ledgerTotals.debit)}</td>
+                <td style={{ padding: '7px 8px', textAlign: 'right', color: '#fca5a5' }}>₹{formatCurrency(ledgerTotals.credit)}</td>
                 <td style={{ padding: '7px 8px', textAlign: 'right', color: '#86efac' }}>₹{formatCurrency(summary.cash_paid)}</td>
                 <td style={{ padding: '7px 8px', textAlign: 'right', color: '#93c5fd' }}>₹{formatCurrency(summary.bank_paid)}</td>
                 <td style={{ padding: '7px 8px' }}></td>

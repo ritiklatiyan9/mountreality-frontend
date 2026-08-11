@@ -332,20 +332,6 @@ export const GET_PLOT_PAGE_DATA = gql`
         payment_buyer_names
         payment_booked_bys
       }
-      autocomplete {
-        buyerNames
-        paymentFroms
-        bankDetails
-        narrations
-        receivedBys
-        bookedBys
-        members {
-          name
-          phone
-          team
-          memberType
-        }
-      }
     }
   }
 `;

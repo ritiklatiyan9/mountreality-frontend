@@ -18,6 +18,7 @@ import {
 } from './ui/select';
 import { getParticularsForMode } from './EntryModal';
 import VoucherUpload from './VoucherUpload';
+import BankAccountSelect from './BankAccountSelect';
 import { ACCENT } from './dashboard/accents';
 import { cn, money } from '@/lib/utils';
 
@@ -118,6 +119,7 @@ const blankForm = () => ({
   commission_id: '',
   reference_no: '',
   voucher_url: '',
+  bank_account_id: '',
 });
 
 export default function QuickEntry() {
@@ -274,8 +276,11 @@ export default function QuickEntry() {
     return [{ label: 'Module selected', ok: false }];
   })();
 
-  const canSubmit = checks.every((c) => c.ok);
-  const missing = checks.filter((c) => !c.ok);
+  const effectiveChecks = form.mode === 'CASH'
+    ? checks
+    : [...checks, { label: 'Bank account selected', ok: !!form.bank_account_id }];
+  const canSubmit = effectiveChecks.every((c) => c.ok);
+  const missing = effectiveChecks.filter((c) => !c.ok);
 
   const handleSubmit = async () => {
     if (!canSubmit || submitting) return;
@@ -296,6 +301,7 @@ export default function QuickEntry() {
           cheque_no: isCheque ? form.cheque_no.trim() : undefined,
           remarks: form.remarks.trim() || null,
           voucher_url: form.voucher_url || null,
+          bank_account_id: form.bank_account_id || null,
         });
       } else if (moduleKey === 'cashflow') {
         await api.post('/cashflow/entries', {
@@ -307,6 +313,7 @@ export default function QuickEntry() {
           cheque_no: isCheque ? form.cheque_no.trim() || null : null,
           remarks: form.remarks.trim() || null,
           voucher_url: form.voucher_url || null,
+          bank_account_id: form.bank_account_id || null,
         });
       } else if (moduleKey === 'vendor') {
         await api.post(`/vendors/commitments/${form.vendor_commitment_id}/payments`, {
@@ -318,6 +325,7 @@ export default function QuickEntry() {
           cheque_no: isCheque ? (form.reference_no.trim() || form.cheque_no.trim() || null) : null,
           note: form.description.trim() || form.remarks.trim() || null,
           voucher_url: form.voucher_url || null,
+          bank_account_id: form.bank_account_id || null,
         });
       } else if (moduleKey === 'expense') {
         await api.post('/expenses', {
@@ -331,6 +339,7 @@ export default function QuickEntry() {
           remark: form.remarks.trim(),
           category: form.category.trim(),
           voucher_url: form.voucher_url || null,
+          bank_account_id: form.bank_account_id || null,
         });
       } else if (moduleKey === 'daybook') {
         await api.post('/daybook', {
@@ -345,6 +354,7 @@ export default function QuickEntry() {
           to_entity: form.to_entity.trim() || null,
           category: form.category.trim() || null,
           voucher_url: form.voucher_url || null,
+          bank_account_id: form.bank_account_id || null,
         });
       } else if (moduleKey === 'plot') {
         const signed = direction === 'debit' ? -amt : amt;
@@ -357,6 +367,7 @@ export default function QuickEntry() {
           cheque_no: isCheque ? form.cheque_no.trim() || null : null,
           narration: form.remarks.trim() || null,
           voucher_url: form.voucher_url || null,
+          bank_account_id: form.bank_account_id || null,
         });
       } else if (moduleKey === 'plot_commission') {
         // This endpoint has no direction field — sign of amount encodes it:
@@ -370,6 +381,7 @@ export default function QuickEntry() {
           cheque_no: isCheque ? form.cheque_no.trim() || null : null,
           remarks: form.remarks.trim() || null,
           voucher_url: form.voucher_url || null,
+          bank_account_id: form.bank_account_id || null,
         });
       }
       close();
@@ -411,7 +423,9 @@ export default function QuickEntry() {
   };
 
   const isCredit = direction === 'credit';
-  const flow = isCredit ? ACCENT.lime : ACCENT.coral;
+  const flow = isCredit
+    ? { chip: 'bg-emerald-100 text-emerald-700', text: 'text-emerald-700' }
+    : { chip: 'bg-red-100 text-red-700', text: 'text-red-700' };
   const modTone = ACCENT[mod?.tone || 'blue'];
   const words = amountInWords(form.amount);
 
@@ -419,10 +433,10 @@ export default function QuickEntry() {
      rather than inside the form. Selection still routes through
      changeDirection(), which keeps the vendor debit-only guard. */
   const directionControl = (
-    <div role="radiogroup" aria-label="Entry direction" className="flex items-center gap-1 rounded-full border border-mr-line bg-mr-surface-2 p-1">
+    <div role="radiogroup" aria-label="Entry direction" className="mr-glass flex items-center gap-1 rounded-full p-1">
       {[
-        { key: 'credit', label: 'Credit', icon: ArrowDownLeft, on: 'bg-mr-lime text-mr-ink' },
-        { key: 'debit', label: 'Debit', icon: ArrowUpRight, on: 'bg-mr-coral text-white' },
+        { key: 'credit', label: 'Credit', icon: ArrowDownLeft, on: 'bg-emerald-600 text-white' },
+        { key: 'debit', label: 'Debit', icon: ArrowUpRight, on: 'bg-red-600 text-white' },
       ].map((option) => {
         const { key, label, icon: Icon, on } = option;
         const active = direction === key;
@@ -434,9 +448,9 @@ export default function QuickEntry() {
             aria-checked={active}
             onClick={() => changeDirection(key)}
             className={cn(
-              'inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-[12px] font-semibold transition-colors duration-200',
+              'mr-press inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-[12px] font-semibold',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue focus-visible:ring-offset-1',
-              active ? on : 'text-mr-muted hover:text-mr-text',
+              active ? cn(on, 'mr-glass-ink') : 'text-mr-muted hover:text-mr-text',
             )}
           >
             <Icon className="h-3.5 w-3.5" strokeWidth={2.2} aria-hidden="true" />
@@ -570,9 +584,9 @@ export default function QuickEntry() {
           onClick={() => openWith('credit')}
           disabled={!siteId}
           title={siteId ? 'Record a credit' : 'Select a site first'}
-          className="inline-flex h-10 items-center gap-2 rounded-full bg-mr-ink pl-2.5 pr-4 text-[13px] font-semibold text-white transition-colors duration-200 hover:bg-mr-ink-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50"
+          className="mr-press group inline-flex h-10 items-center gap-2 rounded-full bg-emerald-700 pl-2.5 pr-4 text-[13px] font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.28),0_2px_6px_rgba(4,120,87,0.28),0_10px_20px_-10px_rgba(4,120,87,0.6)] [background-image:linear-gradient(180deg,rgba(255,255,255,0.16),rgba(255,255,255,0)_58%)] hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50"
         >
-          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-mr-lime text-mr-ink">
+          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:scale-110">
             <ArrowDownLeft className="h-3.5 w-3.5" strokeWidth={2.2} aria-hidden="true" />
           </span>
           Credit
@@ -582,9 +596,9 @@ export default function QuickEntry() {
           onClick={() => openWith('debit')}
           disabled={!siteId}
           title={siteId ? 'Record a debit' : 'Select a site first'}
-          className="inline-flex h-10 items-center gap-2 rounded-full border border-mr-coral-ink/15 bg-mr-coral-soft pl-2.5 pr-4 text-[13px] font-semibold text-mr-coral-ink transition-colors duration-200 hover:brightness-97 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50"
+          className="mr-press group inline-flex h-10 items-center gap-2 rounded-full bg-red-600 pl-2.5 pr-4 text-[13px] font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.28),0_2px_6px_rgba(185,28,28,0.28),0_10px_20px_-10px_rgba(185,28,28,0.6)] [background-image:linear-gradient(180deg,rgba(255,255,255,0.16),rgba(255,255,255,0)_58%)] hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50"
         >
-          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-mr-coral text-white">
+          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-red-100 text-red-700 transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:scale-110">
             <ArrowUpRight className="h-3.5 w-3.5" strokeWidth={2.2} aria-hidden="true" />
           </span>
           Debit
@@ -600,8 +614,8 @@ export default function QuickEntry() {
               aria-hidden="true"
               style={{
                 background: isCredit
-                  ? 'linear-gradient(100deg, rgba(185,255,69,.30) 0%, rgba(80,221,235,.16) 45%, rgba(255,255,255,0) 78%)'
-                  : 'linear-gradient(100deg, rgba(255,101,74,.24) 0%, rgba(255,176,46,.12) 45%, rgba(255,255,255,0) 78%)',
+                  ? 'linear-gradient(100deg, rgba(220,252,231,.85) 0%, rgba(255,255,255,0) 78%)'
+                  : 'linear-gradient(100deg, rgba(254,226,226,.85) 0%, rgba(255,255,255,0) 78%)',
               }}
             />
             <div className="relative flex flex-wrap items-center justify-between gap-3 pr-8">
@@ -695,8 +709,8 @@ export default function QuickEntry() {
                   className="space-y-3 border-b border-mr-line px-5 py-4 sm:px-6 lg:border-b-0 lg:border-r"
                   style={{
                     background: isCredit
-                      ? 'linear-gradient(180deg, rgba(185,255,69,.16) 0%, rgba(255,255,255,0) 60%)'
-                      : 'linear-gradient(180deg, rgba(255,101,74,.12) 0%, rgba(255,255,255,0) 60%)',
+                      ? 'linear-gradient(180deg, rgba(220,252,231,.60) 0%, rgba(255,255,255,0) 60%)'
+                      : 'linear-gradient(180deg, rgba(254,226,226,.60) 0%, rgba(255,255,255,0) 60%)',
                   }}
                 >
                   <div>
@@ -764,10 +778,10 @@ export default function QuickEntry() {
                             aria-pressed={active}
                             onClick={() => changeMode(m)}
                             className={cn(
-                              'flex h-9 flex-1 items-center justify-center gap-1.5 rounded-control border px-1 text-[12px] font-medium transition-colors duration-200',
+                              'mr-press flex h-9 flex-1 items-center justify-center gap-1.5 rounded-control border px-1 text-[12px] font-medium',
                               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue',
                               active
-                                ? 'border-transparent bg-mr-blue text-white'
+                                ? 'mr-glass-ink border-transparent bg-mr-blue text-white'
                                 : 'border-mr-line bg-mr-surface text-mr-muted hover:bg-mr-blue-soft hover:text-mr-blue',
                             )}
                           >
@@ -778,6 +792,13 @@ export default function QuickEntry() {
                       })}
                     </div>
                   </QField>
+
+                  <BankAccountSelect
+                    value={form.bank_account_id}
+                    onChange={(bankAccountId) => setF({ bank_account_id: bankAccountId })}
+                    paymentMode={form.mode}
+                    disabled={submitting}
+                  />
 
                   {isCheque && moduleKey !== 'vendor' && (
                     <QField label={<QLabel icon={FileText}>Cheque number</QLabel>} required>
@@ -882,7 +903,7 @@ export default function QuickEntry() {
                   disabled={submitting || !canSubmit || voucherUploading}
                   className={cn(
                     'h-10 rounded-full px-5 text-[13px] font-semibold transition-colors disabled:opacity-40',
-                    isCredit ? 'bg-mr-lime-ink text-white hover:brightness-110' : 'bg-mr-coral-ink text-white hover:brightness-110',
+                    isCredit ? 'bg-emerald-700 text-white hover:bg-emerald-800' : 'bg-red-600 text-white hover:bg-red-700',
                   )}
                 >
                   {submitting && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" aria-hidden="true" />}

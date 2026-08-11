@@ -1,3 +1,4 @@
+import { writePrintDocument } from '../lib/safePrint';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -11,6 +12,7 @@ import { cn } from '@/lib/utils';
 import { classifyPaymentMode, BUCKETS, BUCKET_LABELS, NON_CASH_BUCKETS } from '../utils/paymentMode';
 import QRCode from 'qrcode';
 import ChequeStatusControl from '../components/ChequeStatusControl';
+import BankAccountSelect from '../components/BankAccountSelect';
 import * as XLSX from 'xlsx';
 import { Calendar as ShadCalendar } from '../components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
@@ -217,7 +219,7 @@ const compareEntriesChronologically = (a, b) => {
 const blankForm = (date) => ({
   date: date || TODAY,
   particular: '', entry_type: 'GENERAL', debit: '', credit: '',
-  remarks: '', payment_mode: '', category: '',
+  remarks: '', payment_mode: '', bank_account_id: '', category: '',
   from_entity: '', to_entity: '', account_no: '', branch: '',
   farmer_id: '', interest_rate: '', interest_amount: '', by_note: '',
   plot_no: '', plot_size: '', plot_rate: '', father_name: '', commission_person: '',
@@ -530,6 +532,8 @@ const DayBook = () => {
   const isGenericEntry = !['FARMER PAYMENT', 'PLOT COMMISSION', 'CASH FLOW', 'FIRM TRANSACTION', 'PLOT PAYMENT', 'EXPENSE'].includes(form.entry_type);
   // The 5 dual-write types render as one self-contained block in the dialog's right column.
   const isSpecializedType = ['FARMER PAYMENT', 'PLOT COMMISSION', 'CASH FLOW', 'FIRM TRANSACTION', 'PLOT PAYMENT'].includes(form.entry_type);
+  const effectivePaymentMode = form.entry_type === 'PLOT PAYMENT' ? form.pp_payment_type : form.payment_mode;
+  const requiresBankAccount = Boolean(String(effectivePaymentMode || '').trim()) && classifyPaymentMode(effectivePaymentMode) !== 'cash';
   // Display-only direction for the dialog header's icon/badge color — never sent to the backend.
   const dbDisplayDirection = form.entry_type === 'PLOT PAYMENT' ? 'credit'
     : (form.entry_type === 'FARMER PAYMENT' || form.entry_type === 'PLOT COMMISSION') ? 'debit'
@@ -543,6 +547,7 @@ const DayBook = () => {
       credit: (e.source_credit ?? e.credit) ? String(e.source_credit ?? e.credit) : '', remarks: e.remarks || '',
       voucher_url: e.voucher_url || '',
       payment_mode: e.source_payment_mode || e.payment_mode || '', category: e.category || '',
+      bank_account_id: e.bank_account_id ? String(e.bank_account_id) : '',
       from_entity: e.from_entity || '', to_entity: e.to_entity || '',
       account_no: e.account_no || '', branch: e.branch || '',
       // Farmer payment fields
@@ -608,6 +613,10 @@ const DayBook = () => {
       setMessage({ type: 'error', text: 'Please wait for the evidence photo to finish uploading.' });
       return;
     }
+    if (requiresBankAccount && !form.bank_account_id) {
+      setMessage({ type: 'error', text: 'Select the bank account used for this transaction.' });
+      return;
+    }
     setMessage({ type: '', text: '' }); setSubmitting(true);
     try {
       const isFarmerPayment = form.entry_type === 'FARMER PAYMENT';
@@ -621,7 +630,7 @@ const DayBook = () => {
         particular: form.particular,
         entry_type: form.entry_type, debit: parseFloat(form.debit) || 0,
         credit: parseFloat(form.credit) || 0, remarks: form.remarks,
-        payment_mode: form.payment_mode, category: form.category,
+        payment_mode: form.payment_mode, bank_account_id: form.bank_account_id || null, category: form.category,
         from_entity: form.from_entity, to_entity: form.to_entity,
         assigned_admin_id: form.assigned_admin_id,
         account_no: form.account_no, branch: form.branch,
@@ -1014,7 +1023,7 @@ const DayBook = () => {
 </body></html>`;
 
     const w = window.open('', '_blank', 'width=1000,height=750');
-    w.document.write(html);
+    writePrintDocument(w, html);
     w.document.close();
   };
 
@@ -1239,7 +1248,7 @@ const DayBook = () => {
       return;
     }
     const label = isRangeStatement ? statementPeriodLabel : fmtDate(selectedDate);
-    popup.document.write(`<!doctype html><html><head><title>${statementEscape(daybookTitle)} · ${statementEscape(label)}</title><style>
+    writePrintDocument(popup, `<!doctype html><html><head><title>${statementEscape(daybookTitle)} · ${statementEscape(label)}</title><style>
       @page{size:A4 landscape;margin:10mm}*{box-sizing:border-box}body{margin:0;background:#eef2ff;color:#0f172a;font:12px Inter,Arial,sans-serif}.bar{position:sticky;top:0;z-index:2;display:flex;justify-content:space-between;align-items:center;background:#0f172a;color:#fff;padding:12px 20px}.bar span{color:#94a3b8;margin-left:8px}.bar button{border:0;border-radius:8px;padding:9px 18px;font-weight:700;cursor:pointer}.print{background:#2563eb;color:#fff}.close{margin-left:8px;background:#fff;color:#334155}.sheet{width:min(1280px,calc(100% - 32px));margin:18px auto;background:#fff;padding:24px;border:1px solid #dbeafe;border-radius:16px;box-shadow:0 20px 50px #1e3a8a18}.head{display:flex;justify-content:space-between;gap:24px;border-bottom:2px solid #1d4ed8;padding-bottom:16px}.brand{font-size:22px;font-weight:800;color:#1e3a8a}.muted{margin-top:4px;color:#64748b}.right{text-align:right}.right strong{display:block;font-size:16px}.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:16px 0}.card{border:1px solid #e2e8f0;border-radius:10px;background:#f8fafc;padding:12px}.card span{display:block;color:#64748b;text-transform:uppercase;letter-spacing:1px;font-size:9px}.card strong{display:block;margin-top:5px;font-size:15px}.card.debit strong{color:#be123c}.card.credit strong{color:#047857}table{width:100%;border-collapse:collapse}th{background:#eff6ff;color:#1e3a8a;text-align:left;padding:9px 7px;font-size:9px;text-transform:uppercase;letter-spacing:.5px}td{padding:8px 7px;border-bottom:1px solid #e2e8f0;vertical-align:top}td small{display:block;margin-top:2px;color:#64748b}.number{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.debit{color:#be123c}.credit{color:#047857}.foot{display:flex;justify-content:space-between;margin-top:16px;padding-top:10px;border-top:1px solid #cbd5e1;color:#64748b;font-size:10px}@media print{body{background:#fff}.bar{display:none}.sheet{width:100%;margin:0;padding:0;border:0;border-radius:0;box-shadow:none}thead{display:table-header-group}tr{break-inside:avoid}}
     </style></head><body><div class="bar"><div><b>HTML Statement Viewer</b><span>Review before printing</span></div><div><button class="print" onclick="window.print()">Print / Save PDF</button><button class="close" onclick="window.close()">Close</button></div></div><main class="sheet"><section class="head"><div><div class="brand">${statementEscape(currentSite?.name || 'DG Account')}</div><div class="muted">${statementEscape(currentSite?.address || '')}</div><div class="muted">Approved accounting movements · Imprest excluded</div></div><div class="right"><strong>${statementEscape(daybookTitle)}</strong><span>${statementEscape(label)}</span></div></section><section class="cards"><div class="card"><span>Opening balance</span><strong>${statementEscape(fmt(statementOpeningBalance))}</strong></div><div class="card credit"><span>Book money in</span><strong>${statementEscape(fmt(dayTotals.c))}</strong></div><div class="card debit"><span>Book money out</span><strong>${statementEscape(fmt(dayTotals.d))}</strong></div><div class="card"><span>Closing balance</span><strong>${statementEscape(fmt(statementClosingBalance))}</strong></div></section><table><thead><tr><th>#</th><th>Date</th><th>Particular / entity</th><th>Type</th><th>Mode</th><th style="text-align:right">Debit</th><th style="text-align:right">Credit</th><th style="text-align:right">Running</th></tr></thead><tbody>${printableRows || '<tr><td colspan="8" style="padding:40px;text-align:center">No matching entries</td></tr>'}</tbody></table><div class="foot"><span>${postedRows.length} filtered entries: In ${statementEscape(fmt(fTotals.c))} · Out ${statementEscape(fmt(fTotals.d))}. Book totals/closing above remain authoritative.</span><span>Generated ${statementEscape(new Date().toLocaleString('en-IN'))}</span></div></main></body></html>`);
     popup.document.close();
@@ -1260,154 +1269,114 @@ const DayBook = () => {
 
   /* ═══════════════════════ RENDER ═══════════════════════ */
   return (
-    <div className="p-4 sm:p-6 space-y-5">
+    <div className="space-y-2">
 
-      {/* ─── Header: airy product toolbar, not a boxed dashboard card ─── */}
-      <header className="relative border-b border-slate-200 pb-5">
-        <div className="pointer-events-none absolute -left-12 -top-16 h-44 w-44 rounded-full bg-blue-100/70 blur-3xl" />
-        <div className="relative flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-          <div className="flex min-w-0 items-start gap-3.5">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-blue-600 shadow-lg shadow-blue-600/20">
-              <BookOpen className="h-5 w-5 text-white" />
+      {/* A thin command bar keeps the transaction ledger as the primary view. */}
+      <section className="border-b border-slate-200 pb-2">
+        <header className="flex flex-col gap-2 py-1 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-600 shadow-sm shadow-blue-600/25">
+              <BookOpen className="h-4 w-4 text-white" />
             </div>
             <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2.5">
-                <h1 className="text-2xl font-bold tracking-tight text-slate-950">{daybookTitle}</h1>
-                <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-blue-700 ring-1 ring-inset ring-blue-200">
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-base font-bold tracking-tight text-slate-950">{daybookTitle}</h1>
+                <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em] text-blue-700 ring-1 ring-inset ring-blue-200">
                   {daybookPreset === 'cash' ? 'Cash' : daybookPreset === 'bank' ? 'Bank' : 'All accounts'}
                 </span>
+                <span className="hidden text-[11px] text-slate-400 sm:inline">{currentSite?.name}</span>
               </div>
-              <p className="mt-1.5 text-sm text-slate-500">
-                {daybookPreset === 'cash' ? 'Cash entries' : daybookPreset === 'bank' ? 'All non-cash entries' : isRangeStatement ? 'Consolidated accounting statement' : 'Daily cash and bank working'}
-                <span className="mx-2 text-slate-300">/</span><span className="font-medium text-slate-700">{currentSite?.name}</span>
-                <span className="mx-2 text-slate-300">/</span>{dayTotals.count} entr{dayTotals.count === 1 ? 'y' : 'ies'}
+              <p className="mt-0.5 truncate text-[11px] text-slate-500">
+                {isRangeStatement ? 'Consolidated accounting statement' : 'Daily cash and bank working'} · {dayTotals.count} entr{dayTotals.count === 1 ? 'y' : 'ies'}
+                {autoJumped && !isToday && !isRangeStatement ? ` · Showing ${fmtDate(selectedDate)}` : ''}
               </p>
-              {autoJumped && !isToday && !isRangeStatement && (
-                <p className="mt-1.5 text-[11px] font-medium text-amber-700">Showing {fmtDate(selectedDate)}, the most recent day with activity.</p>
-              )}
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" size="sm" onClick={exportXL} className="h-9 rounded-full border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50">
-              <Download className="mr-1.5 h-3.5 w-3.5 text-blue-600" /> Excel
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Button variant="outline" size="sm" onClick={exportXL} className="h-8 border-slate-200 px-2.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50">
+              <Download className="mr-1 h-3.5 w-3.5 text-blue-600" /> Excel
             </Button>
-            <Button variant="outline" size="sm" onClick={printDaybookStatement} className="h-9 rounded-full border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50">
-              <Printer className="mr-1.5 h-3.5 w-3.5 text-blue-600" /> Print / Save PDF
+            <Button variant="outline" size="sm" onClick={printDaybookStatement} className="h-8 border-slate-200 px-2.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50">
+              <Printer className="mr-1 h-3.5 w-3.5 text-blue-600" /> Print
             </Button>
-            {!isRangeStatement && <Button size="sm" onClick={openCreate} className="h-9 rounded-full bg-blue-600 px-3.5 text-xs font-semibold text-white shadow-sm shadow-blue-600/25 hover:bg-blue-700">
-              <Plus className="mr-1.5 h-3.5 w-3.5" /> Add entry
+            {!isRangeStatement && <Button size="sm" onClick={openCreate} className="h-8 bg-blue-600 px-2.5 text-[11px] font-semibold text-white shadow-sm shadow-blue-600/25 hover:bg-blue-700">
+              <Plus className="mr-1 h-3.5 w-3.5" /> Add entry
             </Button>}
           </div>
-        </div>
+        </header>
 
-        <div className="relative mt-5 flex flex-wrap items-center gap-2.5">
-          <div className="flex flex-wrap items-center gap-1 border-b border-slate-200" aria-label="Day Book period">
+        <div className="flex flex-wrap items-center gap-1.5 pt-1">
+          <div className="flex shrink-0 items-center rounded-md bg-slate-100 p-0.5" aria-label="Day Book period">
             {DAYBOOK_PERIODS.map(([value, label]) => (
-              <button key={value} type="button" onClick={() => setPeriodPreset(value)} className={`border-b-2 px-2.5 py-2 text-[11px] font-semibold transition-colors ${periodPreset === value ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-900'}`}>
+              <button key={value} type="button" onClick={() => setPeriodPreset(value)} className={`rounded px-2 py-1 text-[10px] font-semibold transition-colors ${periodPreset === value ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-900'}`}>
                 {label}
               </button>
             ))}
           </div>
-          {!isRangeStatement && <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-slate-500 hover:bg-slate-100" onClick={() => goDay(-1)} title="Previous day"><ChevronLeft className="h-4 w-4" /></Button>}
-          {!isRangeStatement && <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
-            <PopoverTrigger asChild>
-              <Button variant="ghost" className="h-8 gap-1.5 rounded-full bg-slate-100 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-200">
-                <CalendarIcon className="h-3.5 w-3.5 shrink-0 text-blue-600" />
-                <span className="truncate">{selectedDate && /^\d{4}-\d{2}-\d{2}$/.test(selectedDate) ? format(parse(selectedDate, 'yyyy-MM-dd', new Date()), 'dd MMM, EEE') : 'Select date'}</span>
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto border-slate-200 p-3 shadow-lg" align="end">
-              <ShadCalendar
-                mode="single"
-                captionLayout="dropdown"
-                startMonth={new Date(new Date().getFullYear() - 10, 0, 1)}
-                endMonth={new Date()}
-                selected={selectedDate && /^\d{4}-\d{2}-\d{2}$/.test(selectedDate) ? parse(selectedDate, 'yyyy-MM-dd', new Date()) : new Date()}
-                onSelect={(date) => { if (date) { setSelectedDate(toISO(date)); setAutoJumped(false); setCalendarOpen(false); } }}
-                disabled={(date) => date > new Date()}
-                initialFocus
-              />
-            </PopoverContent>
-          </Popover>}
-          {!isRangeStatement && <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-slate-500 hover:bg-slate-100" onClick={() => goDay(1)} title="Next day"><ChevronRight className="h-4 w-4" /></Button>}
-          {!isRangeStatement && !isToday && <Button variant="ghost" size="sm" onClick={goToday} className="h-8 rounded-full px-2.5 text-[11px] font-semibold text-blue-700 hover:bg-blue-50">Today</Button>}
-        </div>
-      </header>
 
-      {periodPreset === 'custom' && (
-        <section className="flex flex-wrap items-end gap-3 border-b border-blue-100 bg-blue-50/60 px-3 py-3">
-          <div><Label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">From date</Label><Input type="date" value={customFrom} onChange={(event) => setCustomFrom(event.target.value)} className="h-8 w-40 border-slate-200 bg-white text-xs" /></div>
-          <div><Label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">To date</Label><Input type="date" value={customTo} onChange={(event) => setCustomTo(event.target.value)} className="h-8 w-40 border-slate-200 bg-white text-xs" /></div>
-          <p className="pb-1 text-[11px] text-blue-700">Read-only statement across connected accounting modules. Imprest is excluded.</p>
-        </section>
-      )}
+          {!isRangeStatement && <div className="flex shrink-0 items-center gap-0.5">
+            <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-500 hover:bg-slate-100" onClick={() => goDay(-1)} title="Previous day"><ChevronLeft className="h-3.5 w-3.5" /></Button>
+            <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+              <PopoverTrigger asChild>
+                <Button variant="ghost" className="h-7 gap-1 rounded-md bg-slate-100 px-2 text-[11px] font-semibold text-slate-700 hover:bg-slate-200">
+                  <CalendarIcon className="h-3.5 w-3.5 shrink-0 text-blue-600" />
+                  <span className="truncate">{selectedDate && /^\d{4}-\d{2}-\d{2}$/.test(selectedDate) ? format(parse(selectedDate, 'yyyy-MM-dd', new Date()), 'dd MMM, EEE') : 'Select date'}</span>
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto border-slate-200 p-3 shadow-lg" align="end">
+                <ShadCalendar
+                  mode="single"
+                  captionLayout="dropdown"
+                  startMonth={new Date(new Date().getFullYear() - 10, 0, 1)}
+                  endMonth={new Date()}
+                  selected={selectedDate && /^\d{4}-\d{2}-\d{2}$/.test(selectedDate) ? parse(selectedDate, 'yyyy-MM-dd', new Date()) : new Date()}
+                  onSelect={(date) => { if (date) { setSelectedDate(toISO(date)); setAutoJumped(false); setCalendarOpen(false); } }}
+                  disabled={(date) => date > new Date()}
+                  initialFocus
+                />
+              </PopoverContent>
+            </Popover>
+            <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-500 hover:bg-slate-100" onClick={() => goDay(1)} title="Next day"><ChevronRight className="h-3.5 w-3.5" /></Button>
+            {!isToday && <Button variant="ghost" size="sm" onClick={goToday} className="h-7 px-2 text-[10px] font-semibold text-blue-700 hover:bg-blue-50">Today</Button>}
+          </div>}
 
-      {periodPreset === 'date' && (
-        <section className="flex flex-wrap items-end gap-3 border-b border-blue-100 bg-blue-50/60 px-3 py-3">
-          <div><Label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">Select day</Label><Input type="date" value={selectedDate} max={TODAY} onChange={(event) => { setSelectedDate(event.target.value); setAutoJumped(false); }} className="h-8 w-40 border-slate-200 bg-white text-xs" /></div>
-          <p className="pb-1 text-[11px] text-blue-700">View and manage entries for one selected day.</p>
-        </section>
-      )}
+          {periodPreset === 'custom' && <div className="flex items-center gap-1.5">
+            <Input aria-label="From date" type="date" value={customFrom} onChange={(event) => setCustomFrom(event.target.value)} className="h-7 w-32 border-slate-200 bg-white px-2 text-[10px]" />
+            <span className="text-[10px] text-slate-400">to</span>
+            <Input aria-label="To date" type="date" value={customTo} onChange={(event) => setCustomTo(event.target.value)} className="h-7 w-32 border-slate-200 bg-white px-2 text-[10px]" />
+          </div>}
 
-      {/* ─── Opening + Remaining Balance (all three routes) ─── */}
-      {!isRangeStatement && <BalanceCards
-        isToday={isToday}
-        selectedDate={selectedDate}
-        mode={daybookPreset}
-        modeBalance={modeBalance}
-        entries={routeScopedPostedEntries}
-      />}
-
-      {/* ─── Summary Cards ─── */}
-      <section className="grid grid-cols-2 border-y border-slate-200 bg-white lg:grid-cols-4">
-        <DaybookMetric label={isRangeStatement ? 'Money out' : 'Day debit'} value={fmt(dayTotals.d)} tone="rose" icon={<ArrowUpRight className="h-3.5 w-3.5" />} />
-        <DaybookMetric label={isRangeStatement ? 'Money in' : 'Day credit'} value={fmt(dayTotals.c)} tone="emerald" icon={<ArrowDownRight className="h-3.5 w-3.5" />} />
-        <DaybookMetric label="Net movement" value={fmt(Math.abs(net))} hint={net >= 0 ? 'Surplus' : 'Deficit'} tone={net >= 0 ? 'blue' : 'rose'} icon={<IndianRupee className="h-3.5 w-3.5" />} />
-        <DaybookMetric label={isRangeStatement ? 'Statement entries' : 'Day entries'} value={dayTotals.count} hint={hasFilter && fTotals.count !== dayTotals.count ? `${fTotals.count} approved filtered` : isRangeStatement ? statementPeriodLabel : fmtDate(selectedDate)} tone="slate" icon={<Hash className="h-3.5 w-3.5" />} />
-      </section>
-
-      {/* ─── Search & Filter Toolbar ─── */}
-      <Card className="shadow-sm border-slate-200">
-        <CardContent className="p-3">
-          <div className="flex items-center gap-2">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <Input
-                placeholder="Search particulars, entities, remarks…"
-                value={q} onChange={(e) => setQ(e.target.value)}
-                className="pl-9 h-9 text-sm bg-slate-50 border-slate-200"
-              />
-              {q && <button onClick={() => setQ('')} className="absolute right-3 top-1/2 -translate-y-1/2"><X className="w-3.5 h-3.5 text-slate-400 hover:text-slate-600" /></button>}
-            </div>
-            <Button variant={showFilters || hasFilter ? 'default' : 'outline'} size="sm" onClick={() => setShowFilters(!showFilters)}
-              className={`h-9 gap-1.5 text-xs shrink-0 ${showFilters || hasFilter ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : ''}`}>
-              <Filter className="w-3.5 h-3.5" /> Filters
-              {hasFilter && <span className="ml-0.5 w-1.5 h-1.5 rounded-full bg-white inline-block" />}
-            </Button>
-            <Button variant={showAnalytics ? 'default' : 'outline'} size="sm" onClick={() => setShowAnalytics(!showAnalytics)}
-              className={`h-9 gap-1.5 text-xs shrink-0 ${showAnalytics ? 'bg-blue-600 hover:bg-blue-700 text-white' : ''}`}>
-              <BarChart3 className="w-3.5 h-3.5" /> Analytics
-            </Button>
-            {hasFilter && (
-              <Button variant="ghost" size="sm" onClick={clearFilters} className="h-9 text-xs text-red-500 hover:text-red-600 hover:bg-red-50 gap-1 shrink-0">
-                <X className="w-3 h-3" /> Clear
-              </Button>
-            )}
+          <div className="relative min-w-[12rem] flex-1 lg:ml-auto lg:max-w-md">
+            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+            <Input
+              placeholder="Search transactions…"
+              value={q} onChange={(e) => setQ(e.target.value)}
+              className="h-7 border-slate-200 bg-slate-50 pl-8 pr-7 text-[11px]"
+            />
+            {q && <button type="button" aria-label="Clear search" onClick={() => setQ('')} className="absolute right-2 top-1/2 -translate-y-1/2"><X className="h-3.5 w-3.5 text-slate-400 hover:text-slate-600" /></button>}
           </div>
+          <Button variant={showFilters || hasFilter ? 'default' : 'outline'} size="sm" onClick={() => setShowFilters(!showFilters)}
+            className={`h-7 shrink-0 gap-1 px-2 text-[10px] ${showFilters || hasFilter ? 'bg-emerald-600 text-white hover:bg-emerald-700' : ''}`}>
+            <Filter className="h-3.5 w-3.5" /> Filters
+            {hasFilter && <span className="ml-0.5 inline-block h-1.5 w-1.5 rounded-full bg-white" />}
+          </Button>
+          <Button variant={showAnalytics ? 'default' : 'outline'} size="sm" onClick={() => setShowAnalytics(!showAnalytics)}
+            className={`h-7 shrink-0 gap-1 px-2 text-[10px] ${showAnalytics ? 'bg-blue-600 text-white hover:bg-blue-700' : ''}`}>
+            <BarChart3 className="h-3.5 w-3.5" /> Analytics
+          </Button>
+          {hasFilter && <Button variant="ghost" size="sm" onClick={clearFilters} className="h-7 shrink-0 gap-1 px-1.5 text-[10px] text-red-500 hover:bg-red-50 hover:text-red-600"><X className="h-3 w-3" /> Clear</Button>}
+        </div>
 
-          {/* Expanded filters */}
-          {showFilters && (
-            <div className="mt-3 pt-3 border-t border-slate-100 grid grid-cols-2 sm:grid-cols-3 gap-3">
-              <FilterSelect label="Entry Type" value={fType} onChange={setFType} allLabel="All Types" options={uTypes} />
-              {daybookPreset === 'all' && (
-                <FilterSelect label="Payment Mode" value={fMode} onChange={setFMode} allLabel="All Modes" options={PAY_MODES} />
-              )}
-              <FilterSelect label="Category" value={fCat} onChange={setFCat} allLabel="All Categories" options={CATEGORIES} />
-            </div>
-          )}
-        </CardContent>
-      </Card>
+        {showFilters && (
+          <div className="grid grid-cols-2 gap-2 border-t border-slate-100 bg-slate-50/70 px-3 py-2 sm:grid-cols-3">
+            <FilterSelect label="Entry Type" value={fType} onChange={setFType} allLabel="All Types" options={uTypes} />
+            {daybookPreset === 'all' && <FilterSelect label="Payment Mode" value={fMode} onChange={setFMode} allLabel="All Modes" options={PAY_MODES} />}
+            <FilterSelect label="Category" value={fCat} onChange={setFCat} allLabel="All Categories" options={CATEGORIES} />
+          </div>
+        )}
+
+      </section>
 
       {/* ─── Analytics Panel ─── */}
       {showAnalytics && (
@@ -1443,8 +1412,8 @@ const DayBook = () => {
       {/* ─── Ledger Table ─── */}
       {/* Bleeds the ledger to the page edge — must negate main's gutter at its
           own breakpoints, or it overhangs and forces a horizontal scroll. */}
-      <section className="-mx-4 md:-mx-6">
-        <div className="flex items-center justify-between border-y border-slate-200 bg-slate-50 px-4 py-2.5 md:px-6">
+      <section className="-mx-4 overflow-hidden border-y border-slate-200 bg-white md:-mx-6">
+        <div className="flex items-center justify-between bg-slate-50 px-4 py-2 md:px-6">
           <span className="text-xs font-semibold text-slate-600 uppercase tracking-wider">
             {isRangeStatement ? statementPeriodLabel : fmtDate(selectedDate)} — {isRangeStatement ? 'Consolidated Statement' : 'Cash Working'} {hasFilter && <span className="font-normal normal-case text-slate-400">({filtered.length} of {entries.length} entries)</span>}
           </span>
@@ -1456,12 +1425,21 @@ const DayBook = () => {
         </div>
 
         {loading ? (
-          <div className="flex items-center justify-center h-60">
-            <Loader2 className="w-6 h-6 animate-spin text-slate-300" />
+          <div className="h-[calc(100dvh-17rem)] min-h-96 space-y-3 bg-white p-4" aria-label="Loading transactions">
+            <div className="h-8 w-full animate-pulse rounded bg-slate-100" />
+            {Array.from({ length: 8 }, (_, index) => <div key={index} className="grid grid-cols-[3rem_1.8fr_6rem_6rem_7rem_7rem_7rem_8rem_5rem] gap-3 border-b border-slate-100 py-3"><span className="h-3 animate-pulse rounded bg-slate-100" /><span className="h-3 animate-pulse rounded bg-slate-100" /><span className="h-3 animate-pulse rounded bg-slate-100" /><span className="h-3 animate-pulse rounded bg-slate-100" /><span className="h-3 animate-pulse rounded bg-slate-100" /><span className="h-3 animate-pulse rounded bg-slate-100" /><span className="h-3 animate-pulse rounded bg-slate-100" /><span className="h-3 animate-pulse rounded bg-slate-100" /><span className="h-3 animate-pulse rounded bg-slate-100" /></div>)}
           </div>
-        ) : rows.length === 0 ? null : (
-          <div className="relative max-h-[calc(100dvh-180px)] overflow-auto overscroll-contain bg-white">
-            <table className="w-full min-w-[1080px] border-collapse text-sm">
+        ) : rows.length === 0 ? (
+          <div className="flex h-[calc(100dvh-17rem)] min-h-96 items-center justify-center bg-white px-6 text-center">
+            <div>
+              <BookOpen className="mx-auto h-7 w-7 text-slate-300" />
+              <p className="mt-2 text-sm font-semibold text-slate-600">No transactions found</p>
+              <p className="mt-1 text-xs text-slate-400">Try another date or clear the current filters.</p>
+            </div>
+          </div>
+        ) : (
+          <div className="relative h-[calc(100dvh-17rem)] min-h-96 overflow-auto overscroll-contain scroll-smooth bg-white [scrollbar-width:thin]">
+            <table className="mr-dark-table w-full min-w-[1080px] border-collapse text-sm">
               <TableHeader className="sticky top-0 z-40 bg-white shadow-[0_1px_0_0_#e2e8f0] [&_th]:bg-white">
                 <TableRow className="bg-white hover:bg-white border-b border-slate-200">
                   <TableHead className="text-[10px] font-bold text-slate-500 uppercase tracking-wider h-9 w-12 text-center">
@@ -1694,18 +1672,18 @@ const DayBook = () => {
                 })}
 
                 {/* Totals Row */}
-                <TableRow className="bg-slate-50 hover:bg-slate-50 border-t-2 border-slate-200">
+                <TableRow className="bg-zinc-900 hover:bg-zinc-900 border-t-2 border-zinc-700">
                   <TableCell colSpan={4} className="py-2.5">
-                    <span className="text-xs font-bold text-slate-600 uppercase">{isRangeStatement ? 'Period' : 'Day'} Total ({fTotals.count} approved entries)</span>
+                    <span className="text-xs font-bold text-white uppercase">{isRangeStatement ? 'Period' : 'Day'} Total ({fTotals.count} approved entries)</span>
                   </TableCell>
                   <TableCell className="text-right py-2.5 tabular-nums">
-                    <span className="text-sm font-bold text-red-700">{fmt(fTotals.d)}</span>
+                    <span className="text-sm font-bold text-rose-300">{fmt(fTotals.d)}</span>
                   </TableCell>
                   <TableCell className="text-right py-2.5 tabular-nums">
-                    <span className="text-sm font-bold text-emerald-700">{fmt(fTotals.c)}</span>
+                    <span className="text-sm font-bold text-emerald-300">{fmt(fTotals.c)}</span>
                   </TableCell>
                   <TableCell className="text-right py-2.5 tabular-nums">
-                    <span className={`text-sm font-bold ${(fTotals.c - fTotals.d) > 0 ? 'text-emerald-600' : (fTotals.c - fTotals.d) < 0 ? 'text-red-600' : 'text-slate-800'}`}>
+                    <span className={`text-sm font-bold ${(fTotals.c - fTotals.d) > 0 ? 'text-emerald-300' : (fTotals.c - fTotals.d) < 0 ? 'text-rose-300' : 'text-white'}`}>
                       {(fTotals.c - fTotals.d) < 0 && '−'}{(fTotals.c - fTotals.d) > 0 && '+'}{fmt(Math.abs(fTotals.c - fTotals.d))}
                     </span>
                   </TableCell>
@@ -2063,6 +2041,16 @@ const DayBook = () => {
                       className="h-9 text-sm"
                     />
                   </EntryField>
+
+                  {['PLOT COMMISSION', 'CASH FLOW', 'FIRM TRANSACTION'].includes(form.entry_type) && (
+                    <EntryField label={<FieldLabel icon={Landmark} color="bg-violet-100 text-violet-600">Payment Mode</FieldLabel>} required>
+                      <EntryModeChips
+                        value={form.payment_mode}
+                        modes={PAY_MODES}
+                        onChange={(mode) => setForm({ ...form, payment_mode: form.payment_mode === mode ? '' : mode })}
+                      />
+                    </EntryField>
+                  )}
 
                   {/* Direction, amount, mode — generic types + EXPENSE only; the 5 specialized
                       types pin their own direction/amount/mode inside their own block below. */}
@@ -2597,6 +2585,14 @@ const DayBook = () => {
                     </div>
                   )}
 
+                  <BankAccountSelect
+                    value={form.bank_account_id}
+                    onChange={(value) => setForm((current) => ({ ...current, bank_account_id: value }))}
+                    paymentMode={effectivePaymentMode}
+                    disabled={submitting}
+                    required
+                  />
+
                   {/* From / To, Category, Account, Branch — generic types + EXPENSE only */}
                   {!isSpecializedType && (
                     <>
@@ -2733,13 +2729,13 @@ function DaybookMetric({ label, value, hint, tone = 'slate', icon }) {
     slate: 'text-slate-600 bg-slate-100',
   };
   return (
-    <div className="min-w-0 border-b border-r border-slate-100 px-4 py-3.5 last:border-r-0 lg:border-b-0">
-      <div className="flex items-center gap-2">
-        <span className={`flex h-6 w-6 items-center justify-center rounded-lg ${tones[tone] || tones.slate}`}>{icon}</span>
-        <p className="truncate text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">{label}</p>
+    <div className="flex min-w-36 flex-1 items-center gap-2 px-3 py-2">
+      <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${tones[tone] || tones.slate}`}>{icon}</span>
+      <div className="min-w-0">
+        <p className="truncate text-[9px] font-bold uppercase tracking-[0.1em] text-slate-500">{label}</p>
+        <p className="truncate text-sm font-bold tracking-tight text-slate-900 tabular-nums">{value}</p>
+        {hint && <p className="truncate text-[9px] text-slate-400">{hint}</p>}
       </div>
-      <p className="mt-2 truncate text-lg font-bold tracking-tight text-slate-900 tabular-nums">{value}</p>
-      {hint && <p className="mt-0.5 truncate text-[10px] text-slate-400">{hint}</p>}
     </div>
   );
 }
@@ -2787,6 +2783,30 @@ function signedRupee(n) {
   return (v < 0 ? '−' : '') + fmt(Math.abs(v));
 }
 
+function LedgerBalanceStrip({ bookLabel, opening, incoming, outgoing, closing, isToday }) {
+  const closingPositive = closing >= 0;
+  const metrics = [
+    { label: `${bookLabel} opening`, value: signedRupee(opening), tone: 'text-slate-700', dot: 'bg-slate-400' },
+    { label: 'Money in', value: fmt(incoming), tone: 'text-emerald-700', dot: 'bg-emerald-500' },
+    { label: 'Money out', value: fmt(outgoing), tone: 'text-rose-700', dot: 'bg-rose-500' },
+    { label: isToday ? 'Current balance' : 'Closing balance', value: signedRupee(closing), tone: closingPositive ? 'text-blue-700' : 'text-rose-700', dot: closingPositive ? 'bg-blue-500' : 'bg-rose-500' },
+  ];
+
+  return (
+    <section className="flex min-w-0 divide-x divide-slate-200 overflow-x-auto border-t border-slate-100 bg-slate-50/60">
+      {metrics.map((metric) => (
+        <div key={metric.label} className="flex min-w-36 flex-1 items-center gap-2 px-3 py-2">
+          <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${metric.dot}`} />
+          <div className="min-w-0">
+            <p className="truncate text-[9px] font-bold uppercase tracking-[0.1em] text-slate-500">{metric.label}</p>
+            <p className={`truncate text-sm font-bold tabular-nums ${metric.tone}`}>{metric.value}</p>
+          </div>
+        </div>
+      ))}
+    </section>
+  );
+}
+
 /*
  * Opening + Remaining cards for all three Day Book routes.
  *
@@ -2803,7 +2823,7 @@ function signedRupee(n) {
  * waiting for the next round-trip — which was the "debit not reducing cash"
  * complaint.
  */
-function BalanceCards({ isToday, selectedDate, mode = 'all', modeBalance, entries = [] }) {
+function BalanceCards({ compact = false, isToday, selectedDate, mode = 'all', modeBalance, entries = [] }) {
   // Breakdown modal state — populated when the user clicks a Cash/Bank In or
   // Out card. `detail` holds { direction, label, total, rows } or null.
   const [breakdown, setBreakdown] = useState(null);
@@ -2838,6 +2858,13 @@ function BalanceCards({ isToday, selectedDate, mode = 'all', modeBalance, entrie
   }, [entries]);
 
   if (!modeBalance) {
+    if (compact) {
+      return (
+        <div className="flex h-11 items-center gap-2 border-t border-slate-100 px-3 text-[11px] text-slate-500">
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" /> Loading current balance…
+        </div>
+      );
+    }
     return (
       <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 p-4 flex items-start gap-3">
         <div className="w-10 h-10 rounded-xl bg-slate-200/70 flex items-center justify-center shrink-0 text-slate-500">
@@ -2909,6 +2936,19 @@ function BalanceCards({ isToday, selectedDate, mode = 'all', modeBalance, entrie
         rows: direction === 'in' ? grossRows.inRows : grossRows.outRows,
       });
     };
+
+    if (compact) {
+      return (
+        <LedgerBalanceStrip
+          bookLabel={label}
+          opening={opening}
+          incoming={liveC}
+          outgoing={liveD}
+          closing={remaining}
+          isToday={isToday}
+        />
+      );
+    }
 
     return (
       <div className="space-y-3">
@@ -2991,6 +3031,19 @@ function BalanceCards({ isToday, selectedDate, mode = 'all', modeBalance, entrie
 
   const openingTotal   = siteOpeningRaw != null ? (parseFloat(siteOpeningRaw) || 0) : fallbackOpening;
   const remainingTotal = openingTotal + liveCreditTotal - liveDebitTotal;
+
+  if (compact) {
+    return (
+      <LedgerBalanceStrip
+        bookLabel="Site"
+        opening={openingTotal}
+        incoming={liveCreditTotal}
+        outgoing={liveDebitTotal}
+        closing={remainingTotal}
+        isToday={isToday}
+      />
+    );
+  }
 
   return (
     <div className="space-y-3">

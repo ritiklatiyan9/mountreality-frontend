@@ -9,14 +9,13 @@ import { money } from '@/lib/utils';
 const HEAD = 'border-b border-mr-line bg-mr-surface-2 px-4 py-3 text-[12px] font-medium text-mr-muted';
 
 /* ── Expense table (desktop) ─────────────────────────────────────────
-   Fourteen columns became eight by grouping, not by dropping: category,
-   assigned admin and remark now sit under the party; created-by sits
-   under the status. Nothing is hidden, and the table no longer needs
-   1450px before it makes sense. ── */
+   The register keeps the accounting essentials visible: date, mode,
+   amounts, approval state and actions. Party details are intentionally
+   omitted from this view. ── */
 export default function ExpenseTable({
   expenses, selection, visibleNativeIds, sortOrder, onToggleSort,
-  page, perPage, isAdmin, canUpdate, canDelete, uploadingBillId,
-  onRefreshCheque, getAssignedAdminLabel, actions,
+  isAdmin, canUpdate, canDelete, uploadingBillId,
+  onRefreshCheque, actions,
 }) {
   return (
     <div className="hidden max-h-[calc(100dvh-320px)] overflow-auto overscroll-contain md:block">
@@ -47,7 +46,6 @@ export default function ExpenseTable({
                 Date <ArrowUpDown className="h-3 w-3" strokeWidth={1.9} aria-hidden="true" />
               </button>
             </th>
-            <th scope="col" className={`${HEAD} min-w-[240px]`}>Party &amp; details</th>
             <th scope="col" className={`${HEAD} w-28`}>Mode</th>
             <th scope="col" className={`${HEAD} w-32 text-right`}>Debit</th>
             <th scope="col" className={`${HEAD} w-32 text-right`}>Credit</th>
@@ -63,12 +61,6 @@ export default function ExpenseTable({
             const missingBill = isMissingBill(exp);
             const status = STATUS_CHIP[exp.status] || STATUS_CHIP.pending;
             const source = exp.source ? SOURCE_META[exp.source] : null;
-            const meta = [
-              exp.category,
-              getAssignedAdminLabel(exp),
-              exp.remark,
-            ].filter(Boolean).join(' · ');
-
             return (
               <tr
                 key={exp.id}
@@ -88,19 +80,6 @@ export default function ExpenseTable({
 
                 <td className="whitespace-nowrap px-4 py-3.5">
                   <span className="block text-[13px] font-medium tabular-nums text-mr-text">{actions.formatDate(exp.date)}</span>
-                  <span className="mt-0.5 block text-[12px] tabular-nums text-mr-faint">
-                    #{((page - 1) * perPage) + idx + 1}
-                  </span>
-                </td>
-
-                <td className="max-w-[26rem] px-4 py-3.5">
-                  <span className="block truncate text-[13px] font-medium text-mr-text">
-                    {exp.to_entity || exp.from_entity || '—'}
-                  </span>
-                  {exp.from_entity && exp.to_entity && (
-                    <span className="mt-0.5 block truncate text-[12px] text-mr-muted">from {exp.from_entity}</span>
-                  )}
-                  {meta && <span className="mt-0.5 block truncate text-[12px] text-mr-faint" title={meta}>{meta}</span>}
                 </td>
 
                 <td className="whitespace-nowrap px-4 py-3.5">

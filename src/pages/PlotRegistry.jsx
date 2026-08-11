@@ -1,7 +1,9 @@
-import { createElement, useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { writePrintDocument } from '../lib/safePrint';
+import { createElement, useState, useEffect, useCallback, useMemo, useRef, useContext } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { motion as Motion } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
+import { SitePolicyContext } from '../context/SitePolicyContext';
 import api from '../api/api';
 import { apolloClient } from '../graphql/client';
 import { GET_REGISTRY_BANK_CHEQUE_PAYMENTS } from '../graphql/queries';
@@ -50,6 +52,7 @@ import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
 import RegistryDocuments from '../components/RegistryDocuments';
 import { useDocViewer } from '../components/DocViewer';
+import BankAccountSelect from '../components/BankAccountSelect';
 
 // ── Helpers ──
 const fmt = (v) => {
@@ -255,6 +258,8 @@ const PlotRegistry = () => {
   const openDoc = useDocViewer();
   const { id: registryIdParam } = useParams();
   const { currentSite, canManage, user, isAdmin, hasPermission } = useAuth();
+  const sitePolicy = useContext(SitePolicyContext);
+  const registryLabel = sitePolicy?.getTerm?.('conveyance_module', 'Plot Registry') || 'Plot Registry';
   const canWrite  = canManage && hasPermission('plot_registry', 'write');
   const canUpdate = canManage && hasPermission('plot_registry', 'update');
   const canDelete = canManage && hasPermission('plot_registry', 'delete');
@@ -365,7 +370,7 @@ const PlotRegistry = () => {
   // Payment form
   const [payForm, setPayForm] = useState({
     payment_date: todayISO(),
-    amount: '', payment_mode: '', tally_date: todayISO(), tally_amount: '', notes: '',
+    amount: '', payment_mode: '', bank_account_id: '', tally_date: todayISO(), tally_amount: '', notes: '',
     cheque_no: '',
     assigned_admin_id: null,
   });
@@ -381,7 +386,7 @@ const PlotRegistry = () => {
   const addInlinePaymentRow = () => {
     setInlinePayments((prev) => ([
       ...prev,
-      { payment_date: todayISO(), amount: '', payment_mode: 'CASH', notes: '' },
+      { payment_date: todayISO(), amount: '', payment_mode: 'CASH', bank_account_id: '', notes: '' },
     ]));
   };
 
@@ -858,6 +863,13 @@ const PlotRegistry = () => {
       setMessage({ type: 'error', text: 'Please select plot number from dropdown' });
       return;
     }
+    const unmappedBankRow = inlinePayments.find((row) => (
+      parseFloat(row.amount) > 0 && row.payment_mode !== 'CASH' && !row.bank_account_id
+    ));
+    if (unmappedBankRow) {
+      setMessage({ type: 'error', text: 'Select a bank account for every non-cash manual payment.' });
+      return;
+    }
     setSubmitting(true);
     let createPayload = null;
     try {
@@ -894,6 +906,7 @@ const PlotRegistry = () => {
             payment_date: row.payment_date || todayISO(),
             amount: row.amount,
             payment_mode: row.payment_mode,
+            bank_account_id: row.bank_account_id || null,
             tally_date: row.tally_date || null,
             tally_amount: row.tally_amount,
             notes: row.notes,
@@ -917,6 +930,7 @@ const PlotRegistry = () => {
                 payment_date: row.payment_date || todayISO(),
                 amount: row.amount,
                 payment_mode: row.payment_mode,
+                bank_account_id: row.bank_account_id || null,
                 tally_date: row.tally_date || null,
                 tally_amount: row.tally_amount,
                 notes: row.notes,
@@ -1039,7 +1053,7 @@ const PlotRegistry = () => {
   const resetPayForm = () => {
     setPayForm({
       payment_date: todayISO(),
-      amount: '', payment_mode: '', tally_date: todayISO(), tally_amount: '', notes: '',
+      amount: '', payment_mode: '', bank_account_id: '', tally_date: todayISO(), tally_amount: '', notes: '',
       assigned_admin_id: null,
     });
     setEditingPaymentId(null);
@@ -1053,6 +1067,7 @@ const PlotRegistry = () => {
       payment_date: p.payment_date ? p.payment_date.split('T')[0] : todayISO(),
       amount: p.amount ? String(Math.abs(parseFloat(p.amount))) : '',
       payment_mode: p.payment_mode || '',
+      bank_account_id: p.bank_account_id ? String(p.bank_account_id) : '',
       tally_date: p.tally_date ? p.tally_date.split('T')[0] : todayISO(),
       tally_amount: p.tally_amount != null ? String(p.tally_amount) : '',
       notes: p.notes || '',
@@ -1065,12 +1080,17 @@ const PlotRegistry = () => {
   const handleSubmitPayment = async (ev) => {
     ev.preventDefault();
     setMessage({ type: '', text: '' });
+    if (payForm.payment_mode && payForm.payment_mode !== 'CASH' && !payForm.bank_account_id) {
+      setMessage({ type: 'error', text: 'Select the bank account used for this payment.' });
+      return;
+    }
 
     const payload = {
       registry_id: selectedRegistry.id,
       payment_date: payForm.payment_date || todayISO(),
       amount: payForm.amount,
       payment_mode: payForm.payment_mode,
+      bank_account_id: payForm.bank_account_id || null,
       tally_date: payForm.tally_date || todayISO(),
       tally_amount: payForm.tally_amount,
       notes: payForm.notes,
@@ -1463,7 +1483,7 @@ const PlotRegistry = () => {
   </div>
 </body></html>`;
 
-    receiptWindow.document.write(html);
+    writePrintDocument(receiptWindow, html);
     receiptWindow.document.close();
   };
 
@@ -1559,7 +1579,7 @@ const PlotRegistry = () => {
 </body>
 </html>`;
 
-    statementWindow.document.write(html);
+    writePrintDocument(statementWindow, html);
     statementWindow.document.close();
   };
 
@@ -1703,7 +1723,7 @@ const PlotRegistry = () => {
       toast.error('Popup blocked — allow popups for this site to print');
       return;
     }
-    w.document.write(html);
+    writePrintDocument(w, html);
     w.document.close();
   };
 
@@ -2163,6 +2183,14 @@ const PlotRegistry = () => {
                               <X className="w-3.5 h-3.5 text-red-500" />
                             </Button>
                           </div>
+                          <BankAccountSelect
+                            className="col-span-12"
+                            value={row.bank_account_id}
+                            onChange={(value) => updateInlinePaymentRow(idx, 'bank_account_id', value)}
+                            paymentMode={row.payment_mode}
+                            disabled={submitting}
+                            required
+                          />
                         </div>
                       ))}
                     </div>
@@ -2803,6 +2831,14 @@ const PlotRegistry = () => {
                 </div>
               </div>
 
+              <BankAccountSelect
+                value={payForm.bank_account_id}
+                onChange={(value) => setPayForm((current) => ({ ...current, bank_account_id: value }))}
+                paymentMode={payForm.payment_mode}
+                disabled={submitting}
+                required
+              />
+
               {payForm.payment_mode === 'CHEQUE' && (
                 <div className="space-y-1.5">
                   <Label className="text-xs font-medium">Cheque No</Label>
@@ -2940,7 +2976,7 @@ const PlotRegistry = () => {
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-base font-semibold text-slate-900 leading-tight">Plot Registry</h1>
+                <h1 className="text-base font-semibold text-slate-900 leading-tight">{registryLabel}</h1>
                 <Badge variant="secondary" className="h-5 rounded-full px-2 text-[10px] font-medium tabular-nums">{filteredRegistries.length} registries</Badge>
               </div>
               <p className="text-[11px] text-slate-500 leading-tight">
@@ -2949,6 +2985,9 @@ const PlotRegistry = () => {
             </div>
           </div>
           <div className="flex items-center gap-1.5">
+            <Button variant="outline" size="sm" onClick={() => navigate('/customer-inventory')} className="text-xs h-8 rounded-lg border-blue-200 text-blue-700 hover:bg-blue-50">
+              <Landmark className="mr-1 h-3.5 w-3.5" /> Customer lifecycle
+            </Button>
             {selectedVisibleRegs.length > 0 && (
               <span className="flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 pl-3 pr-1 py-0.5">
                 <span className="text-[11px] font-semibold text-sky-700">{selectedVisibleRegs.length} selected</span>
@@ -3115,6 +3154,7 @@ const PlotRegistry = () => {
                       </Button>
                     </TableHead>
                     <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Customer Name</TableHead>
+                    <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Project / Phase</TableHead>
                     <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 w-20 text-right">Size (m²)</TableHead>
                     <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 w-20 text-right">Size (sqyd)</TableHead>
                     <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 w-32">Registry Date</TableHead>
@@ -3124,6 +3164,8 @@ const PlotRegistry = () => {
                     <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-right w-28">Balance (₹)</TableHead>
                     <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 w-20">% Paid</TableHead>
                     <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 w-32">Assigned To</TableHead>
+                    <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 w-28">Lifecycle</TableHead>
+                    <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 w-28">Possession</TableHead>
                     <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-right w-28">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -3186,6 +3228,10 @@ const PlotRegistry = () => {
                             </Badge>
                           </div>
                         </TableCell>
+                        <TableCell>
+                          <p className="max-w-36 truncate text-xs font-medium text-slate-700">{reg.project_name || 'Legacy / unmapped'}</p>
+                          <p className="max-w-36 truncate text-[10px] text-slate-400">{reg.phase_name || 'No phase'}</p>
+                        </TableCell>
                         <TableCell className="text-right">
                           <span className="text-xs text-slate-600 tabular-nums">{reg.size_meter || '—'}</span>
                         </TableCell>
@@ -3228,6 +3274,16 @@ const PlotRegistry = () => {
                           ) : (
                             <span className="text-[10px] text-slate-300">Unassigned</span>
                           )}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="h-5 whitespace-nowrap rounded-full px-2 text-[9px] font-semibold">
+                            {String(reg.lifecycle_status || 'NOT_READY').replaceAll('_', ' ')}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className={`h-5 whitespace-nowrap rounded-full px-2 text-[9px] font-semibold ${reg.possession_lifecycle_status === 'POSSESSED' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 text-slate-500'}`}>
+                            {String(reg.possession_lifecycle_status || reg.possession_status || 'PENDING').replaceAll('_', ' ')}
+                          </Badge>
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-0.5">
@@ -3274,6 +3330,7 @@ const PlotRegistry = () => {
                           <span className="text-xs font-bold text-slate-700 uppercase">Total ({filteredRegistries.length})</span>
                         </TableCell>
                         <TableCell />
+                        <TableCell />
                         <TableCell className="text-right">
                           <span className="text-xs font-bold text-slate-700 tabular-nums">{fmt(totals.sizeMeter)}</span>
                         </TableCell>
@@ -3304,6 +3361,8 @@ const PlotRegistry = () => {
                             </span>
                           </div>
                         </TableCell>
+                        <TableCell />
+                        <TableCell />
                         <TableCell />
                         <TableCell />
                       </tr>

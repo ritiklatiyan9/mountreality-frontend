@@ -1,344 +1,134 @@
-import { useState, useEffect, useCallback } from 'react';
-import { useAuth } from '../context/AuthContext';
-import api from '../api/api';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Building2, CheckCircle2, Edit2, Eye, Landmark, Loader2, Plus, Search, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import api from '../api/api';
+import { useAuth } from '../context/AuthContext';
+import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
-import { Switch } from '../components/ui/switch';
 import { Skeleton } from '../components/ui/skeleton';
-import {
-  Dialog, DialogContent, DialogDescription, DialogHeader,
-  DialogTitle, DialogFooter,
-} from '../components/ui/dialog';
-import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from '../components/ui/table';
-import {
-  Landmark, Plus, Loader2, CheckCircle2, Edit2, Trash2, Building2,
-  Lock, KeyRound, ShieldCheck, Eye, EyeOff,
-} from 'lucide-react';
+import { Switch } from '../components/ui/switch';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
+import { money } from '../lib/utils';
 
-// ponytail: client-side gate only — real protection is the upi_collect API
-// permission; this keeps casual eyes out of the bank details screen.
-const GATE_PASSWORD = '9760302691';
-const GATE_KEY = 'bankConfigsUnlocked';
+const EMPTY_ACCOUNT = {
+  label: '', bank_name: '', account_no: '', ifsc: '', account_type: 'CURRENT',
+  payee_name: '', vpa: '', notes: '', is_active: true,
+};
 
-const EMPTY_ACCOUNT = { label: '', payee_name: '', vpa: '', bank_name: '', account_no: '', ifsc: '' };
-
-const BankConfigs = () => {
-  const { currentSite, canManage, hasPermission } = useAuth();
+export default function BankConfigs() {
+  const navigate = useNavigate();
+  const { currentSite, hasPermission } = useAuth();
   const siteId = currentSite?.id;
-  const canWrite  = canManage && hasPermission('upi_collect', 'write');
-  const canUpdate = canManage && hasPermission('upi_collect', 'update');
-  const canDelete = canManage && hasPermission('upi_collect', 'delete');
-
-  // ── Password gate ──
-  const [unlocked, setUnlocked] = useState(() => sessionStorage.getItem(GATE_KEY) === '1');
-  const [passInput, setPassInput] = useState('');
-  const [showPass, setShowPass] = useState(false);
-  const [gateError, setGateError] = useState(false);
-
-  const tryUnlock = () => {
-    if (passInput === GATE_PASSWORD) {
-      sessionStorage.setItem(GATE_KEY, '1');
-      setUnlocked(true);
-    } else {
-      setGateError(true);
-      setPassInput('');
-    }
-  };
-
-  // ── Accounts ──
+  const canWrite = hasPermission('plot_payments', 'write');
+  const canUpdate = hasPermission('plot_payments', 'update');
+  const canDelete = hasPermission('plot_payments', 'delete');
   const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [accountDialog, setAccountDialog] = useState(false);
-  const [accountForm, setAccountForm] = useState(EMPTY_ACCOUNT);
+  const [query, setQuery] = useState('');
+  const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [form, setForm] = useState(EMPTY_ACCOUNT);
   const [saving, setSaving] = useState(false);
 
-  const fetchAccounts = useCallback(async () => {
-    if (!siteId || !unlocked) return;
+  const load = useCallback(async () => {
+    if (!siteId) return;
+    setLoading(true);
     try {
-      setLoading(true);
-      const res = await api.get('/upi/accounts', { params: { site_id: siteId } });
-      setAccounts(res.data.accounts || []);
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to load accounts');
+      const { data } = await api.get('/bank-accounts', { params: { site_id: siteId } });
+      setAccounts(data.accounts || []);
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Bank accounts could not be loaded');
     } finally {
       setLoading(false);
     }
-  }, [siteId, unlocked]);
+  }, [siteId]);
 
-  useEffect(() => { fetchAccounts(); }, [fetchAccounts]);
+  useEffect(() => { void load(); }, [load]);
 
-  const openAdd = () => { setAccountForm(EMPTY_ACCOUNT); setEditingId(null); setAccountDialog(true); };
-  const openEdit = (a) => {
-    setAccountForm({
-      label: a.label, payee_name: a.payee_name, vpa: a.vpa,
-      bank_name: a.bank_name || '', account_no: a.account_no || '', ifsc: a.ifsc || '',
+  const totals = useMemo(() => accounts.reduce((summary, account) => ({
+    active: summary.active + (account.is_active ? 1 : 0),
+    transactions: summary.transactions + Number(account.transaction_count || 0),
+    balance: summary.balance + Number(account.ledger_balance || 0),
+  }), { active: 0, transactions: 0, balance: 0 }), [accounts]);
+
+  const filtered = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    if (!normalized) return accounts;
+    return accounts.filter((account) => [account.label, account.bank_name, account.masked_account_no, account.ifsc]
+      .some((value) => String(value || '').toLowerCase().includes(normalized)));
+  }, [accounts, query]);
+
+  const openCreate = () => { setEditingId(null); setForm(EMPTY_ACCOUNT); setDialogOpen(true); };
+  const openEdit = (account) => {
+    setEditingId(account.id);
+    setForm({
+      label: account.label || '', bank_name: account.bank_name || '', account_no: account.account_no || '',
+      ifsc: account.ifsc || '', account_type: account.account_type || 'CURRENT', payee_name: account.payee_name || '',
+      vpa: account.vpa || '', notes: account.notes || '', is_active: account.is_active !== false,
     });
-    setEditingId(a.id);
-    setAccountDialog(true);
+    setDialogOpen(true);
   };
+  const setField = (key, value) => setForm((current) => ({ ...current, [key]: value }));
 
-  const saveAccount = async () => {
-    if (!accountForm.label.trim() || !accountForm.payee_name.trim() || !accountForm.vpa.trim()) {
-      toast.error('Label, payee name and VPA / UPI ID are required');
-      return;
-    }
+  const save = async () => {
+    if (!form.label.trim() || !form.bank_name.trim()) return toast.error('Account label and bank name are required');
     setSaving(true);
     try {
-      if (editingId) {
-        const res = await api.put(`/upi/accounts/${editingId}`, accountForm);
-        setAccounts((prev) => prev.map((a) => (a.id === editingId ? res.data.account : a)));
-        toast.success('Account updated');
-      } else {
-        const res = await api.post('/upi/accounts', { ...accountForm, site_id: siteId });
-        setAccounts((prev) => [...prev, res.data.account]);
-        toast.success('Account added');
-      }
-      setAccountDialog(false);
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to save account');
-    } finally {
-      setSaving(false);
-    }
+      const payload = { ...form };
+      if (editingId && !payload.account_no.trim()) delete payload.account_no;
+      if (editingId) await api.put(`/bank-accounts/${editingId}`, payload);
+      else await api.post('/bank-accounts', { ...payload, site_id: siteId });
+      toast.success(editingId ? 'Bank account updated' : 'Bank account created');
+      window.dispatchEvent(new Event('bank-accounts:changed'));
+      setDialogOpen(false);
+      await load();
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Bank account could not be saved');
+    } finally { setSaving(false); }
   };
 
-  const toggleActive = async (a, checked) => {
+  const toggle = async (account, isActive) => {
     try {
-      const res = await api.put(`/upi/accounts/${a.id}`, { is_active: checked });
-      setAccounts((prev) => prev.map((x) => (x.id === a.id ? res.data.account : x)));
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to update account');
-    }
+      await api.put(`/bank-accounts/${account.id}`, { is_active: isActive });
+      setAccounts((current) => current.map((item) => item.id === account.id ? { ...item, is_active: isActive } : item));
+      window.dispatchEvent(new Event('bank-accounts:changed'));
+    } catch (error) { toast.error(error.response?.data?.message || 'Account status could not be changed'); }
   };
 
-  const removeAccount = async (a) => {
-    if (!window.confirm(`Delete "${a.label}"?`)) return;
+  const remove = async (account) => {
+    if (!window.confirm(`Remove ${account.bank_name || account.label}?`)) return;
     try {
-      const res = await api.delete(`/upi/accounts/${a.id}`);
-      if (res.data.deactivated) {
-        toast.info(res.data.message);
-        fetchAccounts();
-      } else {
-        setAccounts((prev) => prev.filter((x) => x.id !== a.id));
-        toast.success('Account deleted');
-      }
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to delete account');
-    }
+      const { data } = await api.delete(`/bank-accounts/${account.id}`);
+      toast.success(data.message || 'Bank account removed');
+      window.dispatchEvent(new Event('bank-accounts:changed'));
+      await load();
+    } catch (error) { toast.error(error.response?.data?.message || 'Bank account could not be removed'); }
   };
 
-  if (!currentSite) {
-    return (
-      <div className="flex flex-col items-center justify-center py-20 text-center">
-        <Building2 className="w-10 h-10 text-slate-200 mb-3" />
-        <p className="text-sm text-slate-500">Select a site first</p>
-      </div>
-    );
-  }
+  if (!currentSite) return <div className="flex min-h-72 flex-col items-center justify-center text-center"><Building2 className="h-9 w-9 text-mr-faint" /><p className="mt-3 text-sm text-mr-muted">Select a Site to manage its bank accounts.</p></div>;
 
-  // ── Locked view ──
-  if (!unlocked) {
-    return (
-      <div className="max-w-md mx-auto mt-16">
-        <Card className="border-border/50 shadow-lg rounded-2xl overflow-hidden">
-          <CardContent className="pt-10 pb-8 flex flex-col items-center text-center">
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-slate-700 to-slate-900 flex items-center justify-center shadow-lg mb-4">
-              <Lock className="w-7 h-7 text-white" />
-            </div>
-            <h2 className="text-lg font-bold text-slate-900">Bank Configs</h2>
-            <p className="text-xs text-slate-500 mt-1 mb-6">This section is protected. Enter the access password.</p>
-            <div className="w-full space-y-3">
-              <div className="relative">
-                <Input
-                  type={showPass ? 'text' : 'password'}
-                  value={passInput}
-                  autoFocus
-                  placeholder="Access password"
-                  className={`h-11 text-center tracking-widest pr-10 ${gateError ? 'border-red-400 focus-visible:ring-red-300' : ''}`}
-                  onChange={(e) => { setPassInput(e.target.value); setGateError(false); }}
-                  onKeyDown={(e) => { if (e.key === 'Enter') tryUnlock(); }}
-                />
-                <button type="button" tabIndex={-1}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                  onClick={() => setShowPass((s) => !s)}>
-                  {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-              {gateError && <p className="text-xs text-red-600">Wrong password</p>}
-              <Button className="w-full h-11" onClick={tryUnlock} disabled={!passInput}>
-                <KeyRound className="w-4 h-4 mr-2" /> Unlock
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  // ── Unlocked view ──
   return (
-    <div className="max-w-6xl mx-auto space-y-6 pb-10">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-            <Landmark className="w-5 h-5 text-slate-600" /> Bank Configs
-            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
-              <ShieldCheck className="w-3 h-3" /> Unlocked
-            </span>
-          </h1>
-          <p className="text-xs text-slate-500 mt-0.5">Bank accounts and payment addresses used by Receive Money</p>
+    <div className="mx-auto max-w-7xl space-y-5 pb-10">
+      <header className="rounded-panel bg-mr-ink p-5 text-white sm:p-7">
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
+          <div><span className="flex h-11 w-11 items-center justify-center rounded-full bg-white/10"><Landmark className="h-5 w-5" /></span><p className="mt-5 text-[11px] font-semibold uppercase tracking-[0.14em] text-mr-lime">Treasury controls</p><h1 className="mt-1 text-3xl font-semibold tracking-[-0.045em]">Bank Configs</h1><p className="mt-2 max-w-2xl text-sm text-zinc-300">Create Site bank accounts and inspect every transaction posted through each account.</p></div>
+          {canWrite ? <Button onClick={openCreate} className="rounded-full bg-mr-lime-ink text-white hover:brightness-110"><Plus className="mr-2 h-4 w-4" /> Add account</Button> : null}
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" className="text-slate-400"
-            onClick={() => { sessionStorage.removeItem(GATE_KEY); setUnlocked(false); setPassInput(''); }}>
-            <Lock className="w-3.5 h-3.5 mr-1.5" /> Lock
-          </Button>
-          {canWrite && (
-            <Button size="sm" onClick={openAdd}>
-              <Plus className="w-3.5 h-3.5 mr-1.5" /> Add Account
-            </Button>
-          )}
-        </div>
-      </div>
+        <div className="mt-6 grid gap-2 sm:grid-cols-3">{[['Active accounts', totals.active], ['Mapped transactions', totals.transactions], ['Combined balance', money(totals.balance)]].map(([label, value]) => <div key={label} className="rounded-panel-sm border border-white/10 bg-white/5 px-4 py-3"><p className="text-[10px] uppercase tracking-wider text-zinc-400">{label}</p><p className="mt-1 text-lg font-semibold">{value}</p></div>)}</div>
+      </header>
 
-      <Card className="border-border/50 shadow-lg shadow-black/5 rounded-2xl overflow-hidden">
-        <CardHeader className="pb-4 border-b border-border/50 bg-gradient-to-r from-slate-50/80 to-transparent">
-          <CardTitle className="text-sm font-semibold">Accounts ({accounts.length})</CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          {loading ? (
-            <div className="p-5 space-y-3"><Skeleton className="h-9 w-full" /><Skeleton className="h-9 w-full" /></div>
-          ) : accounts.length === 0 ? (
-            <div className="py-10 text-center">
-              <Landmark className="w-8 h-8 text-slate-200 mx-auto mb-2" />
-              <p className="text-sm text-slate-500">No bank accounts yet</p>
-              <p className="text-xs text-slate-400 mt-1">
-                Add your account with its VPA / UPI ID (e.g. <span className="font-mono">yourname@sbi</span>)
-              </p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-slate-50/50">
-                    <TableHead className="text-xs pl-5">Label</TableHead>
-                    <TableHead className="text-xs">Payee Name</TableHead>
-                    <TableHead className="text-xs">VPA / UPI ID</TableHead>
-                    <TableHead className="text-xs">Bank</TableHead>
-                    <TableHead className="text-xs">Account No</TableHead>
-                    <TableHead className="text-xs">IFSC</TableHead>
-                    <TableHead className="text-xs text-center">Active</TableHead>
-                    <TableHead className="text-xs text-right pr-5">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {accounts.map((a) => (
-                    <TableRow key={a.id} className={`group ${!a.is_active ? 'opacity-50' : ''}`}>
-                      <TableCell className="text-sm font-medium pl-5">{a.label}</TableCell>
-                      <TableCell className="text-sm">{a.payee_name}</TableCell>
-                      <TableCell>
-                        <span className="text-xs font-mono text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-md px-2 py-0.5">
-                          {a.vpa}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-sm text-slate-500">{a.bank_name || '—'}</TableCell>
-                      <TableCell className="text-xs font-mono text-slate-500">{a.account_no || '—'}</TableCell>
-                      <TableCell className="text-xs font-mono text-slate-500">{a.ifsc || '—'}</TableCell>
-                      <TableCell className="text-center">
-                        <Switch checked={a.is_active} disabled={!canUpdate}
-                          onCheckedChange={(c) => toggleActive(a, c)} />
-                      </TableCell>
-                      <TableCell className="text-right pr-5">
-                        <div className="flex items-center justify-end gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                          {canUpdate && (
-                            <Button variant="ghost" size="sm" title="Edit"
-                              className="h-7 w-7 p-0 text-slate-400 hover:text-slate-700 hover:bg-slate-100"
-                              onClick={() => openEdit(a)}>
-                              <Edit2 className="w-3.5 h-3.5" />
-                            </Button>
-                          )}
-                          {canDelete && (
-                            <Button variant="ghost" size="sm" title="Delete"
-                              className="h-7 w-7 p-0 text-slate-400 hover:text-red-600 hover:bg-red-50"
-                              onClick={() => removeAccount(a)}>
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </Button>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <section className="overflow-hidden rounded-panel border border-mr-line bg-mr-surface">
+        <div className="flex flex-col gap-3 border-b border-mr-line p-4 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="text-base font-semibold text-mr-text">Configured accounts</h2><p className="text-xs text-mr-muted">Select a row to open its ledger.</p></div><div className="relative w-full sm:w-72"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-mr-faint" /><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search bank or account" className="h-10 rounded-full border-mr-line pl-9" /></div></div>
+        {loading ? <div className="space-y-3 p-5"><Skeleton className="h-12" /><Skeleton className="h-12" /><Skeleton className="h-12" /></div> : filtered.length === 0 ? <div className="py-16 text-center"><Landmark className="mx-auto h-9 w-9 text-mr-faint" /><p className="mt-3 text-sm font-medium text-mr-text">No bank accounts found</p><p className="mt-1 text-xs text-mr-muted">Add ICICI, Axis, SBI, or any other operating account.</p></div> : (
+          <div className="overflow-x-auto"><Table><TableHeader><TableRow className="bg-mr-surface-2"><TableHead>Account</TableHead><TableHead>Type</TableHead><TableHead>IFSC</TableHead><TableHead className="text-right">Transactions</TableHead><TableHead className="text-right">Ledger balance</TableHead><TableHead className="text-center">Active</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>{filtered.map((account) => <TableRow key={account.id} className="cursor-pointer" onClick={() => navigate(`/bank-configs/${account.id}`)}><TableCell><p className="font-semibold text-mr-text">{account.bank_name || account.label}</p><p className="text-xs text-mr-muted">{account.label}{account.masked_account_no ? ` · ${account.masked_account_no}` : ''}</p></TableCell><TableCell><Badge variant="outline" className="rounded-full border-mr-line">{account.account_type || 'BANK'}</Badge></TableCell><TableCell className="font-mono text-xs text-mr-muted">{account.ifsc || '—'}</TableCell><TableCell className="text-right tabular-nums">{account.transaction_count || 0}</TableCell><TableCell className={`text-right font-semibold tabular-nums ${Number(account.ledger_balance) < 0 ? 'text-mr-coral-ink' : 'text-mr-lime-ink'}`}>{money(account.ledger_balance)}</TableCell><TableCell className="text-center" onClick={(event) => event.stopPropagation()}><Switch checked={account.is_active} disabled={!canUpdate} onCheckedChange={(checked) => toggle(account, checked)} /></TableCell><TableCell onClick={(event) => event.stopPropagation()}><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" className="h-8 w-8 rounded-full" onClick={() => navigate(`/bank-configs/${account.id}`)} title="Open ledger"><Eye className="h-4 w-4" /></Button>{canUpdate ? <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full" onClick={() => openEdit(account)} title="Edit"><Edit2 className="h-4 w-4" /></Button> : null}{canDelete ? <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-mr-coral-ink" onClick={() => remove(account)} title="Delete"><Trash2 className="h-4 w-4" /></Button> : null}</div></TableCell></TableRow>)}</TableBody></Table></div>
+        )}
+      </section>
 
-      {/* Add / Edit dialog */}
-      <Dialog open={accountDialog} onOpenChange={setAccountDialog}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-base flex items-center gap-2">
-              <Landmark className="w-4 h-4 text-slate-600" />
-              {editingId ? 'Edit Bank Account' : 'Add Bank Account'}
-            </DialogTitle>
-            <DialogDescription className="text-xs">
-              The VPA / UPI ID is what the money is routed to — get it from your bank app or business UPI app.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <Label className="text-xs">Label *</Label>
-              <Input value={accountForm.label} placeholder="e.g. Main SBI Current A/c"
-                onChange={(e) => setAccountForm((f) => ({ ...f, label: e.target.value }))} />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-xs">Payee Name *</Label>
-                <Input value={accountForm.payee_name} placeholder="Shown in customer's UPI app"
-                  onChange={(e) => setAccountForm((f) => ({ ...f, payee_name: e.target.value }))} />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">VPA / UPI ID *</Label>
-                <Input value={accountForm.vpa} placeholder="name@bank" className="font-mono"
-                  onChange={(e) => setAccountForm((f) => ({ ...f, vpa: e.target.value }))} />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-xs">Bank Name</Label>
-                <Input value={accountForm.bank_name}
-                  onChange={(e) => setAccountForm((f) => ({ ...f, bank_name: e.target.value }))} />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">IFSC</Label>
-                <Input value={accountForm.ifsc}
-                  onChange={(e) => setAccountForm((f) => ({ ...f, ifsc: e.target.value }))} />
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Account Number <span className="text-slate-400">(reference only)</span></Label>
-              <Input value={accountForm.account_no}
-                onChange={(e) => setAccountForm((f) => ({ ...f, account_no: e.target.value }))} />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="ghost" size="sm" onClick={() => setAccountDialog(false)}>Cancel</Button>
-            <Button size="sm" onClick={saveAccount} disabled={saving}>
-              {saving ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />}
-              {editingId ? 'Save Changes' : 'Add Account'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}><DialogContent className="sm:max-w-xl"><DialogHeader><DialogTitle>{editingId ? 'Edit bank account' : 'Create bank account'}</DialogTitle><DialogDescription>Account details are Site-scoped. VPA is optional unless this account receives UPI QR payments.</DialogDescription></DialogHeader><div className="grid gap-4 py-2 sm:grid-cols-2"><div className="space-y-1.5"><Label>Account label *</Label><Input value={form.label} onChange={(event) => setField('label', event.target.value)} placeholder="Collections account" /></div><div className="space-y-1.5"><Label>Bank name *</Label><Input value={form.bank_name} onChange={(event) => setField('bank_name', event.target.value)} placeholder="ICICI / AXIS" /></div><div className="space-y-1.5"><Label>Account number</Label><Input value={form.account_no} onChange={(event) => setField('account_no', event.target.value)} inputMode="numeric" placeholder={editingId ? 'Leave blank to keep existing' : ''} /></div><div className="space-y-1.5"><Label>Account type</Label><Input value={form.account_type} onChange={(event) => setField('account_type', event.target.value)} placeholder="CURRENT" /></div><div className="space-y-1.5"><Label>IFSC</Label><Input value={form.ifsc} onChange={(event) => setField('ifsc', event.target.value.toUpperCase())} placeholder="ICIC0001234" /></div><div className="space-y-1.5"><Label>UPI ID / VPA</Label><Input value={form.vpa} onChange={(event) => setField('vpa', event.target.value)} placeholder="business@icici" /></div><div className="space-y-1.5 sm:col-span-2"><Label>Payee name</Label><Input value={form.payee_name} onChange={(event) => setField('payee_name', event.target.value)} placeholder="Name shown to payer" /></div><div className="space-y-1.5 sm:col-span-2"><Label>Notes</Label><Input value={form.notes} onChange={(event) => setField('notes', event.target.value)} /></div></div><DialogFooter><Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button><Button onClick={save} disabled={saving}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}{editingId ? 'Save changes' : 'Create account'}</Button></DialogFooter></DialogContent></Dialog>
     </div>
   );
-};
-
-export default BankConfigs;
+}

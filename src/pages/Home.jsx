@@ -434,7 +434,7 @@ function GridDropZone({ children }) {
 }
 
 export default function Home() {
-  const { user, hasPermission } = useAuth();
+  const { user, hasPermission, currentSite } = useAuth();
   const visibleApps = useVisibleApps();
   const [items, setItems] = useState(null); // null = not yet reconciled
   const [openGroupId, setOpenGroupId] = useState(null);
@@ -443,14 +443,21 @@ export default function Home() {
   const [q, setQ] = useState('');
   const hoverRef = useRef({ id: null, timer: null });
   const itemsRef = useRef(null);
+  const loadedWorkspaceRef = useRef(null);
 
   const visibleKeysSig = useMemo(() => visibleApps.map((a) => a.key).sort().join(','), [visibleApps]);
+  const workspaceLayoutKey = `${user?.id}:${currentSite?.id || 'none'}`;
 
   useEffect(() => {
     if (!visibleApps.length) return;
-    setItems((prev) => prev ?? reconcile(loadLayout(user?.id), visibleApps));
+    if (loadedWorkspaceRef.current !== workspaceLayoutKey) {
+      loadedWorkspaceRef.current = workspaceLayoutKey;
+      setItems(reconcile(loadLayout(workspaceLayoutKey), visibleApps));
+      return;
+    }
+    setItems((prev) => prev ?? reconcile(loadLayout(workspaceLayoutKey), visibleApps));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visibleKeysSig]);
+  }, [visibleKeysSig, workspaceLayoutKey]);
 
   // Re-reconcile if the visible app set changes after the initial load (permissions
   // arriving async) — never clobbers manual arrangement, only adds/removes keys.
@@ -467,8 +474,8 @@ export default function Home() {
 
   const update = useCallback((next) => {
     setItems(next);
-    saveLayout(user?.id, next);
-  }, [user?.id]);
+    saveLayout(workspaceLayoutKey, next);
+  }, [workspaceLayoutKey]);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
@@ -545,7 +552,7 @@ export default function Home() {
         });
         next.push({ id: removedKey, type: 'app', key: removedKey });
       }
-      saveLayout(user?.id, next);
+      saveLayout(workspaceLayoutKey, next);
       return next;
     });
   };

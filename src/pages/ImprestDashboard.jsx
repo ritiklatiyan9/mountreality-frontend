@@ -1,3 +1,4 @@
+import { writePrintDocument } from '../lib/safePrint';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -33,6 +34,7 @@ import {
 import {
   EntryDialog, EntryFooter, EntryRow, EntryField, EntryAmount, EntryModeChips,
 } from '../components/EntryModal';
+import BankAccountSelect from '../components/BankAccountSelect';
 import {
   Plus, AlertCircle, Check, Search, Loader2, IndianRupee, Wallet,
   ArrowUpRight, ArrowDownRight, RefreshCw, Send, Clock, CheckCircle2,
@@ -132,6 +134,7 @@ const ImprestDashboard = () => {
   const emptyExpense = {
     date: toLocal(new Date()), from_entity: '', to_entity: '',
     payment_mode: '', debit: '', credit: '0', remark: '',
+    bank_account_id: '',
     account_no: '', branch: '', category: '',
     assigned_admin_id: null,
   };
@@ -140,7 +143,7 @@ const ImprestDashboard = () => {
   const [requestReason, setRequestReason] = useState('');
 
   // Return money form
-  const [returnForm, setReturnForm] = useState({ amount: '', reason: '', payment_mode: 'CASH', assigned_admin_id: null });
+  const [returnForm, setReturnForm] = useState({ amount: '', reason: '', payment_mode: 'CASH', bank_account_id: '', assigned_admin_id: null });
   const [myReturns, setMyReturns] = useState([]);
 
   // Peer transfer — sub-admin sends imprest to another user
@@ -309,6 +312,10 @@ const ImprestDashboard = () => {
       setMessage({ type: 'error', text: 'Amount is required' });
       return;
     }
+    if (expenseForm.payment_mode && expenseForm.payment_mode !== 'CASH' && !expenseForm.bank_account_id) {
+      setMessage({ type: 'error', text: 'Select the bank account used for this transaction' });
+      return;
+    }
 
     // Check balance first
     if (balance <= 0) {
@@ -354,6 +361,10 @@ const ImprestDashboard = () => {
     }
     if (!siteId) {
       setMessage({ type: 'error', text: 'Please select a site' });
+      return;
+    }
+    if (expenseForm.payment_mode && expenseForm.payment_mode !== 'CASH' && !expenseForm.bank_account_id) {
+      setMessage({ type: 'error', text: 'Select the bank account used for this transaction' });
       return;
     }
     setSubmitting(true);
@@ -424,6 +435,10 @@ const ImprestDashboard = () => {
       setMessage({ type: 'error', text: 'Return amount is required' });
       return;
     }
+    if (returnForm.payment_mode !== 'CASH' && !returnForm.bank_account_id) {
+      setMessage({ type: 'error', text: 'Select the bank account used for this transaction' });
+      return;
+    }
     if (parseFloat(returnForm.amount) > balance) {
       setMessage({ type: 'error', text: `Cannot return more than your balance (${formatCurrency(balance)})` });
       return;
@@ -434,12 +449,13 @@ const ImprestDashboard = () => {
         amount: returnForm.amount,
         reason: returnForm.reason,
         payment_mode: returnForm.payment_mode,
+        bank_account_id: returnForm.bank_account_id || null,
         site_id: siteId,
         assigned_admin_id: returnForm.assigned_admin_id,
       });
       setMessage({ type: 'success', text: 'Return request submitted. Waiting for admin acceptance.' });
       setReturnModal(false);
-      setReturnForm({ amount: '', reason: '', payment_mode: 'CASH', assigned_admin_id: null });
+      setReturnForm({ amount: '', reason: '', payment_mode: 'CASH', bank_account_id: '', assigned_admin_id: null });
       loadData();
     } catch (err) {
       setMessage({ type: 'error', text: err.response?.data?.message || 'Failed to submit return request' });
@@ -528,7 +544,7 @@ const ImprestDashboard = () => {
       toast.error('Popup blocked — allow popups for this site to print');
       return;
     }
-    w.document.write(html);
+    writePrintDocument(w, html);
     w.document.close();
     w.print();
   };
@@ -1140,6 +1156,11 @@ const ImprestDashboard = () => {
             />
           </EntryField>
         </EntryRow>
+        <BankAccountSelect
+          value={expenseForm.bank_account_id}
+          onChange={(bankAccountId) => setExpenseForm((form) => ({ ...form, bank_account_id: bankAccountId }))}
+          paymentMode={expenseForm.payment_mode}
+        />
         <EntryAmount
           direction="debit"
           required
@@ -1399,7 +1420,7 @@ const ImprestDashboard = () => {
         description="Return unused imprest funds. Admin will need to accept the return."
         footer={(
           <EntryFooter
-            onCancel={() => { setReturnModal(false); setReturnForm({ amount: '', reason: '', payment_mode: 'CASH', assigned_admin_id: null }); }}
+            onCancel={() => { setReturnModal(false); setReturnForm({ amount: '', reason: '', payment_mode: 'CASH', bank_account_id: '', assigned_admin_id: null }); }}
             onSubmit={handleReturnMoney}
             submitLabel="Submit Return"
             submitting={submitting}
@@ -1418,6 +1439,11 @@ const ImprestDashboard = () => {
             modes={PAYMENT_MODE_OPTIONS}
           />
         </EntryField>
+        <BankAccountSelect
+          value={returnForm.bank_account_id}
+          onChange={(bankAccountId) => setReturnForm((form) => ({ ...form, bank_account_id: bankAccountId }))}
+          paymentMode={returnForm.payment_mode}
+        />
         <EntryAmount
           label="Amount to Return (₹)"
           direction="debit"

@@ -7,6 +7,7 @@ import { AlertCircle, Building2, Check, MapPin, Plus, RefreshCw, Search } from '
 import { EmptyState, SkeletonBlock } from '../components/dashboard/primitives';
 import SiteRow from '../components/sites/SiteRow';
 import SiteFormDialog from '../components/sites/SiteFormDialog';
+import { useNavigate } from 'react-router-dom';
 
 const STATUS_FILTERS = [
   { key: 'all', label: 'All' },
@@ -16,7 +17,8 @@ const STATUS_FILTERS = [
 ];
 
 export const Sites = () => {
-  const { refreshSites } = useAuth();
+  const { refreshSites, setCurrentSite } = useAuth();
+  const navigate = useNavigate();
   const [sitesList, setSitesList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -63,11 +65,22 @@ export const Sites = () => {
     setSubmitting(true);
     setMessage({ type: '', text: '' });
     try {
-      if (editingId) await api.put(`/sites/${editingId}`, formData);
-      else await api.post('/sites', formData);
-      await Promise.all([fetchSites(), refreshSites()]);
+      let createdSite = null;
+      if (editingId) {
+        await api.put(`/sites/${editingId}`, formData);
+        await Promise.all([fetchSites(), refreshSites()]);
+      } else {
+        const response = await api.post('/sites', formData);
+        createdSite = response.data?.site || null;
+        const [, refreshedSites] = await Promise.all([fetchSites(), refreshSites()]);
+        const selected = (refreshedSites || []).find((site) => site.id === createdSite?.id) || createdSite;
+        if (selected) setCurrentSite(selected);
+      }
       setDialogOpen(false);
       resetForm();
+      if (createdSite?.id) {
+        navigate(`/settings?tab=operating-profile&site=${createdSite.id}&mode=setup`);
+      }
     } catch (error) {
       setMessage({ type: 'error', text: error.response?.data?.message || 'Could not save this site.' });
     } finally {

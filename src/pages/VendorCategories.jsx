@@ -2,11 +2,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/api';
-import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
-import { Badge } from '../components/ui/badge';
 import {
   Dialog,
   DialogContent,
@@ -15,20 +13,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../components/ui/dialog';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '../components/ui/table';
-import { AlertCircle, Check, Loader2, Plus, Store, Tags, Trash2, X } from 'lucide-react';
+import { PageHeader, EmptyBlock, PRIMARY_BTN } from '../components/ui/page';
+import { SkeletonBlock } from '../components/dashboard/primitives';
+import VendorModuleTabs from '../components/inventory/VendorModuleTabs';
+import { AlertCircle, Check, Pencil, Plus, Store, Tags, Trash2, X, Loader2 } from 'lucide-react';
 
 const VendorCategories = () => {
   const navigate = useNavigate();
   const { currentSite, canManage, hasPermission } = useAuth();
   const canWrite = canManage && hasPermission('vendors', 'write');
+  const canUpdate = canManage && hasPermission('vendors', 'update');
   const canDelete = canManage && hasPermission('vendors', 'delete');
   const siteId = currentSite?.id;
 
@@ -38,6 +32,7 @@ const VendorCategories = () => {
   const [heads, setHeads] = useState([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [headName, setHeadName] = useState('');
+  const [editingHead, setEditingHead] = useState(null);
 
   const loadHeads = useCallback(async () => {
     if (!siteId) return;
@@ -63,14 +58,28 @@ const VendorCategories = () => {
     return () => clearTimeout(t);
   }, [message]);
 
-  const handleCreate = async () => {
+  const openCreateDialog = () => {
+    setEditingHead(null);
+    setHeadName('');
+    setDialogOpen(true);
+  };
+
+  const openEditDialog = (head) => {
+    setEditingHead(head);
+    setHeadName(head.name || '');
+    setDialogOpen(true);
+  };
+
+  const handleSave = async () => {
     if (!siteId || !headName.trim()) {
       setMessage({ type: 'error', text: 'Category name is required' });
       return;
     }
     setSubmitting(true);
     try {
-      const { data } = await api.post('/vendors/heads', { site_id: siteId, name: headName.trim().toUpperCase() });
+      const { data } = editingHead
+        ? await api.put(`/vendors/heads/${editingHead.id}`, { site_id: siteId, name: headName.trim().toUpperCase() })
+        : await api.post('/vendors/heads', { site_id: siteId, name: headName.trim().toUpperCase() });
       // Optimistic add — close dialog instantly.
       if (data?.head) {
         setHeads((prev) => {
@@ -83,12 +92,13 @@ const VendorCategories = () => {
           return [...prev, { commitment_count: 0, ...data.head }];
         });
       }
-      setMessage({ type: 'success', text: 'Category created' });
+      setMessage({ type: 'success', text: editingHead ? 'Category updated' : 'Category created' });
       setHeadName('');
+      setEditingHead(null);
       setDialogOpen(false);
       loadHeads(); // background reconcile
     } catch (err) {
-      setMessage({ type: 'error', text: err.response?.data?.message || 'Failed to create category' });
+      setMessage({ type: 'error', text: err.response?.data?.message || `Failed to ${editingHead ? 'update' : 'create'} category` });
     } finally {
       setSubmitting(false);
     }
@@ -109,110 +119,90 @@ const VendorCategories = () => {
   };
 
   if (!currentSite) {
-    return (
-      <div className="flex flex-col items-center justify-center py-24 text-center">
-        <Tags className="w-10 h-10 text-slate-200 mb-3" />
-        <p className="text-sm text-slate-500">Select a site to manage vendor categories</p>
-      </div>
-    );
+    return <EmptyBlock icon={Tags} title="Select a site to manage vendor categories" tall />;
   }
 
   return (
-    <div className="w-full max-w-full md:max-w-350 space-y-5">
-      {/* Header */}
-      <div className="rounded-2xl border border-slate-200 bg-gradient-to-r from-white via-slate-50 to-orange-50/60 p-4 sm:p-5">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <div className="flex items-center gap-2 text-xs text-slate-400 mb-1">
-              <button onClick={() => navigate('/vendors')} className="hover:text-slate-600 transition-colors">Vendor Management</button>
-              <span>/</span>
-              <span className="font-medium text-slate-600">Categories</span>
-            </div>
-            <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">Vendor Categories</h1>
-            <p className="text-sm text-slate-500 mt-0.5">
-              Manage work/payment categories for <span className="font-medium text-slate-700">{currentSite.name}</span>
-            </p>
-          </div>
-          {canWrite && (
-            <Button size="sm" onClick={() => { setHeadName(''); setDialogOpen(true); }}>
-              <Plus className="w-4 h-4 mr-1.5" /> Add Category
-            </Button>
-          )}
-        </div>
-      </div>
+    <div className="mx-auto w-full max-w-[1400px] pb-16">
+      <PageHeader
+        title="Vendor Categories"
+        description={`Work / payment categories for ${currentSite.name}`}
+        actions={canWrite && (
+          <button type="button" className={PRIMARY_BTN} onClick={openCreateDialog}>
+            <Plus className="h-4 w-4" strokeWidth={2} aria-hidden="true" /> Add category
+          </button>
+        )}
+      />
 
-      {/* Alert */}
+      <VendorModuleTabs active="categories" className="mt-6" />
+
       {message.text && (
-        <div className={`flex items-center gap-2 p-3 rounded-lg text-sm border ${message.type === 'success' ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-red-50 border-red-100 text-red-700'}`}>
-          {message.type === 'success' ? <Check className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
+        <div className={`mt-5 flex items-center gap-2 rounded-control border p-3 text-[13px] ${message.type === 'success' ? 'border-mr-lime-ink/15 bg-mr-lime-soft text-mr-lime-ink' : 'border-mr-coral-ink/15 bg-mr-coral-soft text-mr-coral-ink'}`}>
+          {message.type === 'success' ? <Check className="h-4 w-4 shrink-0" strokeWidth={1.9} /> : <AlertCircle className="h-4 w-4 shrink-0" strokeWidth={1.9} />}
           <span>{message.text}</span>
-          <button className="ml-auto" onClick={() => setMessage({ type: '', text: '' })}><X className="w-3.5 h-3.5" /></button>
+          <button className="ml-auto" onClick={() => setMessage({ type: '', text: '' })}><X className="h-3.5 w-3.5" strokeWidth={1.9} /></button>
         </div>
       )}
 
-      {/* Categories List */}
-      <Card className="shadow-none border-slate-200">
-        <CardContent className="p-0">
-          {loading ? (
-            <div className="flex items-center justify-center py-16">
-              <Loader2 className="w-6 h-6 animate-spin text-slate-300" />
-            </div>
-          ) : heads.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-center">
-              <Tags className="w-9 h-9 text-slate-200 mb-3" />
-              <p className="text-sm font-medium text-slate-500">No categories yet</p>
-              <p className="text-xs text-slate-400 mt-1">Add categories like CEMENT, BRICKS, JCB, CIVIL WORK</p>
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-slate-50/80">
-                  <TableHead className="text-[11px] uppercase tracking-wider font-semibold">#</TableHead>
-                  <TableHead className="text-[11px] uppercase tracking-wider font-semibold">Category Name</TableHead>
-                  <TableHead className="text-[11px] uppercase tracking-wider font-semibold text-right">Commitments</TableHead>
-                  {canDelete && <TableHead className="text-[11px] uppercase tracking-wider font-semibold text-right w-20">Action</TableHead>}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {heads.map((h, idx) => (
-                  <TableRow key={h.id}>
-                    <TableCell className="text-slate-400 text-sm">{idx + 1}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <div className="h-7 w-7 rounded-lg bg-orange-100 flex items-center justify-center">
-                          <Store className="w-3.5 h-3.5 text-orange-600" />
-                        </div>
-                        <span className="text-sm font-semibold text-slate-800">{h.name}</span>
+      <section className="mt-5 border-t border-mr-line">
+        {loading ? (
+          <div className="space-y-3 p-5 sm:p-6">
+            {[0, 1, 2].map((i) => <SkeletonBlock key={i} className="h-12 w-full" />)}
+          </div>
+        ) : heads.length === 0 ? (
+          <EmptyBlock
+            icon={Tags}
+            title="No categories yet"
+            description="Add categories like CEMENT, BRICKS, JCB, CIVIL WORK"
+            tall
+          />
+        ) : (
+          <table className="w-full min-w-[560px] border-collapse text-[13px]">
+            <thead>
+              <tr>
+                <th className="border-b border-mr-line px-3 py-2.5 text-left text-[12px] font-medium text-mr-muted">#</th>
+                <th className="border-b border-mr-line px-3 py-2.5 text-left text-[12px] font-medium text-mr-muted">Category name</th>
+                <th className="border-b border-mr-line px-3 py-2.5 text-right text-[12px] font-medium text-mr-muted">Commitments</th>
+                {(canUpdate || canDelete) && <th className="border-b border-mr-line px-3 py-2.5 text-right text-[12px] font-medium text-mr-muted w-20">Action</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {heads.map((h, idx) => (
+                <tr key={h.id} className="border-b border-mr-line transition-colors duration-150 hover:bg-mr-surface-2/70">
+                  <td className="px-3 py-2.5 text-[12px] tabular-nums text-mr-faint">{idx + 1}</td>
+                  <td className="px-3 py-2.5">
+                    <div className="flex items-center gap-2.5">
+                      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-mr-amber-soft text-mr-amber-ink">
+                        <Store className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden="true" />
+                      </span>
+                      <span className="font-medium text-mr-text">{h.name}</span>
+                    </div>
+                  </td>
+                  <td className="px-3 py-2.5 text-right">
+                    <button type="button" className="inline-flex items-center rounded-full bg-mr-surface-2 px-2.5 py-0.5 text-[12px] font-medium text-mr-muted transition-colors hover:bg-mr-blue-soft hover:text-mr-blue disabled:cursor-default disabled:hover:bg-mr-surface-2 disabled:hover:text-mr-muted" onClick={() => navigate(`/vendors?category=${h.id}`)} disabled={!Number(h.commitment_count)} title={Number(h.commitment_count) ? 'View commitments in this category' : 'No commitments in this category'}>
+                      {h.commitment_count || 0}
+                    </button>
+                  </td>
+                  {(canUpdate || canDelete) && (
+                    <td className="px-3 py-2.5 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        {canUpdate && <button type="button" onClick={() => openEditDialog(h)} className="inline-flex h-7 w-7 items-center justify-center rounded-full text-mr-faint transition-colors hover:bg-mr-surface-2 hover:text-mr-text" aria-label={`Edit ${h.name}`}><Pencil className="h-3.5 w-3.5" strokeWidth={1.9} /></button>}
+                        {canDelete && <button type="button" onClick={() => handleDelete(h.id)} className="inline-flex h-7 w-7 items-center justify-center rounded-full text-mr-faint transition-colors hover:bg-mr-coral-soft hover:text-mr-coral-ink" aria-label={`Delete ${h.name}`}><Trash2 className="h-3.5 w-3.5" strokeWidth={1.9} /></button>}
                       </div>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Badge variant="secondary" className="text-xs">{h.commitment_count || 0}</Badge>
-                    </TableCell>
-                    {canDelete && (
-                      <TableCell className="text-right">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 w-7 p-0 text-slate-400 hover:text-red-500"
-                          onClick={() => handleDelete(h.id)}
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </Button>
-                      </TableCell>
-                    )}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
 
-      {/* Add Category Dialog */}
+      {/* Add / edit category dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-base">Add Category</DialogTitle>
+            <DialogTitle className="text-base">{editingHead ? 'Edit Category' : 'Add Category'}</DialogTitle>
             <DialogDescription className="text-sm">Create a work/payment category like CIVIL WORK, MATERIAL, CONTRACTOR LABOUR.</DialogDescription>
           </DialogHeader>
           <div className="space-y-1.5">
@@ -221,14 +211,15 @@ const VendorCategories = () => {
               value={headName}
               onChange={(e) => setHeadName(e.target.value.toUpperCase())}
               placeholder="CIVIL WORK"
-              onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+              onKeyDown={(e) => e.key === 'Enter' && handleSave()}
+              autoFocus
             />
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" size="sm" onClick={() => setDialogOpen(false)} disabled={submitting}>Cancel</Button>
-            <Button type="button" size="sm" onClick={handleCreate} disabled={submitting}>
-              {submitting ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Plus className="w-3.5 h-3.5 mr-1.5" />}
-              Add Category
+            <Button type="button" size="sm" onClick={handleSave} disabled={submitting}>
+              {submitting ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : editingHead ? <Pencil className="w-3.5 h-3.5 mr-1.5" /> : <Plus className="w-3.5 h-3.5 mr-1.5" />}
+              {editingHead ? 'Save Changes' : 'Add Category'}
             </Button>
           </DialogFooter>
         </DialogContent>

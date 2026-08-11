@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Outlet, useLocation, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useSitePolicy } from '../hooks/useSitePolicy';
 import api from '../api/api';
 import eventBus from '../utils/eventBus';
 import {
@@ -10,12 +11,13 @@ import {
   Settings, ShieldAlert, ShieldCheck, Home, UserRound, Wallet, X, XCircle,
 } from 'lucide-react';
 import { Skeleton } from './ui/skeleton';
+import { AnimatedThemeToggler } from './ui/animated-theme-toggler';
 import { TooltipProvider } from './ui/tooltip';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
-import LanguageSwitcher from './LanguageSwitcher';
 import { useDocViewer } from './DocViewer';
 import AppSidebar from './sidebar/AppSidebar';
 import WorkspaceDomainModal from './WorkspaceDomainModal';
+import KycReminderModal from './kyc/KycReminderModal';
 import { useSidebarPreferences } from './sidebar/useSidebarPreferences';
 import {
   SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH, buildNavigation, flattenNavigation,
@@ -214,6 +216,7 @@ const Layout = () => {
   const prevSiteRef = useRef(null);
   const shellRef = useRef(null);
   const { user, logout, sites, currentSite, setCurrentSite, isAdmin, hasPermission } = useAuth();
+  const { getTerm } = useSitePolicy();
   const openDoc = useDocViewer();
   const location = useLocation();
   const navigate = useNavigate();
@@ -228,12 +231,12 @@ const Layout = () => {
   // Header title, resolved against the same permission-filtered nav the
   // sidebar renders — a route the user cannot open can never name the header.
   const pageTitle = useMemo(() => {
-    const flat = flattenNavigation(buildNavigation({ hasPermission, isAdmin }));
+    const flat = flattenNavigation(buildNavigation({ hasPermission, isAdmin, getTerm }));
     const match = flat
       .filter((i) => location.pathname === i.path || location.pathname.startsWith(`${i.path}/`))
       .sort((a, b) => b.path.length - a.path.length)[0];
     return match?.label || titleFromPath(location.pathname);
-  }, [hasPermission, isAdmin, location.pathname]);
+  }, [getTerm, hasPermission, isAdmin, location.pathname]);
 
   // Close mobile menu on navigation
   useEffect(() => {
@@ -372,11 +375,9 @@ const Layout = () => {
     setNotifLoading(true);
     try {
       if (isAdmin) {
-        const [pendingRes, countsRes, editRes, editCountsRes, imprestRes] = await Promise.allSettled([
-          api.get(`/approvals/pending?site_id=${currentSite.id}`),
-          api.get(`/approvals/counts?site_id=${currentSite.id}`),
+        const [pendingRes, editRes, imprestRes] = await Promise.allSettled([
+          api.get(`/approvals/pending?site_id=${currentSite.id}&limit=100`),
           api.get(`/edit-requests/my-requests?site_id=${currentSite.id}`),
-          api.get(`/edit-requests/counts?site_id=${currentSite.id}`),
           api.get(`/imprest/expense-requests?site_id=${currentSite.id}`),
         ]);
         const siteId = currentSite.id;
@@ -416,15 +417,20 @@ const Layout = () => {
 
         // Money totals across ALL pending approvals (not just the 30 shown);
         // imprest requests are outgoing money, so they count as debit.
+        const approvalTotals = pendingRes.status === 'fulfilled'
+          ? (pendingRes.value.data.totals || {})
+          : {};
         setNotifTotals({
-          debit: allPendingEntries.reduce((n, e) => n + (parseFloat(e.debit) || 0), 0)
+          debit: (Number(approvalTotals.debit) || 0)
             + pendingImprests.reduce((n, r) => n + (parseFloat(r.amount) || 0), 0),
-          credit: allPendingEntries.reduce((n, e) => n + (parseFloat(e.credit) || 0), 0),
+          credit: Number(approvalTotals.credit) || 0,
         });
 
-        if (countsRes.status === 'fulfilled') {
-          setNotifAppCounts(countsRes.value.data || { total: 0 });
-        }
+        setNotifAppCounts({
+          total: pendingRes.status === 'fulfilled'
+            ? Number(pendingRes.value.data.total || allPendingEntries.length)
+            : 0,
+        });
 
         // Admin's Sent tab = their own edit requests only
         const edits = editRes.status === 'fulfilled'
@@ -434,10 +440,7 @@ const Layout = () => {
           : [];
         setNotifSent(edits);
 
-        const ec = editCountsRes.status === 'fulfilled'
-          ? (editCountsRes.value.data || { pending: 0 })
-          : { pending: 0 };
-        setNotifEditCounts(ec);
+        setNotifEditCounts({ pending: edits.filter((request) => request.status === 'pending').length });
 
       } else {
         const [editRes, imprestReqRes, allocRes, assignedRes] = await Promise.allSettled([
@@ -478,8 +481,8 @@ const Layout = () => {
           : [];
         const assignedApprovals = allAssignedEntries.slice(0, 30);
         setNotifTotals({
-          debit: allAssignedEntries.reduce((n, e) => n + (parseFloat(e.debit) || 0), 0),
-          credit: allAssignedEntries.reduce((n, e) => n + (parseFloat(e.credit) || 0), 0),
+          debit: Number(assignedRes.status === 'fulfilled' ? assignedRes.value.data.totals?.debit : 0) || 0,
+          credit: Number(assignedRes.status === 'fulfilled' ? assignedRes.value.data.totals?.credit : 0) || 0,
         });
 
         const received = [...assignedApprovals, ...allocs]
@@ -590,7 +593,7 @@ const Layout = () => {
       <div
         ref={shellRef}
         style={{ '--mr-sidebar-width': `${collapsed ? 72 : width}px` }}
-        className={`mr-tech-field flex h-screen overflow-hidden bg-mr-canvas print:h-auto print:flex-col print:overflow-visible md:grid md:grid-cols-[var(--mr-sidebar-width)_minmax(0,1fr)] ${
+        className={`flex h-screen overflow-hidden bg-mr-canvas print:h-auto print:flex-col print:overflow-visible md:grid md:grid-cols-[var(--mr-sidebar-width)_minmax(0,1fr)] ${
           dragging ? '' : 'md:transition-[grid-template-columns] md:duration-200 md:ease-out'
         }`}
       >
@@ -676,7 +679,7 @@ const Layout = () => {
             </div>
 
             <div className="flex shrink-0 items-center gap-1">
-              <LanguageSwitcher />
+              <AnimatedThemeToggler className="flex h-9 w-9 items-center justify-center rounded-control text-mr-muted transition-colors duration-150 hover:bg-mr-surface-2 hover:text-mr-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue" />
               <button
                 onClick={() => {
                   setNotifOpen(true);
@@ -797,6 +800,10 @@ const Layout = () => {
 
       {/* First-login intro: appears once, only after a successful sign-in. */}
       <WorkspaceDomainModal />
+
+      {/* Recurring until company verification is done. It defers to the
+          intro above and never fires while you are on /settings. */}
+      <KycReminderModal />
 
       {/* ── Notifications / Approvals Modal ── */}
       {notifOpen && (

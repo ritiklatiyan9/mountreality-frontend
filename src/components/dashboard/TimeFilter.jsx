@@ -34,7 +34,7 @@ export default function TimeFilter({ value, onChange, label = 'Reporting period'
       role="radiogroup"
       aria-label={label}
       onKeyDown={onKeyDown}
-      className="flex flex-wrap items-center gap-0.5 rounded-full border border-mr-line bg-mr-surface-2 p-1"
+      className="mr-glass flex flex-wrap items-center gap-0.5 rounded-full p-1"
     >
       {PRESETS.map(({ key, label: text }) => {
         const active = value === key;
@@ -47,6 +47,9 @@ export default function TimeFilter({ value, onChange, label = 'Reporting period'
             aria-checked={active}
             tabIndex={active ? 0 : -1}
             onClick={() => onChange(key)}
+            /* No press-scale here: this button hosts the layout-animated
+               pill, and transforming the parent corrupts the box framer
+               measures — that is what made the selection judder. */
             className={`relative rounded-full px-3 py-1.5 text-[12px] font-medium transition-colors duration-200
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue focus-visible:ring-offset-1
               ${active ? 'text-white' : 'text-mr-muted hover:text-mr-text'}`}
@@ -54,7 +57,10 @@ export default function TimeFilter({ value, onChange, label = 'Reporting period'
             {active && (
               <MotionSpan
                 layoutId="mr-period-pill"
-                className="absolute inset-0 rounded-full bg-mr-ink"
+                className="mr-gloss absolute inset-0 bg-mr-ink"
+                /* Inline numeric radius so framer un-distorts the corners
+                   while it scales the pill between two different widths. */
+                style={{ borderRadius: 9999 }}
                 transition={{ type: 'spring', stiffness: 420, damping: 34 }}
               />
             )}

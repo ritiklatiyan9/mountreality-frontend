@@ -20,8 +20,7 @@ export function MemberAvatar({ src, name, size = 'md', className }) {
   }
   return (
     <span
-      className={cn(AVATAR_SIZES[size], 'flex items-center justify-center rounded-full font-semibold text-white', className)}
-      style={{ background: 'linear-gradient(135deg, #2f6bff 0%, #50ddeb 100%)' }}
+      className={cn(AVATAR_SIZES[size], 'flex items-center justify-center rounded-full bg-mr-blue font-semibold text-white', className)}
       aria-hidden="true"
     >
       {initials}
@@ -52,15 +51,15 @@ export function StatusChip({ status }) {
 export function KycChip({ member }) {
   if (isKycIncomplete(member)) {
     return (
-      <span className="inline-flex items-center rounded-full bg-mr-coral-soft px-2 py-0.5 text-[12px] font-medium text-mr-coral-ink">
-        KYC incomplete
+      <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-mr-amber-ink">
+        <span className="h-1.5 w-1.5 rounded-full bg-mr-amber" aria-hidden="true" /> KYC pending
       </span>
     );
   }
   if (member.shared_kyc_status === 'VERIFIED') {
     return (
-      <span className="inline-flex items-center rounded-full bg-mr-lime-soft px-2 py-0.5 text-[12px] font-medium text-mr-lime-ink">
-        KYC verified
+      <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-mr-lime-ink">
+        <span className="h-1.5 w-1.5 rounded-full bg-mr-lime-ink" aria-hidden="true" /> KYC verified
       </span>
     );
   }

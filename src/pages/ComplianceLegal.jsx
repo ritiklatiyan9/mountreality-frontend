@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/api';
 import { cn } from '../lib/utils';
+import { sanitizeSpreadsheetRows } from '../lib/spreadsheetSecurity';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -536,7 +537,7 @@ function ReportsView({ siteId, legalMode = false }) {
   useEffect(() => { load(); }, [load]);
   const exportRows = (type) => {
     if (!report?.rows?.length) return toast.error('No rows to export');
-    const rows = report.rows.map((row) => Object.fromEntries(report.columns.map((key) => [labelize(key), row[key]])));
+    const rows = sanitizeSpreadsheetRows(report.rows.map((row) => Object.fromEntries(report.columns.map((key) => [labelize(key), row[key]]))));
     if (type === 'xlsx') { const book = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(rows), 'Compliance'); XLSX.writeFile(book, `compliance-report-${isoDate()}.xlsx`); }
     else { const sheet = XLSX.utils.json_to_sheet(rows); const csv = XLSX.utils.sheet_to_csv(sheet); const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); link.download = `compliance-report-${isoDate()}.csv`; link.click(); URL.revokeObjectURL(link.href); }
   };

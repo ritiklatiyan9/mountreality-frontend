@@ -1,11 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import VendorInventory from './VendorInventory';
+import VendorModuleTabs from '../components/inventory/VendorModuleTabs';
 import api from '../api/api';
 import { cn } from '../lib/utils';
 import { toast } from 'sonner';
-import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -16,8 +16,16 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { TableCell, TableRow } from '../components/ui/table';
 import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
+  DropdownMenuSeparator, DropdownMenuTrigger,
+} from '../components/ui/dropdown-menu';
+import MaterialCell from '../components/inventory/MaterialCell';
+import StockLevelIndicator from '../components/inventory/StockLevelIndicator';
+import { PageHeader, EmptyBlock, PRIMARY_BTN } from '../components/ui/page';
+import { SkeletonBlock, EmptyState } from '../components/dashboard/primitives';
+import {
   Boxes, Plus, Search, Loader2, IndianRupee, PackageOpen, AlertTriangle,
-  ArrowDownToLine, History, Trash2,
+  ArrowDownToLine, History, Trash2, MoreHorizontal,
 } from 'lucide-react';
 
 const MOVEMENT_TYPES = [
@@ -53,9 +61,12 @@ export default function Inventory() {
   const [materials, setMaterials] = useState([]);
   const [summary, setSummary] = useState({});
   const [loading, setLoading] = useState(true);
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const tab = searchParams.get('tab') === 'procurement' ? 'procurement' : 'stock';
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const searchTimer = useRef(null);
+  const requestSeq = useRef(0);
   const [lowOnly, setLowOnly] = useState(() => searchParams.get('low') === '1');
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -73,23 +84,31 @@ export default function Inventory() {
 
   const fetchData = useCallback(async () => {
     if (!siteId) return;
+    const requestId = ++requestSeq.current;
     setLoading(true);
     try {
       const params = new URLSearchParams({ site_id: siteId });
-      if (search) params.set('search', search);
+      if (debouncedSearch) params.set('search', debouncedSearch);
       if (lowOnly) params.set('low_stock', 'true');
       const [mRes, sRes] = await Promise.all([
         api.get(`/inventory/materials?${params}`),
         api.get(`/inventory/summary?site_id=${siteId}`),
       ]);
+      if (requestId !== requestSeq.current) return;
       setMaterials(mRes.data.materials || []);
       setSummary(sRes.data.summary || {});
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to load inventory');
+      if (requestId === requestSeq.current) toast.error(err.response?.data?.message || 'Failed to load inventory');
     } finally {
-      setLoading(false);
+      if (requestId === requestSeq.current) setLoading(false);
     }
-  }, [siteId, search, lowOnly]);
+  }, [siteId, debouncedSearch, lowOnly]);
+
+  useEffect(() => {
+    clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(() => setDebouncedSearch(search.trim()), 280);
+    return () => clearTimeout(searchTimer.current);
+  }, [search]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -146,136 +165,129 @@ export default function Inventory() {
     finally { setHistLoading(false); }
   };
 
-  const delMaterial = async (material) => {
-    if (!window.confirm(`Delete "${material.name}"?`)) return;
-    try { await api.delete(`/inventory/materials/${material.id}`); toast.success('Deleted'); fetchData(); }
-    catch (err) { toast.error(err.response?.data?.message || 'Delete failed'); }
+  const archiveMaterial = async (material) => {
+    if (!window.confirm(`Archive "${material.name}"? It will be hidden from active stock lists.`)) return;
+    try { await api.put(`/inventory/materials/${material.id}`, { site_id: siteId, is_active: false }); toast.success('Material archived'); fetchData(); }
+    catch (err) { toast.error(err.response?.data?.message || 'Archive failed'); }
   };
 
   if (!currentSite) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full min-h-[60vh] text-slate-400 gap-3">
-        <Boxes className="w-10 h-10" />
-        <p className="text-sm">Select a site to manage inventory</p>
-      </div>
-    );
+    return <EmptyBlock icon={Boxes} title="Select a site to manage inventory" tall />;
   }
 
   const kpis = [
-    { label: 'Materials', value: summary.material_count ?? 0, icon: Boxes, color: 'bg-sky-100 text-sky-600' },
-    { label: 'Inventory Value', value: `₹${fmt(summary.total_value)}`, icon: IndianRupee, color: 'bg-emerald-100 text-emerald-600' },
-    { label: 'Low Stock', value: summary.low_stock_count ?? 0, icon: AlertTriangle, color: 'bg-red-100 text-red-600' },
+    { label: 'Materials', value: summary.material_count ?? 0, icon: Boxes, accent: 'bg-mr-blue-soft text-mr-blue' },
+    { label: 'Inventory Value', value: `₹${fmt(summary.total_value)}`, icon: IndianRupee, accent: 'bg-mr-lime-soft text-mr-lime-ink' },
+    { label: 'Low Stock', value: summary.low_stock_count ?? 0, icon: AlertTriangle, accent: 'bg-mr-coral-soft text-mr-coral-ink' },
   ];
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div>
-          <h1 className="text-lg font-bold text-slate-900">Inventory</h1>
-          <p className="text-xs text-slate-500">Stock, movements & vendor procurement{currentSite?.name ? ` · ${currentSite.name}` : ''}</p>
-        </div>
-        <div className={cn('flex items-center gap-2', tab !== 'stock' && 'hidden')}>
-          <Button variant="outline" className="h-10 gap-2 rounded-xl px-4 font-semibold" onClick={() => openMove(null)}><ArrowDownToLine className="w-4 h-4" /> Record Movement</Button>
-          <Button className="h-10 gap-2 rounded-xl bg-blue-600 px-4 font-semibold shadow-sm shadow-blue-600/25 hover:bg-blue-700" onClick={() => setCreateOpen(true)}><Plus className="w-4 h-4" /> New Material</Button>
-        </div>
-      </div>
+    <div className="mx-auto w-full max-w-[1400px] pb-16">
+      <PageHeader
+        title="Inventory"
+        description={`Stock, movements & vendor procurement${currentSite?.name ? ` · ${currentSite.name}` : ''}`}
+        actions={tab === 'stock' && (
+          <>
+            <Button variant="outline" className="h-10 gap-2 rounded-control border-mr-line px-4 font-semibold" onClick={() => openMove(null)}><ArrowDownToLine className="w-4 h-4" /> Record Movement</Button>
+            <button type="button" className={PRIMARY_BTN} onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4" strokeWidth={2} /> New Material</button>
+          </>
+        )}
+      />
 
-      <div className="grid grid-cols-3 gap-3">
-        {kpis.map(({ label, value, icon: Icon, color }) => (
-          <Card key={label} className="rounded-2xl border-slate-200/80 shadow-sm shadow-slate-900/[0.04]">
-            <CardContent className="p-4 flex items-center gap-3">
-              <span className={cn('flex h-10 w-10 items-center justify-center rounded-full', color)}><Icon className="w-4 h-4" /></span>
-              <div><p className="text-xl font-bold text-slate-900">{loading ? '—' : value}</p><p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{label}</p></div>
-            </CardContent>
-          </Card>
+      {canSeeProcurement && <VendorModuleTabs active={tab === 'procurement' ? 'procurement' : 'stocks'} className="mt-6" />}
+
+      {tab === 'procurement' ? (
+        <VendorInventory />
+      ) : (<div className="mt-5 space-y-5">
+
+      <dl className="grid grid-cols-3 divide-x divide-mr-line overflow-hidden rounded-panel border border-mr-line bg-mr-surface">
+        {kpis.map((kpi) => {
+          const KpiIcon = kpi.icon;
+          return (
+            <div key={kpi.label} className="flex items-center gap-3 px-4 py-4">
+              <span className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-full', kpi.accent)}><KpiIcon className="h-4 w-4" strokeWidth={2} /></span>
+              <div className="min-w-0">
+                <dd className="text-xl font-semibold tabular-nums text-mr-text">{loading ? '—' : kpi.value}</dd>
+                <dt className="text-[11px] font-medium text-mr-muted">{kpi.label}</dt>
+              </div>
+            </div>
+          );
+        })}
+      </dl>
+
+      <div className="flex items-center gap-0 border-b border-mr-line">
+        {[{ label: 'All stock', active: !lowOnly, action: () => setLowOnly(false) }, { label: 'Low stock', active: lowOnly, action: () => setLowOnly(true) }].map((view) => (
+          <button key={view.label} type="button" onClick={view.action} className={cn('-mb-px border-b-2 px-3 py-2.5 text-xs font-semibold transition-colors', view.active ? 'border-mr-ink text-mr-text' : 'border-transparent text-mr-muted hover:text-mr-text')}>
+            {view.label}
+          </button>
         ))}
       </div>
 
-      {canSeeProcurement && (
-        <div className="flex items-center gap-1 border-b border-slate-200">
-          {[{ id: 'stock', label: 'Stock' }, { id: 'procurement', label: 'Vendor Procurement' }].map((t) => (
-            <button
-              key={t.id}
-              onClick={() => setSearchParams(t.id === 'stock' ? {} : { tab: t.id }, { replace: true })}
-              className={cn('px-4 py-2 text-sm font-medium -mb-px border-b-2 transition-colors',
-                tab === t.id ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-800')}
-            >
-              {t.label}
-            </button>
-          ))}
+      <div className="flex items-center gap-2 flex-wrap border-b border-mr-line pb-1">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-mr-faint" />
+          <Input placeholder="Search material, code, category…" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8 h-10 rounded-full border-mr-line bg-mr-surface-2 text-xs shadow-none focus-visible:bg-mr-surface" />
         </div>
-      )}
+        <button onClick={() => setLowOnly((v) => !v)}
+          className={cn('px-3 py-1.5 text-xs font-medium rounded-full border transition-colors',
+            lowOnly ? 'border-mr-coral-ink bg-mr-coral-ink text-white' : 'border-mr-line bg-mr-surface text-mr-muted hover:border-mr-faint')}>
+          <AlertTriangle className="w-3 h-3 inline mr-1" /> Low stock only
+        </button>
+      </div>
 
-      {tab === 'procurement' ? <VendorInventory embedded /> : (<>
-
-      <Card className="rounded-2xl border-slate-200/80 shadow-sm shadow-slate-900/[0.04]">
-        <CardContent className="p-3 flex items-center gap-2 flex-wrap">
-          <div className="relative flex-1 min-w-[200px]">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-            <Input placeholder="Search material, code, category…" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8 h-8 text-xs" />
+      <div className="overflow-hidden rounded-panel border border-mr-line bg-mr-surface">
+        {loading ? (
+          <div className="space-y-3 p-5 sm:p-6">
+            {[0, 1, 2, 3, 4].map((i) => <SkeletonBlock key={i} className="h-14 w-full" />)}
           </div>
-          <button onClick={() => setLowOnly((v) => !v)}
-            className={cn('px-3 py-1.5 text-xs font-medium rounded-full border transition-colors',
-              lowOnly ? 'bg-red-600 text-white border-red-600' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400')}>
-            <AlertTriangle className="w-3 h-3 inline mr-1" /> Low stock only
-          </button>
-        </CardContent>
-      </Card>
-
-      <Card className="rounded-2xl border-slate-200/80 shadow-sm shadow-slate-900/[0.04]">
-        <CardContent className="p-0">
-          {loading ? (
-            <div className="flex items-center justify-center py-16"><Loader2 className="w-5 h-5 animate-spin text-slate-400" /></div>
-          ) : materials.length === 0 ? (
-            <div className="text-center py-16">
-              <PackageOpen className="w-8 h-8 text-slate-200 mx-auto mb-2" />
-              <p className="text-sm text-slate-500">No materials yet</p>
-              <Button variant="outline" size="sm" className="mt-3" onClick={() => setCreateOpen(true)}><Plus className="w-3.5 h-3.5 mr-1" /> New Material</Button>
-            </div>
-          ) : (
-            <div className="overflow-auto" style={{ maxHeight: 'calc(100vh - 340px)' }}>
-              <table className="w-full text-sm border-collapse">
-                <thead className="sticky top-0 z-20 bg-slate-50" style={{ boxShadow: '0 1px 0 0 #e2e8f0' }}>
-                  <tr>
-                    {['Material', 'Unit', 'On Hand', 'Reserved', 'Available', 'Rate', 'Value', 'Min', ''].map((h, i) => (
-                      <th key={i} className={cn('text-[11px] font-semibold uppercase tracking-wider text-slate-500 px-3 py-2', i >= 2 && i <= 7 ? 'text-right' : 'text-left')}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {materials.map((m) => (
-                    <TableRow key={m.id} className="group cursor-pointer" onClick={() => openHistory(m)}>
-                      <TableCell className="py-2.5">
-                        <div className="font-semibold text-slate-900 group-hover:text-blue-600 transition-colors flex items-center gap-1">
-                          {m.name}
-                          {m.is_low_stock && <Badge variant="outline" className="text-[9px] bg-red-50 text-red-600 border-red-200">Low</Badge>}
-                        </div>
-                        {m.category && <div className="text-[11px] text-slate-400">{m.category}</div>}
-                      </TableCell>
-                      <TableCell className="text-slate-500 text-xs">{m.unit}</TableCell>
-                      <TableCell className="text-right font-medium tabular-nums">{fmtQty(m.on_hand)}</TableCell>
-                      <TableCell className="text-right text-indigo-600 tabular-nums">{Number(m.reserved) > 0 ? fmtQty(m.reserved) : <span className="text-slate-300">—</span>}</TableCell>
-                      <TableCell className="text-right font-semibold text-slate-800 tabular-nums">{fmtQty(m.available)}</TableCell>
-                      <TableCell className="text-right text-slate-500 tabular-nums">₹{fmt(m.rate)}</TableCell>
-                      <TableCell className="text-right font-medium tabular-nums">₹{fmt(m.stock_value)}</TableCell>
-                      <TableCell className="text-right text-xs text-slate-400 tabular-nums">{Number(m.min_stock) > 0 ? fmtQty(m.min_stock) : '—'}</TableCell>
-                      <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center justify-end gap-0.5 opacity-70 group-hover:opacity-100">
-                          <Button variant="ghost" size="icon" className="h-7 w-7" title="Record movement" onClick={() => openMove(m)}><ArrowDownToLine className="w-3.5 h-3.5" /></Button>
-                          <Button variant="ghost" size="icon" className="h-7 w-7" title="History" onClick={() => openHistory(m)}><History className="w-3.5 h-3.5" /></Button>
-                          <Button variant="ghost" size="icon" className="h-7 w-7" title="Delete" onClick={() => delMaterial(m)}><Trash2 className="w-3.5 h-3.5 text-red-400" /></Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
+        ) : materials.length === 0 ? (
+          <EmptyState
+            icon={PackageOpen}
+            title="No materials yet"
+            description="Add a material to start tracking stock."
+            action={<Button variant="outline" size="sm" className="mt-1 border-mr-line" onClick={() => setCreateOpen(true)}><Plus className="w-3.5 h-3.5 mr-1" /> New Material</Button>}
+          />
+        ) : (
+          <div className="overflow-auto" style={{ maxHeight: 'calc(100vh - 340px)' }}>
+            <table className="w-full text-sm border-collapse">
+              <thead className="sticky top-0 z-20 bg-zinc-900 text-zinc-300" style={{ boxShadow: '0 1px 0 0 var(--color-mr-line)' }}>
+                <tr>
+                  {['Material', 'Stock', 'Reserved', 'Available', 'Rate', 'Value', 'Min', ''].map((h, i) => (
+                    <th key={i} className={cn('px-3 py-3 text-[11px] font-semibold uppercase tracking-wider text-zinc-300', i >= 2 && i <= 7 ? 'text-right' : 'text-left')}>{h}</th>
                   ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                </tr>
+              </thead>
+              <tbody>
+                {materials.map((m) => (
+                  <TableRow key={m.id} className="group cursor-pointer border-mr-line hover:bg-mr-surface-2/70" onClick={() => openHistory(m)}>
+                    <TableCell className="py-2.5"><MaterialCell name={m.name} code={m.code} category={m.category} /></TableCell>
+                    <TableCell className="py-2.5"><StockLevelIndicator current={m.on_hand} minimum={m.min_stock} unit={m.unit} /></TableCell>
+                    <TableCell className="text-right text-mr-blue tabular-nums">{Number(m.reserved) > 0 ? fmtQty(m.reserved) : <span className="text-mr-faint">—</span>}</TableCell>
+                    <TableCell className="text-right font-semibold text-mr-text tabular-nums">{fmtQty(m.available)}</TableCell>
+                    <TableCell className="text-right text-mr-muted tabular-nums">₹{fmt(m.rate)}</TableCell>
+                    <TableCell className="text-right font-medium tabular-nums text-mr-text">₹{fmt(m.stock_value)}</TableCell>
+                    <TableCell className="text-right text-xs text-mr-faint tabular-nums">{Number(m.min_stock) > 0 ? fmtQty(m.min_stock) : '—'}</TableCell>
+                    <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7 text-mr-faint opacity-70 group-hover:opacity-100" aria-label={`Actions for ${m.name}`}><MoreHorizontal className="w-4 h-4" /></Button></DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-44">
+                          <DropdownMenuLabel className="text-[11px] text-mr-faint">Material actions</DropdownMenuLabel>
+                          <DropdownMenuItem onClick={() => openHistory(m)}><History /> View stock history</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => openMove(m)}><ArrowDownToLine /> Record movement</DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem className="text-mr-coral-ink focus:text-mr-coral-ink" onClick={() => archiveMaterial(m)}><Trash2 /> Archive material</DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
-      </>)}
+      </div>)}
 
       {/* Create material */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>

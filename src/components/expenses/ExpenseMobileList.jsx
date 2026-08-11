@@ -8,7 +8,7 @@ import { money } from '@/lib/utils';
    One card per entry. The amount leads, because on a phone that is what
    people are scanning for. ── */
 export default function ExpenseMobileList({
-  expenses, selection, canUpdate, canDelete, uploadingBillId, getAssignedAdminLabel, actions,
+  expenses, selection, canUpdate, canDelete, uploadingBillId, actions,
 }) {
   return (
     <ul className="divide-y divide-mr-line md:hidden">
@@ -18,8 +18,6 @@ export default function ExpenseMobileList({
         const rejected = exp.status === 'rejected';
         const status = STATUS_CHIP[exp.status] || STATUS_CHIP.pending;
         const source = exp.source ? SOURCE_META[exp.source] : null;
-        const meta = [exp.category, getAssignedAdminLabel(exp), exp.remark].filter(Boolean).join(' · ');
-
         return (
           <li key={`m-${exp.id}`} className={`px-4 py-4 ${isMissingBill(exp) ? 'bg-mr-coral-soft/40' : ''}`}>
             <div className="flex items-start gap-3">
@@ -34,10 +32,8 @@ export default function ExpenseMobileList({
               <button type="button" onClick={() => actions.onView(exp)} className="min-w-0 flex-1 text-left">
                 <span className="flex items-start justify-between gap-3">
                   <span className="min-w-0">
-                    <span className="block truncate text-[14px] font-medium text-mr-text">
-                      {exp.to_entity || exp.from_entity || '—'}
-                    </span>
-                    <span className="mt-0.5 block text-[12px] text-mr-faint">{actions.formatDate(exp.date)}</span>
+                    <span className="block text-[14px] font-medium text-mr-text">{actions.formatDate(exp.date)}</span>
+                    {exp.category && <span className="mt-0.5 block truncate text-[12px] text-mr-faint">{exp.category}</span>}
                   </span>
                   <span className="shrink-0 text-right">
                     {debit > 0 && (
@@ -65,7 +61,7 @@ export default function ExpenseMobileList({
                   {source && <span className="text-[12px] text-mr-faint">{source.label}</span>}
                 </span>
 
-                {meta && <span className="mt-1.5 block truncate text-[12px] text-mr-faint">{meta}</span>}
+                {exp.remark && <span className="mt-1.5 block truncate text-[12px] text-mr-faint">{exp.remark}</span>}
               </button>
             </div>
 

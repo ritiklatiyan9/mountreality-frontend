@@ -8,10 +8,11 @@ import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 import SidebarItem from './SidebarItem';
 import { buildNavigation, flattenNavigation } from './navConfig';
+import { useSitePolicy } from '../../hooks/useSitePolicy';
 import BrandMark from '../BrandMark';
 import { cn } from '@/lib/utils';
 
-const FOOTER_ROW = 'group flex w-full items-center gap-2.5 rounded-control px-2.5 h-10 text-[13px] font-medium text-[#5b6270] transition-colors duration-150 hover:bg-[#f5f6f4] hover:text-[#1b1d22] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue focus-visible:ring-inset';
+const FOOTER_ROW = 'group flex w-full items-center gap-2.5 rounded-control px-2.5 h-10 text-[13px] font-medium text-mr-muted transition-colors duration-150 hover:bg-mr-surface-2 hover:text-mr-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue focus-visible:ring-inset';
 
 /* ── Site switcher ───────────────────────────────────────────────────
    Wraps the existing site-selection callback; it never fetches or filters
@@ -45,7 +46,7 @@ function SiteSwitcher({ sites, currentSite, onChange, isAdmin, collapsed }) {
     >
       <BrandMark size="lg" />
       <span className="min-w-0 flex-1 leading-tight">
-        <span className="block truncate text-[13.5px] font-semibold tracking-[-0.01em] text-[#1b1d22]">
+        <span className="block truncate text-[13.5px] font-semibold tracking-[-0.01em] text-mr-text">
           {currentSite?.name || 'Select site'}
         </span>
         <span className="block truncate text-[11.5px] text-mr-faint">MountReality</span>
@@ -82,7 +83,7 @@ function SiteSwitcher({ sites, currentSite, onChange, isAdmin, collapsed }) {
               aria-current={selected ? 'true' : undefined}
               className={cn(
                 'flex w-full items-center gap-2.5 rounded-control px-2.5 py-2 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue',
-                selected ? 'bg-mr-blue-soft' : 'hover:bg-[#f5f6f4]',
+                selected ? 'bg-mr-blue-soft' : 'hover:bg-mr-surface-2',
               )}
             >
               <span
@@ -92,7 +93,7 @@ function SiteSwitcher({ sites, currentSite, onChange, isAdmin, collapsed }) {
                 {site.name?.charAt(0)?.toUpperCase() || 'S'}
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-[13px] font-medium text-[#1b1d22]">{site.name}</span>
+                <span className="block truncate text-[13px] font-medium text-mr-text">{site.name}</span>
                 {site.city && <span className="block truncate text-[12px] text-mr-faint">{site.city}</span>}
               </span>
               {site.status && (
@@ -108,7 +109,7 @@ function SiteSwitcher({ sites, currentSite, onChange, isAdmin, collapsed }) {
           <button
             type="button"
             onClick={() => { onChange('__add_site__'); setOpen(false); }}
-            className="flex w-full items-center gap-2.5 rounded-control px-2.5 py-2 text-[13px] font-medium text-mr-muted transition-colors hover:bg-[#f5f6f4] hover:text-[#1b1d22] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue"
+            className="flex w-full items-center gap-2.5 rounded-control px-2.5 py-2 text-[13px] font-medium text-mr-muted transition-colors hover:bg-mr-surface-2 hover:text-mr-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue"
           >
             <Plus className="h-4 w-4" strokeWidth={1.9} aria-hidden="true" /> Manage sites
           </button>
@@ -152,11 +153,11 @@ function SearchResults({ items, query, onPick }) {
             key={item.path}
             type="button"
             onClick={() => onPick(item.path)}
-            className="flex w-full items-center gap-2.5 rounded-control px-2.5 py-2 text-left transition-colors duration-150 hover:bg-[#f5f6f4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue"
+            className="flex w-full items-center gap-2.5 rounded-control px-2.5 py-2 text-left transition-colors duration-150 hover:bg-mr-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue"
           >
             <Icon className="h-4 w-4 shrink-0 text-mr-muted" strokeWidth={1.9} aria-hidden="true" />
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-[13px] font-medium text-[#1b1d22]">{item.label}</span>
+              <span className="block truncate text-[13px] font-medium text-mr-text">{item.label}</span>
               <span className="block truncate text-[12px] text-mr-faint">{item.group}</span>
             </span>
           </button>
@@ -176,9 +177,13 @@ export default function AppSidebar({
 }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const { getTerm } = useSitePolicy();
   const [query, setQuery] = useState('');
 
-  const groups = useMemo(() => buildNavigation({ hasPermission, isAdmin }), [hasPermission, isAdmin]);
+  const groups = useMemo(
+    () => buildNavigation({ hasPermission, isAdmin, getTerm }),
+    [getTerm, hasPermission, isAdmin],
+  );
   const flat = useMemo(() => flattenNavigation(groups), [groups]);
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -218,7 +223,7 @@ export default function AppSidebar({
             <BrandMark size={collapsed ? 'md' : 'lg'} />
             {!collapsed && (
               <span className="min-w-0 flex-1 leading-tight">
-                <span className="block truncate text-[13.5px] font-semibold tracking-[-0.01em] text-[#1b1d22]">MountReality</span>
+                <span className="block truncate text-[13.5px] font-semibold tracking-[-0.01em] text-mr-text">MountReality</span>
                 <span className="block truncate text-[11.5px] text-mr-faint">Management suite</span>
               </span>
             )}
@@ -236,7 +241,7 @@ export default function AppSidebar({
                   <button
                     type="button"
                     aria-label="Search navigation"
-                    className="flex h-10 w-10 items-center justify-center rounded-control text-[#5b6270] transition-colors duration-150 hover:bg-mr-surface-2 hover:text-[#1b1d22] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue"
+                    className="flex h-10 w-10 items-center justify-center rounded-control text-mr-muted transition-colors duration-150 hover:bg-mr-surface-2 hover:text-mr-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue"
                   >
                     <Search className="h-5 w-5" strokeWidth={1.9} aria-hidden="true" />
                   </button>
@@ -272,14 +277,14 @@ export default function AppSidebar({
               onKeyDown={(e) => e.key === 'Escape' && setQuery('')}
               placeholder="Search menu…"
               aria-label="Search navigation"
-              className="h-9 w-full rounded-control bg-mr-surface-2 pl-8.5 pr-8 text-[13px] text-[#1b1d22] outline-none transition-colors placeholder:text-mr-faint focus:bg-mr-surface focus:ring-2 focus:ring-mr-blue/30"
+              className="h-9 w-full rounded-control bg-mr-surface-2 pl-8.5 pr-8 text-[13px] text-mr-text outline-none transition-colors placeholder:text-mr-faint focus:bg-mr-surface focus:ring-2 focus:ring-mr-blue/30"
             />
             {searching && (
               <button
                 type="button"
                 onClick={() => setQuery('')}
                 aria-label="Clear search"
-                className="absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full text-mr-faint transition-colors hover:bg-mr-line hover:text-[#1b1d22] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue"
+                className="absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full text-mr-faint transition-colors hover:bg-mr-line hover:text-mr-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue"
               >
                 <X className="h-3.5 w-3.5" strokeWidth={2.2} aria-hidden="true" />
               </button>
@@ -330,7 +335,7 @@ export default function AppSidebar({
                   onClick={() => go('/settings')}
                   aria-label="Settings"
                   aria-current={location.pathname === '/settings' ? 'page' : undefined}
-                  className="flex h-11 w-11 items-center justify-center rounded-control text-[#5b6270] transition-colors duration-150 hover:bg-[#f5f6f4] hover:text-[#1b1d22] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue"
+                  className="flex h-11 w-11 items-center justify-center rounded-control text-mr-muted transition-colors duration-150 hover:bg-mr-surface-2 hover:text-mr-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue"
                 >
                   <Settings className="h-5 w-5" strokeWidth={1.9} aria-hidden="true" />
                 </button>
@@ -375,7 +380,7 @@ export default function AppSidebar({
                   </span>
                 )}
                 <span className="min-w-0 flex-1 text-left">
-                  <span className="block truncate text-[13px] font-medium text-[#1b1d22]">{user?.name || 'Account'}</span>
+                  <span className="block truncate text-[13px] font-medium text-mr-text">{user?.name || 'Account'}</span>
                   <span className="block truncate text-[12px] text-mr-faint">
                     {user?.role === 'super_admin' ? 'Super Admin' : user?.role === 'admin' ? 'Admin' : 'Sub-Admin'}
                   </span>
@@ -386,7 +391,7 @@ export default function AppSidebar({
           </PopoverTrigger>
           <PopoverContent side={collapsed ? 'right' : 'top'} align="start" sideOffset={8} className="w-60 rounded-panel-sm border-mr-line p-1.5">
             <div className="px-2.5 py-2">
-              <p className="truncate text-[13px] font-semibold text-[#1b1d22]">{user?.name}</p>
+              <p className="truncate text-[13px] font-semibold text-mr-text">{user?.name}</p>
               <p className="truncate text-[12px] text-mr-faint">{user?.email}</p>
             </div>
             <div className="my-1 h-px bg-mr-line" />

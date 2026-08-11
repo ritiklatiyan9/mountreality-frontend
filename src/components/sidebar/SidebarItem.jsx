@@ -8,8 +8,8 @@ import { cn } from '@/lib/utils';
 
 const ROW = 'group relative flex w-full items-center gap-2.5 rounded-control px-2.5 text-[13px] font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue focus-visible:ring-inset';
 const ROW_HEIGHT = 'h-10';
-const ACTIVE = 'bg-mr-blue-soft text-[#245bdb]';
-const IDLE = 'text-[#5b6270] hover:bg-[#f5f6f4] hover:text-[#1b1d22]';
+const ACTIVE = 'bg-mr-blue-soft text-mr-blue-deep';
+const IDLE = 'text-mr-muted hover:bg-mr-surface-2 hover:text-mr-text';
 
 /* Labels stay on one line; a tooltip carries the full text only when the
    element is actually clipped, so short labels get no hover noise. */
@@ -43,9 +43,11 @@ function Badge({ count }) {
 
 /* Submenu rows — shared by the inline (expanded) and floating (collapsed)
    presentations so a child looks and behaves identically in both. */
-function ChildRows({ items, pathname, onNavigate, dense }) {
+function ChildRows({ items, pathname, search, onNavigate, dense }) {
   return items.map((child) => {
-    const active = pathname === child.path;
+    // A child path carrying a query string (e.g. a specific tab) only
+    // lights up on that exact tab, not on every other tab of the same route.
+    const active = child.path.includes('?') ? `${pathname}${search}` === child.path : pathname === child.path;
     const Icon = child.icon;
     return (
       <button
@@ -119,7 +121,7 @@ export default function SidebarItem({ item, collapsed, badgeCount, onNavigate })
           >
             <p className="px-2.5 py-1.5 text-[12px] font-semibold text-mr-text">{item.label}</p>
             <div className="space-y-0.5">
-              <ChildRows items={item.children} pathname={location.pathname} onNavigate={go} dense />
+              <ChildRows items={item.children} pathname={location.pathname} search={location.search} onNavigate={go} dense />
             </div>
           </PopoverContent>
         </Popover>
@@ -170,7 +172,7 @@ export default function SidebarItem({ item, collapsed, badgeCount, onNavigate })
       </button>
       {open && (
         <div className="mt-0.5 space-y-0.5 border-l border-mr-line pl-2.5 ml-4">
-          <ChildRows items={item.children} pathname={location.pathname} onNavigate={go} dense />
+          <ChildRows items={item.children} pathname={location.pathname} search={location.search} onNavigate={go} dense />
         </div>
       )}
     </div>

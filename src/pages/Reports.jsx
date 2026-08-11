@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/api';
 import { cn } from '../lib/utils';
+import { sanitizeSpreadsheetRows } from '../lib/spreadsheetSecurity';
 import { Input } from '../components/ui/input';
 import { Skeleton } from '../components/ui/skeleton';
 import {
@@ -174,9 +175,9 @@ export const Reports = () => {
 
   const exportRows = (format) => {
     if (!report || !rows.length) return;
-    const data = rows.map((r) =>
+    const data = sanitizeSpreadsheetRows(rows.map((r) =>
       Object.fromEntries(report.columns.map((c) => [c.label, c.type === 'date' ? fmtDate(r[c.key]) : r[c.key]]))
-    );
+    ));
     const sheet = XLSX.utils.json_to_sheet(data);
     const book = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(book, sheet, report.module.slice(0, 30));

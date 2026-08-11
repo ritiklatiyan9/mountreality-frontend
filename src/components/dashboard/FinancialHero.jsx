@@ -10,18 +10,15 @@ import { money, moneyCompact } from '@/lib/utils';
 
        opening + incoming − outgoing = closing balance
 
-   Every figure comes straight from the existing kpiCards query — nothing
-   here is derived beyond that subtraction, and when nothing moved the
-   panel says so instead of drawing an empty meter. The split bar is
-   proportional to gross movement (in ÷ (in + out)), so a glance shows
-   whether the period took more in than it paid out. ── */
+   Every figure comes straight from the existing kpiCards query. The movement
+   bar is proportional to gross activity and is paired with exact values. */
 function FlowRow({ label, value, tone, icon, sign }) {
   const RowIcon = icon;
-  const colour = tone === 'in' ? 'text-mr-aqua' : 'text-mr-coral';
+  const colour = tone === 'in' ? 'text-emerald-400' : 'text-red-400';
   return (
     <div className="flex items-center justify-between gap-3 py-1.5">
       <span className="flex min-w-0 items-center gap-2 text-[12px] text-white/60">
-        <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${tone === 'in' ? 'bg-mr-aqua/15' : 'bg-mr-coral/15'}`}>
+        <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${tone === 'in' ? 'bg-emerald-400/15' : 'bg-red-400/15'}`}>
           <RowIcon className={`h-3.5 w-3.5 ${colour}`} strokeWidth={2.2} aria-hidden="true" />
         </span>
         <span className="truncate">{label}</span>
@@ -33,7 +30,12 @@ function FlowRow({ label, value, tone, icon, sign }) {
   );
 }
 
-export function FinancialPositionPanel({ balance, opening, incoming, outgoing, loading }) {
+export function FinancialPositionPanel({
+  balance, opening, incoming, outgoing, loading,
+  /* The same arithmetic reads as "site balance" on the dashboard and
+     "closing balance" on a statement — only the noun changes. */
+  label = 'Site balance', compactAbove = 1e5,
+}) {
   const open = Number(opening) || 0;
   const inc = Number(incoming) || 0;
   const out = Number(outgoing) || 0;
@@ -42,25 +44,24 @@ export function FinancialPositionPanel({ balance, opening, incoming, outgoing, l
   const net = inc - out;
   const gross = inc + out;
   const hasFlow = gross > 0;
-  // Share of gross movement, floored so a tiny non-zero side stays visible.
   const inShare = hasFlow ? Math.min(97, Math.max(3, (inc / gross) * 100)) : 50;
 
   const description = loading
-    ? 'Loading site balance'
-    : `Site balance ${money(bal)}. Opening ${money(open)}, incoming ${money(inc)}, outgoing ${money(out)}, `
+    ? `Loading ${label.toLowerCase()}`
+    : `${label} ${money(bal)}. Opening ${money(open)}, incoming ${money(inc)}, outgoing ${money(out)}, `
       + (hasFlow ? `net ${net >= 0 ? 'up' : 'down'} ${money(Math.abs(net))} for the period.` : 'no approved movement in this period.');
 
   return (
     <figure className="m-0 w-full" role="group" aria-label={description}>
       {/* ── Closing balance ── */}
       <div className="flex items-start justify-between gap-3">
-        <span className="text-[12px] font-medium text-white/55">Site balance</span>
+        <span className="text-[12px] font-medium text-white/55">{label}</span>
         {!loading && hasFlow && (
           <span
             className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11.5px] font-semibold tabular-nums ring-1 ring-inset ${
               net >= 0
-                ? 'bg-mr-aqua/12 text-mr-aqua ring-mr-aqua/25'
-                : 'bg-mr-coral/12 text-mr-coral ring-mr-coral/25'
+                ? 'bg-emerald-400/12 text-emerald-300 ring-emerald-400/25'
+                : 'bg-red-400/12 text-red-300 ring-red-400/25'
             }`}
             title={`${net >= 0 ? 'Net inflow' : 'Net outflow'} of ${money(Math.abs(net))} this period`}
           >
@@ -74,28 +75,24 @@ export function FinancialPositionPanel({ balance, opening, incoming, outgoing, l
 
       {loading
         ? <span className="mt-2 block h-10 w-44 animate-pulse rounded-md bg-white/10" />
-        : <CurrencyValue value={bal} size="lg" tone="invert" className="mt-1.5" compactAbove={1e5} />}
+        : <CurrencyValue value={bal} size="lg" tone="invert" className="mt-1.5" compactAbove={compactAbove} />}
 
-      {/* ── Movement split ──
-         One bar, two honest proportions; the widths are the only encoding,
-         and both figures are printed underneath so nothing rests on colour. */}
       <div className="mt-4">
         <div className="flex h-2 w-full gap-1 overflow-hidden rounded-full" aria-hidden="true">
           {loading ? (
             <span className="h-full w-full animate-pulse rounded-full bg-white/10" />
           ) : hasFlow ? (
             <>
-              <span className="h-full rounded-full bg-mr-aqua/85" style={{ width: `${inShare}%` }} />
-              <span className="h-full flex-1 rounded-full bg-mr-coral/85" />
+              <span className="h-full rounded-full bg-emerald-500" style={{ width: `${inShare}%` }} />
+              <span className="h-full flex-1 rounded-full bg-red-500" />
             </>
           ) : (
             <span className="h-full w-full rounded-full bg-white/8" />
           )}
         </div>
-
         <div className="mt-1 divide-y divide-white/8">
-          <FlowRow label="Credit" value={inc} tone="in" icon={ArrowDownLeft} sign="+" />
-          <FlowRow label="Debit" value={out} tone="out" icon={ArrowUpRight} sign="−" />
+        <FlowRow label="Credit" value={inc} tone="in" icon={ArrowDownLeft} sign="+" />
+        <FlowRow label="Debit" value={out} tone="out" icon={ArrowUpRight} sign="−" />
         </div>
       </div>
 
@@ -142,14 +139,17 @@ export default function FinancialHero({
   );
 
   return (
+    /* Not overflow-hidden: the search results drop out of the bottom of
+       this panel and a clip here beats any z-index they could carry. Both
+       halves already round their own corners, so nothing needs clipping. */
     <section
       aria-labelledby="mr-hero-title"
-      className="grid overflow-hidden rounded-panel border border-mr-line bg-mr-surface lg:grid-cols-[minmax(0,1.12fr)_minmax(300px,0.68fr)]"
+      className="grid rounded-panel border border-mr-line bg-mr-surface lg:grid-cols-[minmax(0,1.12fr)_minmax(300px,0.68fr)]"
     >
       {/* ── Context and actions ── */}
       <div className="relative flex flex-col justify-between gap-4 p-5 sm:p-6">
         <div
-          className="pointer-events-none absolute inset-0 opacity-70"
+          className="pointer-events-none absolute inset-0 rounded-t-panel opacity-70 lg:rounded-tr-none lg:rounded-l-panel"
           aria-hidden="true"
           style={{ background: 'radial-gradient(95% 80% at 0% 0%, rgba(80,221,235,0.26) 0%, rgba(185,255,69,0.16) 38%, rgba(255,255,255,0) 72%)' }}
         />

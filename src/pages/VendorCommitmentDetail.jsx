@@ -1,3 +1,4 @@
+import { writePrintDocument } from '../lib/safePrint';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -46,6 +47,7 @@ import QRCode from 'qrcode';
 import { toast } from 'sonner';
 import { useRowSelection } from '../hooks/useRowSelection';
 import BulkActionsBar from '../components/BulkActionsBar';
+import BankAccountSelect from '../components/BankAccountSelect';
 
 const CASH_MODES = ['cash'];
 
@@ -79,7 +81,7 @@ const paymentStatusBadgeClass = (status) => {
 const VendorCommitmentDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { currentSite, isAdmin, canManage, user } = useAuth();
+  const { currentSite, canManage, user } = useAuth();
   const openDoc = useDocViewer();
   const siteId = currentSite?.id;
   const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
@@ -100,6 +102,7 @@ const VendorCommitmentDetail = () => {
     payment_date: '',
     amount: '',
     payment_mode: 'cash',
+    bank_account_id: '',
     reference_no: '',
     note: '',
     voucher_url: '',
@@ -107,8 +110,6 @@ const VendorCommitmentDetail = () => {
   });
 
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
-  const [uploadingVoucher, setUploadingVoucher] = useState(false);
-  const voucherInputRef = useState(null);
   const [inventoryOrders, setInventoryOrders] = useState([]);
   const [heads, setHeads] = useState([]);
   const [invDialogOpen, setInvDialogOpen] = useState(false);
@@ -118,6 +119,7 @@ const VendorCommitmentDetail = () => {
     payment_date: todayISO(),
     amount: '',
     payment_mode: 'cash',
+    bank_account_id: '',
     reference_no: '',
     note: '',
     voucher_url: '',
@@ -142,7 +144,7 @@ const VendorCommitmentDetail = () => {
       setInventoryOrders(res.data.inventoryOrders || []);
       setApprovers(appRes.data.approvers || []);
       setHeads(headsRes.data.heads || []);
-    } catch (err) {
+    } catch {
       setCommitment(null);
       setPayments([]);
       setInventoryOrders([]);
@@ -323,7 +325,7 @@ const VendorCommitmentDetail = () => {
 </body></html>`;
 
     const printWindow = window.open('', '_blank', 'width=1000,height=750');
-    printWindow.document.write(html);
+    writePrintDocument(printWindow, html);
     printWindow.document.close();
   };
 
@@ -470,7 +472,7 @@ const VendorCommitmentDetail = () => {
       toast.error('Popup blocked — allow popups for this site to print');
       return;
     }
-    printWindow.document.write(html);
+    writePrintDocument(printWindow, html);
     printWindow.document.close();
   };
 
@@ -490,6 +492,7 @@ const VendorCommitmentDetail = () => {
       payment_date: todayISO(),
       amount: commitment?.remaining_amount > 0 ? String(commitment.remaining_amount) : '',
       payment_mode: 'cash',
+      bank_account_id: '',
       reference_no: '',
       note: '',
       voucher_url: '',
@@ -510,28 +513,12 @@ const VendorCommitmentDetail = () => {
     }));
   };
 
-  const handleVoucherUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploadingVoucher(true);
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      const res = await api.post('/upload/single?provider=s3', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      const url = res.data.fileUrl || res.data.url || '';
-      if (editDialogOpen) setEditForm(prev => ({ ...prev, voucher_url: url }));
-      else setPaymentForm(prev => ({ ...prev, voucher_url: url }));
-    } catch (err) {
-      alert('Upload failed');
-    } finally {
-      setUploadingVoucher(false);
-    }
-  };
-
   const handleAddPayment = async () => {
     if (!siteId || !id) return;
+    if (!CASH_MODES.includes(paymentForm.payment_mode) && !paymentForm.bank_account_id) {
+      toast.error('Select the bank account used for this payment');
+      return;
+    }
     setSubmitting(true);
     try {
       // 1. Record the commitment-level payment.
@@ -559,6 +546,7 @@ const VendorCommitmentDetail = () => {
           payment_date: txDate,
           amount: totalPayment,
           payment_mode: paymentForm.payment_mode,
+          bank_account_id: paymentForm.bank_account_id || null,
           reference_no: paymentForm.reference_no,
           note: paymentForm.note,
           voucher_url: paymentForm.voucher_url,
@@ -594,6 +582,7 @@ const VendorCommitmentDetail = () => {
       payment_date: payment.payment_date ? payment.payment_date.split('T')[0] : '',
       amount: String(payment.amount || ''),
       payment_mode: (payment.payment_mode || 'cash').toLowerCase(),
+      bank_account_id: payment.bank_account_id ? String(payment.bank_account_id) : '',
       reference_no: payment.reference_no || '',
       note: payment.note || '',
       voucher_url: payment.voucher_url || '',
@@ -604,6 +593,10 @@ const VendorCommitmentDetail = () => {
 
   const handleUpdatePayment = async () => {
     if (!editingPayment || !siteId) return;
+    if (!CASH_MODES.includes(editForm.payment_mode) && !editForm.bank_account_id) {
+      toast.error('Select the bank account used for this payment');
+      return;
+    }
     setSubmitting(true);
     try {
       const { data } = await api.put(`/vendors/payments/${editingPayment.id}`, {
@@ -611,6 +604,7 @@ const VendorCommitmentDetail = () => {
         payment_date: editForm.payment_date || todayISO(),
         amount: parseFloat(editForm.amount) || 0,
         payment_mode: editForm.payment_mode,
+        bank_account_id: editForm.bank_account_id || null,
         reference_no: editForm.reference_no,
         note: editForm.note,
         voucher_url: editForm.voucher_url,
@@ -772,19 +766,19 @@ const VendorCommitmentDetail = () => {
   }
 
   return (
-    <div className="max-w-350 space-y-5">
+    <div className="mx-auto w-full max-w-[1400px] space-y-6 pb-16">
       {/* Header */}
-      <div className="rounded-2xl border border-slate-200 bg-linear-to-r from-white via-slate-50 to-emerald-50/60 p-4 sm:p-5">
+      <header className="border-b border-mr-line pb-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex items-start gap-3">
-            <Button variant="ghost" size="sm" onClick={() => navigate('/vendors')} className="h-8 w-8 p-0 mt-0.5">
+          <div className="flex min-w-0 items-start gap-3">
+            <Button variant="ghost" size="sm" onClick={() => navigate('/vendors')} className="mt-0.5 h-8 w-8 shrink-0 p-0">
               <ArrowLeft className="w-4 h-4" />
             </Button>
-            <div>
-              <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">Vendor Commitment</h1>
-              <p className="text-sm text-slate-500 mt-0.5">
-                Payment records for {currentSite?.name || 'site'}
-              </p>
+            <UserAvatar name={commitment?.vendor_name || 'Vendor'} src={commitment?.vendor_member_photo} size="md" label="Vendor" />
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mr-faint">Vendor commitment</p>
+              <h1 className="mt-1 truncate text-2xl font-semibold tracking-tight text-mr-text">{commitment?.vendor_name || 'Commitment details'}</h1>
+              <p className="mt-1 truncate text-sm text-mr-muted">{commitment?.work_title || 'Payment and procurement record'} · {currentSite?.name || 'Site'}</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -801,13 +795,13 @@ const VendorCommitmentDetail = () => {
               deleting={bulkDeleting}
             />
             {canManage && (
-              <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={openAddPaymentDialog}>
+              <Button size="sm" className="bg-mr-ink text-white hover:bg-mr-ink-2" onClick={openAddPaymentDialog}>
                 <Plus className="w-4 h-4 mr-1.5" /> Add Payment
               </Button>
             )}
           </div>
         </div>
-      </div>
+      </header>
 
       {loading ? (
         <div className="flex items-center justify-center py-16">
@@ -819,77 +813,28 @@ const VendorCommitmentDetail = () => {
         </div>
       ) : (
         <>
-          {/* Summary Cards */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="rounded-2xl border border-blue-200/80 bg-linear-to-br from-blue-50/50 via-white to-blue-50/30 p-5 shadow-sm transition-all hover:shadow-md">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-blue-500/80">Vendor</p>
-                <Store className="w-4 h-4 text-blue-400" />
-              </div>
-              <p className="text-xl font-bold text-slate-900 truncate">{commitment.vendor_name}</p>
-            </div>
-            
-            <div className="rounded-2xl border border-slate-200/80 bg-linear-to-br from-slate-50/50 via-white to-slate-50/30 p-5 shadow-sm transition-all hover:shadow-md">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500/80">Contract</p>
-                <IndianRupee className="w-4 h-4 text-slate-400" />
-              </div>
-              <p className="text-xl font-bold text-slate-900">₹{money(commitment.contract_amount)}</p>
-            </div>
+          {/* Financial summary */}
+          <dl className="grid grid-cols-2 border-y border-mr-line bg-mr-surface sm:grid-cols-4">
+            <div className="border-b border-r border-mr-line px-4 py-4 sm:border-b-0"><dt className="text-[11px] font-medium uppercase tracking-[0.1em] text-mr-faint">Contract</dt><dd className="mt-1 text-xl font-semibold tabular-nums text-mr-text">₹{money(commitment.contract_amount)}</dd></div>
+            <div className="border-b border-mr-line px-4 py-4 sm:border-b-0 sm:border-r"><dt className="text-[11px] font-medium uppercase tracking-[0.1em] text-mr-faint">Paid</dt><dd className="mt-1 text-xl font-semibold tabular-nums text-mr-lime-ink">₹{money(totalPaid)}</dd></div>
+            <div className="border-r border-mr-line px-4 py-4"><dt className="text-[11px] font-medium uppercase tracking-[0.1em] text-mr-faint">Outstanding</dt><dd className={`mt-1 text-xl font-semibold tabular-nums ${parseFloat(commitment.remaining_amount) < 0 ? 'text-mr-lime-ink' : 'text-mr-coral-ink'}`}>{parseFloat(commitment.remaining_amount) < 0 ? `Overpaid ₹${money(Math.abs(commitment.remaining_amount))}` : `₹${money(commitment.remaining_amount)}`}</dd></div>
+            <div className="px-4 py-4"><dt className="text-[11px] font-medium uppercase tracking-[0.1em] text-mr-faint">Status</dt><dd className="mt-1"><Badge variant="outline" className={`px-2 py-0.5 text-[10px] font-semibold uppercase ${statusBadgeClass(commitment.status)}`}>{commitment.status}</Badge></dd></div>
+          </dl>
 
-            <div className="rounded-2xl border border-emerald-200/80 bg-linear-to-br from-emerald-50/50 via-white to-emerald-50/30 p-5 shadow-sm transition-all hover:shadow-md">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-500/80">Paid Total</p>
-                <div className="p-1 rounded-full bg-emerald-100/50"><ArrowDownRight className="w-3.5 h-3.5 text-emerald-600" /></div>
+          {/* Commitment identity */}
+          <section className="border-b border-mr-line pb-5">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-mr-faint">Scope</p>
+                <h2 className="mt-1 text-base font-semibold text-mr-text">{commitment.head_name || 'Uncategorised'}{commitment.work_title && <span className="font-normal text-mr-muted"> · {commitment.work_title}</span>}</h2>
+                <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-mr-muted"><span className="inline-flex items-center gap-1.5"><CalendarDays className="h-3.5 w-3.5 text-mr-faint" /> Created {fmtDate(commitment.created_at)}</span>{commitment.start_date && <span>Starts {fmtDate(commitment.start_date)}</span>}{commitment.due_date && <span>Due {fmtDate(commitment.due_date)}</span>}<span className="inline-flex items-center gap-1.5"><Receipt className="h-3.5 w-3.5 text-mr-faint" /> {payments.length} payments</span></div>
               </div>
-              <p className="text-xl font-bold text-emerald-700">₹{money(totalPaid)}</p>
+              {commitment.note && <p className="max-w-md text-sm leading-6 text-mr-muted">{commitment.note}</p>}
             </div>
-
-            <div className="rounded-2xl border border-red-200/80 bg-linear-to-br from-red-50/50 via-white to-red-50/30 p-5 shadow-sm transition-all hover:shadow-md">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-red-500/80">Remaining</p>
-                <Wallet className="w-4 h-4 text-red-400" />
-              </div>
-              <div className="mt-1">
-                {parseFloat(commitment.remaining_amount) < 0 ? (
-                  <p className="text-xl font-black text-emerald-600">Overpaid: ₹{money(Math.abs(commitment.remaining_amount))}</p>
-                ) : (
-                  <p className="text-xl font-black text-red-600">₹{money(commitment.remaining_amount)}</p>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Commitment Info */}
-          <div className="rounded-2xl border border-slate-200/90 bg-white/60 backdrop-blur-sm px-6 py-4 shadow-sm">
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-4">
-                <div className="h-10 w-10 flex items-center justify-center rounded-xl bg-slate-900 text-white shadow-lg">
-                  <Store className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-800">{commitment.head_name} <span className="mx-2 text-slate-300">/</span> {commitment.work_title}</h3>
-                  <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
-                    <span className="flex items-center gap-1.5"><CalendarDays className="w-3.5 h-3.5" /> Created {fmtDate(commitment.created_at)}</span>
-                    {commitment.start_date && (
-                      <>
-                        <span className="h-1 w-1 rounded-full bg-slate-300" />
-                        <span className="flex items-center gap-1.5">Start: {fmtDate(commitment.start_date)}</span>
-                      </>
-                    )}
-                    <span className="h-1 w-1 rounded-full bg-slate-300" />
-                    <span className="flex items-center gap-1.5"><Receipt className="w-3.5 h-3.5" /> {payments.length} Payments</span>
-                  </div>
-                </div>
-              </div>
-              <Badge variant="outline" className={`px-3 py-1 text-[10px] font-bold uppercase tracking-widest shadow-xs ${statusBadgeClass(commitment.status)}`}>
-                {commitment.status}
-              </Badge>
-            </div>
-          </div>
+          </section>
 
           {/* ── Inventory Items Section ─────────────────────────── */}
-          <Card className="shadow-none border-slate-200">
+          <Card className="rounded-none border-x-0 border-y border-slate-200 shadow-none">
             <CardContent className="p-0">
               <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -1016,7 +961,7 @@ const VendorCommitmentDetail = () => {
             </CardContent>
           </Card>
 
-          <Card className="shadow-none border-slate-200">
+          <Card className="rounded-none border-x-0 border-y border-slate-200 shadow-none">
             <CardContent className="p-0">
               <div className="px-4 py-3 border-b border-slate-200 flex items-center gap-2">
                 <Receipt className="w-4 h-4 text-slate-500" />
@@ -1221,6 +1166,14 @@ const VendorCommitmentDetail = () => {
           </EntryField>
         </EntryRow>
 
+        <BankAccountSelect
+          value={editForm.bank_account_id}
+          onChange={(value) => setEditForm((prev) => ({ ...prev, bank_account_id: value }))}
+          paymentMode={editForm.payment_mode}
+          disabled={submitting}
+          required
+        />
+
         <EntryAmount
           direction="debit"
           inputProps={{
@@ -1323,6 +1276,14 @@ const VendorCommitmentDetail = () => {
             />
           </EntryField>
         </EntryRow>
+
+        <BankAccountSelect
+          value={paymentForm.bank_account_id}
+          onChange={(value) => setPaymentForm((prev) => ({ ...prev, bank_account_id: value }))}
+          paymentMode={paymentForm.payment_mode}
+          disabled={submitting}
+          required
+        />
 
         <EntryAmount
           direction="debit"

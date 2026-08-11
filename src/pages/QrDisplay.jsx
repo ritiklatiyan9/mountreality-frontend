@@ -117,7 +117,7 @@ const QrDisplay = () => {
           /* ── Idle ── */
           <div className="text-center animate-qr-fade-up">
             <QrCode className="w-24 h-24 text-slate-700 mx-auto mb-6 animate-soft-pulse" />
-            <p className="text-2xl font-semibold text-slate-300">Ready to receive payments</p>
+            <p className="text-2xl font-semibold text-slate-300">Ready for QR payment</p>
             <p className="text-sm text-slate-500 mt-2">A payment QR will appear here automatically</p>
           </div>
         )}

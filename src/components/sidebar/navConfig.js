@@ -1,12 +1,12 @@
 import {
-  House, LayoutDashboard, UsersRound, Tags, Store, ShoppingBag, Tractor,
+  LayoutDashboard, UsersRound, Tags, Store, ShoppingBag, PackageSearch, LandPlot,
   Landmark, FolderArchive, CalendarClock, ChartColumn, Percent, HandCoins,
   Files, Library, FolderOpen, FileSearch, NotebookTabs, BookOpen, Wallet,
   Banknote, Scale, CircleDollarSign, BookOpenCheck, ReceiptIndianRupee,
   Receipt, ListChecks, QrCode, KeyRound, HardHat, Boxes, FileBox, Sheet,
   FilePlus2, MessageSquare, TrendingUp, Crown, MapPin, UserCog, CheckCircle2,
   ShieldCheck, Shield,
-  CalendarDays, Gavel, ScrollText, Building, FileText,
+  CalendarDays, Gavel, ScrollText, Building, FileText, Network, ClipboardCheck,
 } from 'lucide-react';
 
 /* ── Navigation model ────────────────────────────────────────────────
@@ -25,8 +25,10 @@ export const SIDEBAR_DEFAULT_WIDTH = 252;
 export const SIDEBAR_MAX_WIDTH = 360;
 export const SIDEBAR_COLLAPSED_WIDTH = 72;
 
-export function buildNavigation({ hasPermission, isAdmin }) {
+export function buildNavigation({ hasPermission, isAdmin, getTerm = (_key, fallback) => fallback }) {
   const can = (module) => hasPermission(module, 'read');
+  const term = (key, fallback) => getTerm(key, getTerm(`navigation.${key}`, fallback));
+  const projectTerm = term('project', 'Project');
 
   /* Registry group is visible when either of its two datasets is. */
   const registryChildren = [
@@ -44,7 +46,6 @@ export function buildNavigation({ hasPermission, isAdmin }) {
       id: 'core',
       label: 'Core',
       items: [
-        { path: '/home', label: 'Home', icon: House, visible: can('dashboard') },
         { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, visible: can('dashboard') },
       ],
     },
@@ -54,7 +55,7 @@ export function buildNavigation({ hasPermission, isAdmin }) {
       items: [
         {
           path: '/clients',
-          label: 'User management',
+          label: term('clients', 'User management'),
           icon: UsersRound,
           visible: can('clients'),
           matches: ['/clients', '/register-user', '/user-categories'],
@@ -65,32 +66,54 @@ export function buildNavigation({ hasPermission, isAdmin }) {
         },
         {
           path: '/vendors',
-          label: 'Vendor management',
+          label: term('vendors', 'Inventory and Management'),
           icon: Store,
           visible: can('vendors'),
-          matches: ['/vendors'],
+          /* Every child's own base path belongs here too — Stocks and
+             Procurement both route to /inventory, and without it in
+             matches, isItemActive() goes false the moment you click
+             either one, collapsing the group right after opening it. */
+          matches: ['/vendors', '/inventory'],
           children: [
             { path: '/vendors', label: 'Commitments', icon: ShoppingBag },
+            { path: '/inventory?tab=procurement', label: 'Procurement', icon: PackageSearch },
+            { path: '/inventory', label: 'Stocks', icon: Boxes },
             { path: '/vendors/categories', label: 'Categories', icon: Tags },
           ],
         },
-        { path: '/farmers', label: 'Farmer payments', icon: Tractor, visible: can('farmers') },
+        {
+          path: '/land-acquisition?view=overview',
+          label: term('land_module', 'Land Acquisition'),
+          icon: LandPlot,
+          visible: can('farmers'),
+          matches: ['/land-acquisition', '/farmers'],
+          children: [
+            { path: '/land-acquisition?view=overview', label: 'Overview', icon: LayoutDashboard },
+            { path: '/land-acquisition?view=acquisitions', label: 'Acquisitions', icon: LandPlot },
+            { path: '/land-acquisition?view=transactions', label: 'Transactions', icon: ReceiptIndianRupee },
+            { path: '/land-acquisition?view=reports', label: 'Reports & Analytics', icon: ChartColumn },
+          ],
+        },
         {
           path: '/plot-payments',
-          label: 'Plot payments',
+          label: term('collections_module', 'Plot payments'),
           icon: Landmark,
           visible: can('plot_payments'),
-          matches: ['/plot-payments', '/plot-documents', '/payment-management', '/payment-analytics'],
+          matches: ['/plot-payments', '/customer-inventory', '/project-finance', '/bank-configs', '/plot-documents', '/payment-management', '/payment-analytics', '/receive-payments'],
           children: [
+            { path: '/customer-inventory', label: term('customer_inventory', 'Customer & inventory'), icon: UsersRound },
+            { path: '/project-finance', label: term('project_finance', 'Project finance'), icon: ChartColumn },
             { path: '/plot-payments', label: 'Plot payments', icon: Landmark },
+            { path: '/bank-configs', label: 'Bank configs', icon: KeyRound },
             { path: '/plot-documents', label: 'Plot documents', icon: FolderArchive },
             { path: '/payment-management', label: 'Payment tracker', icon: CalendarClock },
             { path: '/payment-analytics', label: 'Payment analytics', icon: ChartColumn },
+            ...(can('upi_collect') ? [{ path: '/receive-payments', label: 'QR Payments', icon: QrCode }] : []),
           ],
         },
         {
           path: '/plot-commission',
-          label: 'Plot commission',
+          label: term('commission_module', 'Plot commission'),
           icon: Percent,
           visible: can('commissions'),
           matches: ['/commissions', '/plot-commission', '/plot-commission/search'],
@@ -100,7 +123,7 @@ export function buildNavigation({ hasPermission, isAdmin }) {
         },
         {
           path: '/plot-registry',
-          label: 'Registry & documents',
+          label: term('conveyance_module', 'Registry & documents'),
           icon: Files,
           visible: registryChildren.length > 0,
           matches: ['/plot-registry', '/documents'],
@@ -152,24 +175,23 @@ export function buildNavigation({ hasPermission, isAdmin }) {
           ],
         },
         { path: '/imprest', label: 'Imprest', icon: Wallet, visible: can('imprest') },
-        {
-          path: '/receive-payments',
-          label: 'Receive payment',
-          icon: QrCode,
-          visible: can('upi_collect'),
-          matches: ['/receive-payments', '/bank-configs'],
-          children: [
-            { path: '/receive-payments', label: 'Receive money', icon: QrCode },
-            { path: '/bank-configs', label: 'Bank configs', icon: KeyRound },
-          ],
-        },
       ],
     },
     {
       id: 'projects',
       label: 'Projects',
       items: [
-        { path: '/construction', label: 'Construction', icon: HardHat, visible: can('construction') },
+        {
+          path: '/construction',
+          label: term('construction', 'Construction'),
+          icon: HardHat,
+          visible: can('construction'),
+          matches: ['/construction'],
+          children: [
+            { path: '/construction', label: 'Projects & execution', icon: HardHat },
+            { path: '/construction/governance', label: 'Construction governance', icon: ClipboardCheck },
+          ],
+        },
         { path: '/inventory', label: 'Inventory', icon: Boxes, visible: can('inventory') },
         { path: '/document-imprest', label: 'Document handling', icon: FileBox, visible: can('document_imprest') },
         {
@@ -190,8 +212,19 @@ export function buildNavigation({ hasPermission, isAdmin }) {
       label: 'Compliance',
       items: [
         {
+          path: '/rera',
+          label: term('compliance_workspace', 'Project control centre'),
+          icon: ShieldCheck,
+          visible: can('rera_projects'),
+          matches: ['/rera'],
+          children: [
+            { path: '/rera?tab=projects-phases', label: `${projectTerm}s & phases`, icon: Building },
+            { path: '/rera?tab=projects-phases&create=project', label: `Create ${projectTerm}`, icon: FilePlus2 },
+          ],
+        },
+        {
           path: can('compliance') ? '/compliance/dashboard' : '/legal/cases',
-          label: 'Compliance & legal',
+          label: term('compliance_module', 'Compliance & legal'),
           icon: ShieldCheck,
           visible: can('compliance') || can('legal'),
           matches: ['/compliance', '/legal'],
@@ -235,6 +268,7 @@ export function buildNavigation({ hasPermission, isAdmin }) {
       id: 'admin',
       label: 'Admin',
       items: isAdmin ? [
+        { path: '/ecosystem', label: 'Client Portal', icon: Network, visible: true },
         { path: '/subscription', label: 'Subscription', icon: Crown, visible: true },
         { path: '/sites', label: 'Sites', icon: MapPin, visible: true },
         { path: '/sub-admins', label: 'Admin management', icon: UserCog, visible: true },

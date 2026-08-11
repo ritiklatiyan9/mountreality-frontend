@@ -28,6 +28,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { fmtINR, fmtDateIN, todayISO, amountInWordsINR, paymentModeOf, isBadCheque } from '../lib/nocUtils';
+import BankAccountSelect from '../components/BankAccountSelect';
 
 const MODE_OPTIONS = ['CASH', 'BANK', 'UPI', 'NEFT', 'RTGS', 'CHEQUE', 'TRANSFER'];
 
@@ -65,7 +66,7 @@ const PlotRegistryNoc = () => {
   const [inline, setInline] = useState([]);
 
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [sheetForm, setSheetForm] = useState({ payment_date: todayISO(), amount: '', payment_mode: 'CASH', notes: '' });
+  const [sheetForm, setSheetForm] = useState({ payment_date: todayISO(), amount: '', payment_mode: 'CASH', bank_account_id: '', notes: '' });
 
   const hydrate = useCallback((payload) => {
     setData(payload);
@@ -84,6 +85,7 @@ const PlotRegistryNoc = () => {
         payment_date: p.payment_date ? String(p.payment_date).split('T')[0] : todayISO(),
         amount: String(p.amount ?? ''),
         payment_mode: p.payment_mode || 'BANK',
+        bank_account_id: p.bank_account_id ? String(p.bank_account_id) : '',
         notes: p.notes || '',
         include_in_noc: p.include_in_noc !== false,
       }))
@@ -157,11 +159,15 @@ const PlotRegistryNoc = () => {
   const handleAddManual = () => {
     const amount = parseFloat(sheetForm.amount) || 0;
     if (amount <= 0) { toast.error('Enter a valid amount'); return; }
+    if (sheetForm.payment_mode !== 'CASH' && !sheetForm.bank_account_id) {
+      toast.error('Select the bank account used for this transaction');
+      return;
+    }
     setInline((rows) => [
       ...rows,
       { ...sheetForm, _key: `new-${Date.now()}`, include_in_noc: true },
     ]);
-    setSheetForm({ payment_date: todayISO(), amount: '', payment_mode: 'CASH', notes: '' });
+    setSheetForm({ payment_date: todayISO(), amount: '', payment_mode: 'CASH', bank_account_id: '', notes: '' });
     setSheetOpen(false);
     setDirty(true);
     toast.success('Manual payment added — remember to save');
@@ -181,6 +187,7 @@ const PlotRegistryNoc = () => {
             payment_date: row.payment_date,
             amount: row.amount,
             payment_mode: row.payment_mode,
+            bank_account_id: row.bank_account_id || null,
             notes: row.notes,
             include_in_noc: row.include_in_noc,
           })),
@@ -597,6 +604,11 @@ const PlotRegistryNoc = () => {
                   </Select>
                 </div>
               </div>
+              <BankAccountSelect
+                value={sheetForm.bank_account_id}
+                onChange={(bankAccountId) => setSheetForm((form) => ({ ...form, bank_account_id: bankAccountId }))}
+                paymentMode={sheetForm.payment_mode}
+              />
               <div className="space-y-1.5">
                 <Label className="text-xs text-slate-600">Amount (₹)</Label>
                 <Input

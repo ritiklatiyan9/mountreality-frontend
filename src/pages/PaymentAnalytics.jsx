@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/api';
+import { encodeCsvCell } from '../lib/spreadsheetSecurity';
 import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -139,7 +140,7 @@ export default function PaymentAnalytics() {
       r.plot_no, r.block || '', r.buyer_name || '', r.sale_price, r.total_received, r.total_remaining,
       r.interest_due || 0, r.plot_status || '', r.last_payment_date || '',
     ]);
-    const csv = [headers.join(','), ...rows.map(r => r.map(v => `"${v}"`).join(','))].join('\n');
+    const csv = [headers.map(encodeCsvCell).join(','), ...rows.map(r => r.map(encodeCsvCell).join(','))].join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

@@ -1,4 +1,5 @@
-import { createContext, useCallback, useContext, useState } from 'react';
+/* eslint-disable react-refresh/only-export-components */
+import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from './ui/dialog';
@@ -39,18 +40,38 @@ export function DocViewerProvider({ children }) {
   const [doc, setDoc] = useState(null);
   const [zoom, setZoom] = useState(false);
 
+  const releaseDoc = useCallback((value) => {
+    if (value?.revokeOnClose && String(value.url || '').startsWith('blob:')) {
+      URL.revokeObjectURL(value.url);
+    }
+  }, []);
+
   const openDoc = useCallback((d) => {
     if (!d?.url) return;
     setZoom(false);
-    setDoc(d);
-  }, []);
+    setDoc((current) => {
+      if (current?.url !== d.url) releaseDoc(current);
+      return d;
+    });
+  }, [releaseDoc]);
+
+  const closeDoc = useCallback(() => {
+    setDoc((current) => {
+      releaseDoc(current);
+      return null;
+    });
+  }, [releaseDoc]);
+
+  useEffect(() => () => {
+    if (doc?.revokeOnClose && String(doc.url || '').startsWith('blob:')) URL.revokeObjectURL(doc.url);
+  }, [doc]);
 
   const k = doc ? kindOf(doc) : null;
 
   return (
     <DocViewerContext.Provider value={openDoc}>
       {children}
-      <Dialog open={!!doc} onOpenChange={(o) => { if (!o) setDoc(null); }}>
+      <Dialog open={!!doc} onOpenChange={(o) => { if (!o) closeDoc(); }}>
         <DialogContent className="w-[96vw] sm:max-w-5xl p-0 gap-0 overflow-hidden">
           <DialogHeader className="px-4 py-3 border-b border-slate-100 space-y-0.5">
             <DialogTitle className="text-sm font-semibold truncate pr-8">

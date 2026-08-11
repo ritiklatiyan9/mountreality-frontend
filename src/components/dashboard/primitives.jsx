@@ -198,7 +198,7 @@ export function ErrorState({ title = 'This section could not be loaded', descrip
         <button
           type="button"
           onClick={onRetry}
-          className="mt-1 inline-flex h-9 items-center rounded-full bg-mr-ink px-4 text-[12px] font-semibold text-white transition-colors hover:bg-mr-ink-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue focus-visible:ring-offset-2"
+          className="mr-press mr-glass-ink mt-1 inline-flex h-9 items-center rounded-full bg-mr-ink px-4 text-[12px] font-semibold text-white hover:bg-mr-ink-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue focus-visible:ring-offset-2"
         >
           Try again
         </button>
@@ -216,8 +216,8 @@ export function IconButton(props) {
       aria-label={label}
       title={label}
       className={cn(
-        'flex h-9 w-9 items-center justify-center rounded-full border border-mr-line bg-mr-surface text-mr-muted transition-colors duration-200',
-        'hover:bg-mr-surface-2 hover:text-mr-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue focus-visible:ring-offset-2 disabled:opacity-50',
+        'mr-glass mr-press flex h-9 w-9 items-center justify-center rounded-full text-mr-muted',
+        'hover:text-mr-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue focus-visible:ring-offset-2 disabled:opacity-50',
         className,
       )}
       {...rest}

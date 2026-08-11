@@ -1,3 +1,4 @@
+import { writePrintDocument } from '../lib/safePrint';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { money, moneyCompact } from '@/lib/utils';
 
@@ -217,15 +218,33 @@ const Farmers = () => {
       if (cash > 0 && bank > 0) newForm.payment_mode = 'SPLIT';
       else if (bank > 0) newForm.payment_mode = 'BANK';
       else newForm.payment_mode = 'CASH';
+      // A manual edit to the breakdown means the land value should stop
+      // overwriting it — the user is now driving the split themselves.
+      newForm._autoPaymentApplied = false;
     }
 
-    // Auto-calculate land_payment = land_size_bigha × land_rate (display only).
-    // Never touches cash_amount / bank_amount — the user fills Payment
-    // Breakdown independently.
+    // Land value (size × rate) IS the deal's committed amount — it drives
+    // the Payment Breakdown below (defaulting the full value into Bank) so
+    // "Total Amount" in both sections always agrees. Without this, a farmer
+    // could be saved with total_amount still 0 despite an agreed land
+    // value, and the first payment would push "Remaining" negative.
+    // Only auto-fills while the split hasn't been hand-edited (guarded by
+    // _autoPaymentApplied) — once the user rebalances cash/bank themselves,
+    // later size/rate tweaks no longer clobber their split.
     if (field === 'land_size_bigha' || field === 'land_rate') {
       const size = parseFloat(field === 'land_size_bigha' ? value : newForm.land_size_bigha) || 0;
       const rate = parseFloat(field === 'land_rate' ? value : newForm.land_rate) || 0;
-      newForm.land_payment = (size > 0 && rate > 0) ? (size * rate).toFixed(2) : '';
+      const landPayment = (size > 0 && rate > 0) ? (size * rate) : 0;
+      newForm.land_payment = landPayment ? landPayment.toFixed(2) : '';
+
+      const untouched = formData._autoPaymentApplied || (!formData.cash_amount && !formData.bank_amount);
+      if (untouched) {
+        newForm.bank_amount = landPayment || '';
+        newForm.cash_amount = '';
+        newForm.total_amount = landPayment || '';
+        newForm.payment_mode = landPayment > 0 ? 'BANK' : newForm.payment_mode;
+        newForm._autoPaymentApplied = true;
+      }
     }
 
     setFormData(newForm);
@@ -342,7 +361,7 @@ const Farmers = () => {
         <td>${f.status || ''}</td>
       </tr>`;
     }).join('');
-    win.document.write(`
+    writePrintDocument(win, `
       <html>
         <head>
           <title>Farmers</title>
@@ -762,6 +781,7 @@ const Farmers = () => {
                         value={formData.land_payment ? formatCurrency(formData.land_payment) : ''}
                         placeholder="Size × Rate"
                       />
+                      <p className="text-[10px] text-slate-400">This is the deal's committed amount — it fills into Bank below by default; split it however was actually agreed.</p>
                     </div>
                   </div>
                 </div>

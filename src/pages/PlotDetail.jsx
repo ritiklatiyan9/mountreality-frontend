@@ -1,3 +1,4 @@
+import { writePrintDocument } from '../lib/safePrint';
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -9,6 +10,7 @@ import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
 import { Separator } from '../components/ui/separator';
 import { Progress } from '../components/ui/progress';
+import { Skeleton } from '../components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader,
@@ -38,6 +40,7 @@ import ApprovalStatusBadge from '../components/ApprovalStatusBadge';
 import ChequeStatusControl from '../components/ChequeStatusControl';
 import { classifyPaymentMode } from '../utils/paymentMode';
 import CreditDebitTabs from '../components/CreditDebitTabs';
+import BankAccountSelect from '../components/BankAccountSelect';
 import {
   EntryField, EntryAmount, EntryModeChips, FieldLabel,
 } from '../components/EntryModal';
@@ -81,6 +84,11 @@ const PAYMENT_FROM_OPTIONS = [
   'BOOKING', 'CASH', 'BANK', 'TRANSFER', 'CHEQUE', 'UPI',
   'NEFT', 'RTGS', 'IMPS', 'ADJUST', 'RETURN', 'REFUND',
 ];
+const PAYMENT_FROM_BY_MODE = {
+  CASH: ['CASH', 'BOOKING', 'ADJUST', 'RETURN', 'REFUND'],
+  BANK: ['BANK', 'TRANSFER', 'UPI', 'NEFT', 'RTGS', 'IMPS', 'ADJUST', 'RETURN', 'REFUND'],
+  CHEQUE: ['CHEQUE', 'RETURN', 'REFUND'],
+};
 const derivePaymentType = (from) => {
   const bucket = classifyPaymentMode(from);
   return bucket === 'cash' ? 'CASH' : bucket === 'cheque' ? 'CHEQUE' : 'BANK';
@@ -109,6 +117,28 @@ const todayStr = () => {
 };
 const progressPct = (paid, total) => total > 0 ? Math.min(100, Math.round((paid / total) * 100)) : 0;
 
+function PlotDetailSkeleton() {
+  return (
+    <div className="w-full max-w-[1400px] space-y-6 pb-16" aria-busy="true" aria-label="Loading plot payment details">
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-mr-line pb-5">
+        <div className="flex items-center gap-3"><Skeleton className="h-9 w-9 rounded-xl" /><div className="space-y-2"><Skeleton className="h-6 w-48" /><Skeleton className="h-3 w-32" /></div></div>
+        <div className="flex gap-2"><Skeleton className="h-9 w-24 rounded-full" /><Skeleton className="h-9 w-28 rounded-full" /></div>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-28 rounded-2xl" />)}
+      </div>
+      <div className="grid gap-5 lg:grid-cols-[1.4fr_0.6fr]">
+        <div className="space-y-4 rounded-2xl border border-mr-line bg-mr-surface p-5">
+          <div className="flex items-center justify-between"><Skeleton className="h-5 w-36" /><Skeleton className="h-8 w-24 rounded-full" /></div>
+          <Skeleton className="h-3 w-full" />
+          <div className="space-y-3 pt-2">{Array.from({ length: 5 }).map((_, index) => <Skeleton key={index} className="h-14 w-full rounded-xl" />)}</div>
+        </div>
+        <div className="space-y-4 rounded-2xl border border-mr-line bg-mr-surface p-5"><Skeleton className="h-5 w-32" /><Skeleton className="h-44 w-full rounded-xl" /><Skeleton className="h-24 w-full rounded-xl" /></div>
+      </div>
+    </div>
+  );
+}
+
 // ══════════════════════════════════════════════════
 export default function PlotDetail() {
   const { id } = useParams();
@@ -129,7 +159,10 @@ export default function PlotDetail() {
   const [loading, setLoading] = useState(true);
   const [approvers, setApprovers] = useState([]);
   const [autocomplete, setAutocomplete] = useState({ members: [] });
+  const [paymentMetadataLoading, setPaymentMetadataLoading] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
+  const loadedPlotIdRef = useRef(null);
+  const paymentMetadataSiteRef = useRef(null);
 
   // ─── Create Installments Dialog ───
   const [instOpen, setInstOpen] = useState(false);
@@ -488,7 +521,7 @@ export default function PlotDetail() {
 </html>`;
 
     const w = window.open('', '_blank', 'width=1100,height=700');
-    w.document.write(html);
+    writePrintDocument(w, html);
     w.document.close();
   };
 
@@ -606,7 +639,7 @@ export default function PlotDetail() {
 </html>`;
 
     const w = window.open('', '_blank', 'width=1100,height=700');
-    w.document.write(html);
+    writePrintDocument(w, html);
     w.document.close();
   };
 
@@ -628,6 +661,7 @@ export default function PlotDetail() {
     assigned_admin_id: null,
     cheque_no: '',
     received_by: '',
+    bank_account_id: '',
   });
   const [editingPaymentId, setEditingPaymentId] = useState(null);
   const [paySubmitting, setPaySubmitting] = useState(false);
@@ -684,7 +718,7 @@ export default function PlotDetail() {
   }, [payBookedBySearch, autocomplete?.members]);
 
   const resetPayForm = () => {
-    setPayForm({ date: todayStr(), payment_from: '', payment_type: 'CASH', bank_name: '', branch: '', bank_details: '', narration: '', buyer_name: plot?.buyer_name || '', booked_by: '', amount: '', voucher_url: '', assigned_admin_id: null, cheque_no: '', received_by: '' });
+    setPayForm({ date: todayStr(), payment_from: '', payment_type: 'CASH', bank_name: '', branch: '', bank_details: '', narration: '', buyer_name: plot?.buyer_name || '', booked_by: '', amount: '', voucher_url: '', assigned_admin_id: null, cheque_no: '', received_by: '', bank_account_id: '' });
     setEditingPaymentId(null);
     setPayMode('receive');
     setPayBuyerSearch('');
@@ -692,7 +726,34 @@ export default function PlotDetail() {
     setVoucherUploading(false);
   };
 
-  const handleOpenPay = () => { resetPayForm(); setPayOpen(true); };
+  const ensurePaymentMetadata = useCallback(async () => {
+    const siteId = currentSite?.id;
+    const siteKey = siteId ? String(siteId) : null;
+    if (!siteKey || paymentMetadataSiteRef.current === siteKey) return;
+
+    // Mark this Site before the requests start, so quick successive clicks do
+    // not send duplicate metadata requests. These values are only needed in
+    // the payment form, never for the initial detail-page paint.
+    paymentMetadataSiteRef.current = siteKey;
+    setPaymentMetadataLoading(true);
+    try {
+      const [appRes, acRes] = await Promise.all([
+        api.get(`/admin/approvers?site_id=${encodeURIComponent(siteId)}`).catch(() => ({ data: { approvers: [] } })),
+        api.get(`/plots/autocomplete?site_id=${encodeURIComponent(siteId)}`).catch(() => ({ data: { members: [] } })),
+      ]);
+      if (paymentMetadataSiteRef.current !== siteKey) return;
+      setApprovers(appRes.data.approvers || []);
+      setAutocomplete(acRes.data || { members: [] });
+    } finally {
+      if (paymentMetadataSiteRef.current === siteKey) setPaymentMetadataLoading(false);
+    }
+  }, [currentSite?.id]);
+
+  const handleOpenPay = () => {
+    resetPayForm();
+    setPayOpen(true);
+    void ensurePaymentMetadata();
+  };
 
   const handleEditPayment = (p) => {
     setEditingPaymentId(p.id);
@@ -712,8 +773,10 @@ export default function PlotDetail() {
       assigned_admin_id: p.assigned_admin_id || null,
       cheque_no: p.cheque_no || '',
       received_by: p.received_by || '',
+      bank_account_id: p.bank_account_id ? String(p.bank_account_id) : '',
     });
     setPayOpen(true);
+    void ensurePaymentMetadata();
   };
 
   const handleDeletePayment = async (payId) => {
@@ -731,6 +794,10 @@ export default function PlotDetail() {
     e.preventDefault();
     if (voucherUploading) {
       showMsg('error', 'Please wait for the voucher photo to finish uploading.');
+      return;
+    }
+    if (payForm.payment_type !== 'CASH' && !payForm.bank_account_id) {
+      showMsg('error', 'Select the bank account used for this transaction.');
       return;
     }
     setPaySubmitting(true);
@@ -751,6 +818,7 @@ export default function PlotDetail() {
         assigned_admin_id: payForm.assigned_admin_id,
         cheque_no: payForm.payment_type === 'CHEQUE' ? (payForm.cheque_no || null) : null,
         received_by: payForm.received_by || null,
+        bank_account_id: payForm.bank_account_id || null,
       };
       if (editingPaymentId) {
         await api.put(`/plots/payments/${editingPaymentId}`, payload);
@@ -772,41 +840,54 @@ export default function PlotDetail() {
   //  FETCH
   // ══════════════════════════════════════════════════
 
-  const fetchAll = useCallback(async () => {
+  const fetchAll = useCallback(async (signal) => {
     if (!id) return;
-    setLoading(true);
+    const isInitialLoad = loadedPlotIdRef.current !== String(id);
+    if (isInitialLoad) setLoading(true);
     try {
-      const [plotRes, payRes, instRes, instPayRes, appRes, acRes] = await Promise.all([
-        api.get(`/plots/${id}`),
-        api.get(`/plots/payments/list?plot_id=${id}`),
-        api.get(`/plots/${id}/installments`),
-        api.get(`/plots/${id}/installment-payments`),
-        api.get(currentSite?.id ? `/admin/approvers?site_id=${currentSite.id}` : '/admin/approvers').catch(() => ({ data: { approvers: [] } })),
-        currentSite?.id ? api.get(`/plots/autocomplete?site_id=${currentSite.id}`).catch(() => ({ data: { members: [] } })) : Promise.resolve({ data: { members: [] } }),
+      // The payment-list response already carries the plot and payment
+      // aggregates. Keep the initial view to the three data sets it renders;
+      // approvers/autocomplete are deferred until the payment dialog opens.
+      const [payRes, instRes, instPayRes] = await Promise.all([
+        api.get(`/plots/payments/list?plot_id=${encodeURIComponent(id)}`, { signal }),
+        api.get(`/plots/${encodeURIComponent(id)}/installments`, { signal }),
+        api.get(`/plots/${encodeURIComponent(id)}/installment-payments`, { signal }),
       ]);
-      setPlot(plotRes.data.plot || plotRes.data);
+      if (signal?.aborted) return;
+      setPlot(payRes.data.plot || null);
       setPayments(payRes.data.payments || []);
       setFromBreakdown(payRes.data.fromBreakdown || []);
       setReceivedByBreakdown(payRes.data.receivedByBreakdown || []);
       setInstallments(instRes.data.installments || []);
       setInstallmentPayments(instPayRes.data.payments || []);
-      setApprovers(appRes.data.approvers || []);
-      setAutocomplete(acRes.data || { members: [] });
+      loadedPlotIdRef.current = String(id);
     } catch (err) {
+      if (signal?.aborted || err?.code === 'ERR_CANCELED') return;
       setMessage({ type: 'error', text: err.response?.data?.message || 'Failed to load plot data' });
     } finally {
-      setLoading(false);
+      if (isInitialLoad && !signal?.aborted) setLoading(false);
     }
-  }, [id, currentSite?.id]);
+  }, [id]);
 
   const getAssignedAdminLabel = (payment) => {
+    if (payment.assigned_admin_name) return payment.assigned_admin_name;
     if (!payment.assigned_admin_id || approvers.length === 0) return null;
     const admin = approvers.find((a) => String(a.id) === String(payment.assigned_admin_id));
     if (!admin) return `Admin #${payment.assigned_admin_id}`;
     return admin.full_name || admin.name || admin.email || `Admin #${admin.id}`;
   };
 
-  useEffect(() => { fetchAll(); }, [fetchAll]);
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetchAll(controller.signal);
+    return () => controller.abort();
+  }, [fetchAll]);
+
+  useEffect(() => {
+    paymentMetadataSiteRef.current = null;
+    setApprovers([]);
+    setAutocomplete({ members: [] });
+  }, [currentSite?.id]);
 
   // ── Computed ──
   const isActivePayment = (p) => (
@@ -1024,11 +1105,7 @@ export default function PlotDetail() {
   // ══════════════════════════════════════════════════
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-full min-h-[60vh]">
-        <div className="w-6 h-6 border-2 border-slate-200 border-t-slate-600 rounded-full animate-spin" />
-      </div>
-    );
+    return <PlotDetailSkeleton />;
   }
 
   if (!plot) {
@@ -1046,16 +1123,16 @@ export default function PlotDetail() {
   // ══════════════════════════════════════════════════
 
   return (
-    <div className="space-y-5">
+    <div className="w-full max-w-[1400px] space-y-6 pb-16">
       {/* ── Header ── */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-mr-line pb-5">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={() => navigate('/plot-payments')} className="h-8 w-8 p-0">
+          <Button variant="ghost" size="sm" onClick={() => navigate('/plot-payments')} className="h-9 w-9 rounded-full border border-mr-line p-0 text-mr-muted hover:bg-mr-surface-2">
             <ArrowLeft className="w-4 h-4" />
           </Button>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-xl font-semibold text-slate-900">
+              <h1 className="text-[clamp(1.5rem,2.6vw,2rem)] font-semibold tracking-tight text-mr-text">
                 Plot {plot.plot_no}{plot.block ? ` — Block ${plot.block}` : ''}
               </h1>
               {getStatusBadge(plot.status)}
@@ -1063,25 +1140,25 @@ export default function PlotDetail() {
                 <Badge variant="outline" className="text-[10px] bg-indigo-50 text-indigo-700 border-indigo-200">Installments</Badge>
               )}
             </div>
-            <p className="text-sm text-slate-500 mt-0.5">
-              {plot.buyer_name && <span className="font-medium text-slate-600">{plot.buyer_name}</span>}
-              {plot.booking_by && <span className="text-slate-400"> · Booked by {plot.booking_by}</span>}
-              {plot.booking_date && <span className="text-slate-400"> · {fmtDate(plot.booking_date)}</span>}
+            <p className="mt-1 text-sm text-mr-muted">
+              {plot.buyer_name && <span className="font-medium text-mr-text">{plot.buyer_name}</span>}
+              {plot.booking_by && <span className="text-mr-faint"> · Booked by {plot.booking_by}</span>}
+              {plot.booking_date && <span className="text-mr-faint"> · {fmtDate(plot.booking_date)}</span>}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={printStatement} className="text-xs h-8 border-blue-200 text-blue-700 hover:bg-blue-50">
+          <Button variant="outline" size="sm" onClick={printStatement} className="h-9 rounded-full border-mr-line text-xs text-mr-text hover:bg-mr-surface-2">
             <Printer className="w-3.5 h-3.5 mr-1.5" /> Print Statement
           </Button>
-          <Button variant="outline" size="sm" onClick={printTransactions} className="text-xs h-8 border-slate-200 text-slate-700 hover:bg-slate-50">
+          <Button variant="outline" size="sm" onClick={printTransactions} className="h-9 rounded-full border-mr-line text-xs text-mr-text hover:bg-mr-surface-2">
             <FileText className="w-3.5 h-3.5 mr-1.5" /> Print Transactions
           </Button>
 
-          <Button size="sm" className="text-xs h-8" onClick={handleOpenPay}>
+          <Button size="sm" className="h-9 rounded-full bg-mr-ink px-4 text-xs text-white hover:bg-zinc-800" onClick={handleOpenPay}>
             <Plus className="w-3.5 h-3.5 mr-1" /> Take Payment
           </Button>
-          <Button variant="outline" size="sm" className="text-xs h-8" onClick={openSettings}>
+          <Button variant="outline" size="sm" className="h-9 rounded-full border-mr-line text-xs text-mr-text hover:bg-mr-surface-2" onClick={openSettings}>
             <Settings className="w-3.5 h-3.5 mr-1" /> Settings
           </Button>
         </div>
@@ -1099,34 +1176,34 @@ export default function PlotDetail() {
       )}
 
       {/* ── Plot Info Strip ── */}
-      <Card className="shadow-none border-slate-200 bg-slate-50/60">
-        <CardContent className="p-3">
-          <div className="flex items-center gap-6 flex-wrap text-xs">
+      <Card className="rounded-panel border-mr-line bg-mr-surface shadow-none">
+        <CardContent className="p-4 sm:p-5">
+          <div className="flex flex-wrap items-center gap-x-8 gap-y-3 text-xs">
             <div className="flex items-center gap-1.5">
-              <Ruler className="w-3.5 h-3.5 text-slate-400" />
-              <span className="text-slate-500">Size:</span>
-              <span className="font-semibold text-slate-700">{plot.plot_size || '—'}</span>
+              <Ruler className="w-3.5 h-3.5 text-mr-muted" />
+              <span className="text-mr-muted">Size:</span>
+              <span className="font-semibold text-mr-text">{plot.plot_size || '—'}</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <IndianRupee className="w-3.5 h-3.5 text-slate-400" />
-              <span className="text-slate-500">Rate:</span>
-              <span className="font-semibold text-slate-700">₹{fmt(plot.plot_rate)}</span>
+              <IndianRupee className="w-3.5 h-3.5 text-mr-muted" />
+              <span className="text-mr-muted">Rate:</span>
+              <span className="font-semibold text-mr-text">₹{fmt(plot.plot_rate)}</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <Ruler className="w-3.5 h-3.5 text-blue-400" />
-              <span className="text-slate-500">Reg. Area:</span>
-              <span className="font-semibold text-slate-700">{plot.registry_area || '—'}</span>
+              <Ruler className="w-3.5 h-3.5 text-mr-muted" />
+              <span className="text-mr-muted">Reg. Area:</span>
+              <span className="font-semibold text-mr-text">{plot.registry_area || '—'}</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <CircleDollarSign className="w-3.5 h-3.5 text-blue-400" />
-              <span className="text-slate-500">Circle Rate:</span>
-              <span className="font-semibold text-slate-700">₹{fmt(plot.circle_rate)}</span>
+              <CircleDollarSign className="w-3.5 h-3.5 text-mr-muted" />
+              <span className="text-mr-muted">Circle Rate:</span>
+              <span className="font-semibold text-mr-text">₹{fmt(plot.circle_rate)}</span>
             </div>
             {plot.team && (
               <div className="flex items-center gap-1.5">
-                <Tag className="w-3.5 h-3.5 text-indigo-400" />
-                <span className="text-slate-500">Team:</span>
-                <span className="font-semibold text-indigo-700">{plot.team}</span>
+                <Tag className="w-3.5 h-3.5 text-mr-muted" />
+                <span className="text-mr-muted">Team:</span>
+                <span className="font-semibold text-mr-text">{plot.team}</span>
               </div>
             )}
             {plot.notes && (
@@ -1173,84 +1250,58 @@ export default function PlotDetail() {
         </Card>
       )}
 
-      {/* ── Summary Cards ── */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
-        <Card className="shadow-none border-slate-200">
-          <CardContent className="p-3">
-            <div className="flex items-center justify-between">
-              <p className="text-[10px] uppercase tracking-wider text-slate-400 font-medium">Sale Price</p>
-              <div className="w-6 h-6 rounded-md bg-blue-50 flex items-center justify-center"><IndianRupee className="w-3 h-3 text-blue-600" /></div>
+      {/* ── Financial Position ── */}
+      <section className="grid overflow-hidden rounded-panel border border-mr-line bg-mr-surface lg:grid-cols-[minmax(0,1.15fr)_minmax(0,2fr)]">
+        <div className="border-b border-mr-line p-5 sm:p-6 lg:border-b-0 lg:border-r">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-mr-faint">Sale position</p>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-[30px] font-semibold tracking-tight text-mr-text">₹{fmt(salePrice)}</span>
+            <span className="text-xs text-mr-muted">total value</span>
+          </div>
+          <div className="mt-6">
+            <div className="mb-2 flex items-center justify-between text-xs">
+              <span className="font-medium text-mr-muted">Collection progress</span>
+              <span className="font-semibold text-mr-text">{pctReceived.toFixed(1)}%</span>
             </div>
-            <p className="text-lg font-bold text-slate-900 mt-1">₹{fmt(salePrice)}</p>
-          </CardContent>
-        </Card>
-        <Card className="shadow-none border-slate-200">
-          <CardContent className="p-3">
-            <div className="flex items-center justify-between">
-              <p className="text-[10px] uppercase tracking-wider text-slate-400 font-medium">Received</p>
-              <div className="w-6 h-6 rounded-md bg-emerald-50 flex items-center justify-center"><ArrowDownRight className="w-3 h-3 text-emerald-600" /></div>
+            <div className="h-1.5 overflow-hidden rounded-full bg-mr-surface-2">
+              <div className="h-full rounded-full bg-emerald-800 transition-all" style={{ width: `${Math.min(pctReceived, 100)}%` }} />
             </div>
-            <p className="text-lg font-bold text-emerald-700 mt-1">₹{fmt(totalReceived)}</p>
-          </CardContent>
-        </Card>
-        <Card className="shadow-none border-slate-200">
-          <CardContent className="p-3">
-            <div className="flex items-center justify-between">
-              <p className="text-[10px] uppercase tracking-wider text-slate-400 font-medium">Balance</p>
-              <div className={`w-6 h-6 rounded-md flex items-center justify-center ${balance <= 0 ? 'bg-emerald-50' : 'bg-red-50'}`}>
-                <Banknote className={`w-3 h-3 ${balance <= 0 ? 'text-emerald-600' : 'text-red-500'}`} /></div>
-            </div>
-            <p className={`text-lg font-bold mt-1 ${balance <= 0 ? 'text-emerald-700' : 'text-red-600'}`}>₹{fmt(balance)}</p>
-          </CardContent>
-        </Card>
-        <Card className="shadow-none border-slate-200">
-          <CardContent className="p-3">
-            <div className="flex items-center justify-between">
-              <p className="text-[10px] uppercase tracking-wider text-slate-400 font-medium">% Received</p>
-              <div className="w-6 h-6 rounded-md bg-purple-50 flex items-center justify-center"><Percent className="w-3 h-3 text-purple-600" /></div>
-            </div>
-            <p className="text-lg font-bold text-purple-700 mt-1">{pctReceived.toFixed(1)}%</p>
-            <div className="w-full h-1 bg-slate-100 rounded-full mt-1.5 overflow-hidden">
-              <div className={`h-full rounded-full transition-all ${pctReceived >= 100 ? 'bg-emerald-500' : pctReceived >= 50 ? 'bg-amber-500' : 'bg-red-500'}`} style={{ width: `${Math.min(pctReceived, 100)}%` }} />
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="shadow-none border-slate-200">
-          <CardContent className="p-3">
-            <div className="flex items-center justify-between">
-              <p className="text-[10px] uppercase tracking-wider text-slate-400 font-medium">Payments</p>
-              <div className="w-6 h-6 rounded-md bg-slate-100 flex items-center justify-center"><Hash className="w-3 h-3 text-slate-600" /></div>
-            </div>
-            <p className="text-lg font-bold text-slate-900 mt-1">{payments.length}</p>
-          </CardContent>
-        </Card>
-      </div>
+            <p className="mt-2 text-[11px] text-mr-muted">₹{fmt(totalReceived)} received · ₹{fmt(Math.abs(balance))} {balance > 0 ? 'pending' : 'clear'}</p>
+          </div>
+        </div>
+        <dl className="grid grid-cols-2 sm:grid-cols-4">
+          <div className="border-b border-mr-line p-5 sm:border-b-0 sm:border-r"><dt className="text-[10px] uppercase tracking-[0.12em] text-mr-faint">Received</dt><dd className="mt-2 text-xl font-semibold text-emerald-800">₹{fmt(totalReceived)}</dd></div>
+          <div className="border-b border-mr-line p-5 sm:border-b-0 sm:border-r"><dt className="text-[10px] uppercase tracking-[0.12em] text-mr-faint">Pending</dt><dd className={`mt-2 text-xl font-semibold ${balance > 0 ? 'text-amber-700' : 'text-emerald-800'}`}>₹{fmt(Math.max(balance, 0))}</dd></div>
+          <div className="border-b border-mr-line p-5 sm:border-b-0 sm:border-r"><dt className="text-[10px] uppercase tracking-[0.12em] text-mr-faint">Collected</dt><dd className="mt-2 text-xl font-semibold text-mr-text">{pctReceived.toFixed(1)}%</dd></div>
+          <div className="p-5"><dt className="text-[10px] uppercase tracking-[0.12em] text-mr-faint">Entries</dt><dd className="mt-2 text-xl font-semibold text-mr-text">{payments.length}</dd></div>
+        </dl>
+      </section>
 
       {/* ── Bank / Cash Split ── */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Card className="shadow-none border-blue-200 bg-blue-50/20">
+        <Card className="rounded-panel-sm border-mr-line bg-mr-surface shadow-none">
           <CardContent className="p-3">
             <div className="flex items-center gap-2 mb-2">
-              <div className="w-6 h-6 rounded-md bg-blue-100 flex items-center justify-center"><Landmark className="w-3 h-3 text-blue-700" /></div>
-              <p className="text-xs font-bold text-blue-900 uppercase tracking-wide">Bank Split</p>
+              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-mr-surface-2"><Landmark className="w-3 h-3 text-mr-muted" /></div>
+              <p className="text-xs font-bold uppercase tracking-wide text-mr-text">Bank ledger</p>
             </div>
             <div className="grid grid-cols-3 gap-3">
-              <div><p className="text-[9px] uppercase tracking-wider text-blue-400 font-medium text-nowrap">Goal</p><p className="text-sm font-bold text-blue-800">₹{fmt(toReceiveBank)}</p></div>
-              <div><p className="text-[9px] uppercase tracking-wider text-blue-400 font-medium text-nowrap">Recvd</p><p className="text-sm font-bold text-emerald-700">₹{fmt(receivedBank)}</p></div>
-              <div><p className="text-[9px] uppercase tracking-wider text-blue-400 font-medium text-nowrap">Bal</p><p className={`text-sm font-bold ${balanceBank <= 0 ? 'text-emerald-700' : 'text-red-600'}`}>₹{fmt(balanceBank)}</p></div>
+              <div><p className="text-[9px] uppercase tracking-wider text-mr-faint font-medium text-nowrap">Target</p><p className="text-sm font-bold text-mr-text">₹{fmt(toReceiveBank)}</p></div>
+              <div><p className="text-[9px] uppercase tracking-wider text-mr-faint font-medium text-nowrap">Received</p><p className="text-sm font-bold text-emerald-800">₹{fmt(receivedBank)}</p></div>
+              <div><p className="text-[9px] uppercase tracking-wider text-mr-faint font-medium text-nowrap">Pending</p><p className={`text-sm font-bold ${balanceBank <= 0 ? 'text-emerald-800' : 'text-amber-700'}`}>₹{fmt(Math.max(balanceBank, 0))}</p></div>
             </div>
           </CardContent>
         </Card>
-        <Card className="shadow-none border-emerald-200 bg-emerald-50/20">
+        <Card className="rounded-panel-sm border-mr-line bg-mr-surface shadow-none">
           <CardContent className="p-3">
             <div className="flex items-center gap-2 mb-2">
-              <div className="w-6 h-6 rounded-md bg-emerald-100 flex items-center justify-center"><Wallet className="w-3 h-3 text-emerald-700" /></div>
-              <p className="text-xs font-bold text-emerald-900 uppercase tracking-wide">Cash Split</p>
+              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-mr-surface-2"><Wallet className="w-3 h-3 text-mr-muted" /></div>
+              <p className="text-xs font-bold uppercase tracking-wide text-mr-text">Cash ledger</p>
             </div>
             <div className="grid grid-cols-3 gap-3">
-              <div><p className="text-[9px] uppercase tracking-wider text-emerald-400 font-medium text-nowrap">Goal</p><p className="text-sm font-bold text-emerald-800">₹{fmt(toReceiveCash)}</p></div>
-              <div><p className="text-[9px] uppercase tracking-wider text-emerald-400 font-medium text-nowrap">Recvd</p><p className="text-sm font-bold text-emerald-700">₹{fmt(receivedCash)}</p></div>
-              <div><p className="text-[9px] uppercase tracking-wider text-emerald-400 font-medium text-nowrap">Bal</p><p className={`text-sm font-bold ${balanceCash <= 0 ? 'text-emerald-700' : 'text-red-600'}`}>₹{fmt(balanceCash)}</p></div>
+              <div><p className="text-[9px] uppercase tracking-wider text-mr-faint font-medium text-nowrap">Target</p><p className="text-sm font-bold text-mr-text">₹{fmt(toReceiveCash)}</p></div>
+              <div><p className="text-[9px] uppercase tracking-wider text-mr-faint font-medium text-nowrap">Received</p><p className="text-sm font-bold text-emerald-800">₹{fmt(receivedCash)}</p></div>
+              <div><p className="text-[9px] uppercase tracking-wider text-mr-faint font-medium text-nowrap">Pending</p><p className={`text-sm font-bold ${balanceCash <= 0 ? 'text-emerald-800' : 'text-amber-700'}`}>₹{fmt(Math.max(balanceCash, 0))}</p></div>
             </div>
           </CardContent>
         </Card>
@@ -1767,41 +1818,47 @@ export default function PlotDetail() {
 
       {/* ── Take Payment Dialog ── */}
       <Dialog open={payOpen} onOpenChange={(open) => { setPayOpen(open); if (!open) resetPayForm(); }}>
-        <DialogContent className="sm:max-w-5xl max-h-[96vh] gap-0 p-0 flex flex-col overflow-hidden rounded-3xl border-slate-200/90 bg-white shadow-2xl shadow-slate-900/10">
-          <div className="shrink-0 flex items-center gap-3 border-b border-slate-100 bg-gradient-to-r from-slate-50 via-white to-slate-50 px-5 py-3 sm:px-6">
+        <DialogContent className="flex max-h-[94vh] w-[calc(100vw-1.5rem)] flex-col gap-0 overflow-hidden rounded-panel border-mr-line bg-mr-surface p-0 sm:max-w-5xl">
+          <div className="flex shrink-0 items-center gap-3 border-b border-mr-line bg-mr-surface-2/50 px-5 py-4 sm:px-6">
             <div className={cn(
-              'flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-white shadow-sm',
-              payMode === 'refund' ? 'bg-red-600 shadow-red-600/25' : 'bg-emerald-600 shadow-emerald-600/25'
+              'flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-white',
+              payMode === 'refund' ? 'bg-mr-coral-ink' : 'bg-mr-lime-ink'
             )}>
               {payMode === 'refund' ? <ArrowUpRight className="w-5 h-5" /> : <ArrowDownLeft className="w-5 h-5" />}
             </div>
             <div className="min-w-0 flex-1">
-              <DialogTitle className="text-base font-semibold text-slate-900">
+              <DialogTitle className="text-[18px] font-semibold tracking-[-0.02em] text-mr-text">
                 {editingPaymentId ? 'Edit Payment' : 'Take Payment'}
               </DialogTitle>
-              <DialogDescription className="text-xs text-slate-500 mt-0.5 truncate">
-                Plot <span className="font-semibold text-slate-700">{plot.plot_no}</span>{plot.buyer_name && <> · <span className="text-slate-600">{plot.buyer_name}</span></>} · complete the details below
+              <DialogDescription className="mt-0.5 truncate text-[12px] text-mr-muted">
+                Plot <span className="font-semibold text-mr-text">{plot.plot_no}</span>{plot.buyer_name && <> · <span className="text-mr-text">{plot.buyer_name}</span></>} · complete the details below
               </DialogDescription>
             </div>
-            <span className={cn(
-              'shrink-0 rounded-full px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-white',
-              payMode === 'refund' ? 'bg-red-600' : 'bg-emerald-600'
-            )}>
-              {payMode === 'refund' ? 'Refund · Out' : 'Receive · In'}
-            </span>
+            <div className="ml-auto flex shrink-0 items-center gap-1 rounded-full border border-mr-line bg-mr-surface p-1">
+              <button type="button" disabled={!!editingPaymentId} onClick={() => setPayMode('receive')} className={cn('rounded-full px-3 py-1.5 text-[11px] font-semibold transition-colors', payMode !== 'refund' ? 'bg-mr-lime-ink text-white' : 'text-mr-muted hover:bg-mr-surface-2')}>Credit · In</button>
+              <button type="button" disabled={!!editingPaymentId} onClick={() => setPayMode('refund')} className={cn('rounded-full px-3 py-1.5 text-[11px] font-semibold transition-colors', payMode === 'refund' ? 'bg-mr-coral-ink text-white' : 'text-mr-muted hover:bg-mr-surface-2')}>Debit · Out</button>
+            </div>
           </div>
 
           <div className="flex-1 min-h-0 overflow-y-auto px-5 py-3 sm:px-6 md:overflow-visible">
             <form id="pay-form" onSubmit={handleSubmitPayment} className="space-y-3">
-              <div className="grid gap-4 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
-                {/* ── Left column: direction, date, mode, amount ── */}
-                <div className="space-y-3">
-                  <CreditDebitTabs
-                    value={payMode === 'refund' ? 'debit' : 'credit'}
-                    onChange={(v) => setPayMode(v === 'debit' ? 'refund' : 'receive')}
-                    disabled={!!editingPaymentId}
-                    creditHint="Receive payment"
-                    debitHint="Refund / return"
+              <div className="grid lg:grid-cols-[288px_minmax(0,1fr)_262px]">
+                {/* ── Left column: amount first, then date and mode ── */}
+                <div className="space-y-4 border-b border-mr-line px-1 pb-5 lg:border-b-0 lg:border-r lg:px-0 lg:pr-6">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-mr-faint">Transaction details</p>
+                  <EntryAmount
+                    direction={payMode === 'refund' ? 'debit' : 'credit'}
+                    label={payMode === 'refund' ? 'Refund amount (₹)' : 'Amount to receive (₹)'}
+                    required
+                    hint={payForm.amount ? `${payMode === 'refund' ? '−' : '+'} ₹${fmt(Math.abs(parseFloat(payForm.amount) || 0))}` : 'Enter the amount first'}
+                    inputProps={{
+                      autoFocus: true,
+                      step: '0.01',
+                      placeholder: '0',
+                      value: payForm.amount,
+                      onChange: (e) => setPayForm({ ...payForm, amount: e.target.value }),
+                      required: true,
+                    }}
                   />
                   <EntryField label={<FieldLabel icon={Calendar} color="bg-sky-100 text-sky-600">Date</FieldLabel>} required>
                     <Input type="date" value={payForm.date}
@@ -1816,30 +1873,24 @@ export default function PlotDetail() {
                         ? { ...payForm, payment_type: 'CASH', payment_from: 'CASH' }
                         : m === 'CHEQUE'
                           ? { ...payForm, payment_type: 'CHEQUE', payment_from: 'CHEQUE' }
-                          : { ...payForm, payment_type: 'BANK' })}
+                          : { ...payForm, payment_type: 'BANK', payment_from: 'BANK' })}
                     />
                   </EntryField>
-                  <EntryAmount
-                    direction={payMode === 'refund' ? 'debit' : 'credit'}
-                    label={payMode === 'refund' ? 'Refund (₹)' : 'Amount (₹)'}
-                    required
-                    hint={payForm.amount ? `${payMode === 'refund' ? '−' : '+'} ₹${fmt(Math.abs(parseFloat(payForm.amount) || 0))}` : undefined}
-                    inputProps={{
-                      step: '0.01',
-                      placeholder: '0',
-                      value: payForm.amount,
-                      onChange: (e) => setPayForm({ ...payForm, amount: e.target.value }),
-                      required: true,
-                    }}
+                  <BankAccountSelect
+                    value={payForm.bank_account_id}
+                    onChange={(bankAccountId) => setPayForm({ ...payForm, bank_account_id: bankAccountId })}
+                    paymentMode={payForm.payment_type}
+                    disabled={paySubmitting}
                   />
                 </div>
 
-                {/* ── Right column: payment from, cheque/bank, booked by, narration, approval ── */}
-                <div className="space-y-3">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* ── Right column: source, approval, narration ── */}
+                <div className="space-y-4 border-b border-mr-line px-1 pt-5 lg:border-b-0 lg:px-6 lg:pt-0">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-mr-faint">Payment details</p>
+                  <div>
                     <EntryField label={<FieldLabel icon={Tag} color="bg-orange-100 text-orange-600">Payment From</FieldLabel>}>
-                      <div className="flex flex-wrap gap-1.5">
-                        {PAYMENT_FROM_OPTIONS.map((f) => (
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                        {(PAYMENT_FROM_BY_MODE[payForm.payment_type] || PAYMENT_FROM_OPTIONS).map((f) => (
                           <button key={f} type="button"
                             onClick={() => {
                               const newFrom = payForm.payment_from === f ? '' : f;
@@ -1848,7 +1899,7 @@ export default function PlotDetail() {
                               else if (newFrom) setPayMode('receive');
                               setPayForm({ ...payForm, payment_from: newFrom, payment_type: newType });
                             }}
-                            className={`px-3 py-1.5 rounded-md border text-xs font-medium transition-colors ${payForm.payment_from === f ? 'border-slate-800 bg-slate-800 text-white' : FROM_COLORS[f] || 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}>
+                            className={`h-9 rounded-control border px-2 text-[11px] font-semibold transition-colors ${payForm.payment_from === f ? 'border-mr-ink bg-mr-ink text-white' : 'border-mr-line bg-mr-surface text-mr-muted hover:bg-mr-surface-2'}`}>
                             {f}
                           </button>
                         ))}
@@ -1857,7 +1908,7 @@ export default function PlotDetail() {
                   </div>
 
                   {(payForm.payment_type !== 'CASH' || payForm.cheque_no) && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       {(payForm.payment_type === 'CHEQUE' || payForm.cheque_no) && (
                         <EntryField label={<FieldLabel icon={Hash} color="bg-indigo-100 text-indigo-600">Cheque No</FieldLabel>}>
                           <Input placeholder="Cheque number" value={payForm.cheque_no}
@@ -1877,106 +1928,11 @@ export default function PlotDetail() {
                     </div>
                   )}
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {/* ── Booked By — inline dropdown (no Popover portal) ── */}
-                    <EntryField label={<FieldLabel icon={User} color="bg-teal-100 text-teal-600">Payment Booked By</FieldLabel>}>
-                      <div className="relative" ref={bookedByRef}>
-                        <button type="button"
-                          onClick={() => { setPayBookedByOpen(prev => !prev); setPayBookedBySearch(''); }}
-                          className="h-9 w-full flex items-center justify-between px-3 border rounded-md text-sm bg-white hover:bg-slate-50 transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1">
-                          {payForm.booked_by ? (
-                            <span className="flex items-center gap-1.5 truncate text-slate-800">
-                              <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                              {(() => { const m = autocomplete?.members?.find(x => x.name === payForm.booked_by); return m?.phone ? `${m.name} (${m.phone})` : payForm.booked_by; })()}
-                            </span>
-                          ) : (
-                            <span className="text-slate-400">Select person...</span>
-                          )}
-                          <ChevronsUpDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" />
-                        </button>
-
-                        {payBookedByOpen && (
-                          <div className="absolute z-[200] left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl animate-in fade-in-0 zoom-in-95 duration-100">
-                            {/* Search input */}
-                            <div className="flex items-center gap-2 border-b border-slate-100 px-3">
-                              <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                              <input
-                                ref={bookedByInputRef}
-                                type="text"
-                                placeholder="Search name or phone..."
-                                value={payBookedBySearch}
-                                onChange={(e) => setPayBookedBySearch(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Escape') { setPayBookedByOpen(false); }
-                                  if (e.key === 'Enter' && filteredBookedByMembers.length > 0) {
-                                    e.preventDefault();
-                                    const first = filteredBookedByMembers[0];
-                                    setPayForm(prev => ({ ...prev, booked_by: first.name }));
-                                    setPayBookedByOpen(false);
-                                    setPayBookedBySearch('');
-                                  }
-                                }}
-                                className="flex-1 h-9 text-sm outline-none bg-transparent placeholder:text-slate-400"
-                              />
-                              {payBookedBySearch && (
-                                <button type="button" onClick={() => setPayBookedBySearch('')} className="p-0.5 rounded hover:bg-slate-100">
-                                  <X className="w-3 h-3 text-slate-400" />
-                                </button>
-                              )}
-                            </div>
-                            {/* Scrollable list */}
-                            <div className="max-h-[180px] overflow-y-auto overscroll-contain p-1">
-                              {filteredBookedByMembers.length === 0 ? (
-                                <p className="py-4 text-center text-xs text-slate-400">No members found</p>
-                              ) : (
-                                filteredBookedByMembers.map((m) => (
-                                  <button
-                                    key={`booked-${m.name}-${m.phone || ''}`}
-                                    type="button"
-                                    onClick={() => {
-                                      setPayForm(prev => ({ ...prev, booked_by: prev.booked_by === m.name ? '' : m.name }));
-                                      setPayBookedByOpen(false);
-                                      setPayBookedBySearch('');
-                                    }}
-                                    className={`w-full flex items-center gap-2 text-xs px-2 py-1.5 rounded-md cursor-pointer transition-colors ${
-                                      payForm.booked_by === m.name ? 'bg-emerald-50 text-emerald-800' : 'hover:bg-slate-50 text-slate-700'
-                                    }`}
-                                  >
-                                    <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[10px] font-semibold ${
-                                      payForm.booked_by === m.name ? 'bg-emerald-200 text-emerald-700' : 'bg-slate-100 text-slate-500'
-                                    }`}>
-                                      {(m.name || '?')[0].toUpperCase()}
-                                    </div>
-                                    <div className="flex-1 min-w-0 text-left">
-                                      <p className="font-medium truncate">{m.name}</p>
-                                      {(m.phone || m.team) && (
-                                        <p className="text-[10px] text-slate-400 truncate">
-                                          {[m.phone, m.team].filter(Boolean).join(' · ')}
-                                        </p>
-                                      )}
-                                    </div>
-                                    {payForm.booked_by === m.name && (
-                                      <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                                    )}
-                                  </button>
-                                ))
-                              )}
-                            </div>
-                            {payForm.booked_by && (
-                              <div className="border-t border-slate-100 p-1">
-                                <button type="button"
-                                  onClick={() => { setPayForm(prev => ({ ...prev, booked_by: '' })); setPayBookedByOpen(false); }}
-                                  className="w-full text-xs text-red-500 hover:bg-red-50 rounded-md py-1.5 px-2 text-left transition-colors">
-                                  Clear selection
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </EntryField>
-
+                  <div className="grid grid-cols-1 gap-3">
                     {/* ── Admin Approval ── */}
+                    {paymentMetadataLoading && (
+                      <p className="flex items-center gap-2 text-xs text-mr-muted"><Loader2 className="h-3.5 w-3.5 animate-spin" />Loading payment options…</p>
+                    )}
                     {approvers.length > 0 && (
                       <EntryField label={<FieldLabel icon={CheckCircle2 } color="bg-amber-100 text-amber-600">Assign For Approval</FieldLabel>}>
                         <Select value={payForm.assigned_admin_id?.toString() || '_none'}
@@ -2002,28 +1958,47 @@ export default function PlotDetail() {
                       onChange={(e) => setPayForm({ ...payForm, narration: e.target.value.toUpperCase() })}
                       rows={2} className="text-sm resize-none" />
                   </EntryField>
-                </div>
-              </div>
 
-              {/* ── Voucher — full width ── */}
-              <VoucherUpload
-                value={payForm.voucher_url}
-                onChange={(url) => setPayForm({ ...payForm, voucher_url: url })}
-                onUploadingChange={setVoucherUploading}
-                disabled={paySubmitting}
-              />
+                  <div className="pt-1">
+                    <VoucherUpload
+                      value={payForm.voucher_url}
+                      onChange={(url) => setPayForm({ ...payForm, voucher_url: url })}
+                      onUploadingChange={setVoucherUploading}
+                      disabled={paySubmitting}
+                    />
+                  </div>
+                </div>
+
+                <aside aria-label="Payment summary" className="bg-mr-surface-2/70 px-5 py-5 lg:px-6 lg:py-0">
+                  <p className="text-[12px] font-medium text-mr-muted">{payMode === 'refund' ? 'Money going out' : 'Money coming in'}</p>
+                  <p className={cn('mt-1 text-[26px] font-semibold tracking-[-0.04em] tabular-nums', payForm.amount ? (payMode === 'refund' ? 'text-mr-coral-ink' : 'text-mr-lime-ink') : 'text-mr-faint')}>
+                    {payMode === 'refund' ? '−' : '+'}₹{fmt(Math.abs(parseFloat(payForm.amount) || 0))}
+                  </p>
+                  <dl className="mt-5 space-y-3 border-t border-mr-line pt-4 text-[12px]">
+                    <div className="flex items-baseline justify-between gap-3"><dt className="text-mr-muted">Plot</dt><dd className="font-medium text-mr-text">{plot.plot_no}</dd></div>
+                    <div className="flex items-baseline justify-between gap-3"><dt className="text-mr-muted">Date</dt><dd className="font-medium text-mr-text">{payForm.date ? fmtDate(payForm.date) : '—'}</dd></div>
+                    <div className="flex items-baseline justify-between gap-3"><dt className="text-mr-muted">Mode</dt><dd className="font-medium text-mr-text">{payForm.payment_type || '—'}</dd></div>
+                    <div className="flex items-baseline justify-between gap-3"><dt className="text-mr-muted">Payment from</dt><dd className="max-w-[130px] truncate text-right font-medium text-mr-text">{payForm.payment_from || '—'}</dd></div>
+                    <div className="flex items-baseline justify-between gap-3"><dt className="text-mr-muted">Evidence</dt><dd className="font-medium text-mr-text">{payForm.voucher_url ? 'Attached' : 'None'}</dd></div>
+                  </dl>
+                  <div className="mt-5 border-t border-mr-line pt-4">
+                    <p className="text-[12px] font-medium text-mr-muted">Ready to record</p>
+                    <p className="mt-2 flex items-center gap-2 text-[12px] text-mr-muted"><span className={cn('h-1.5 w-1.5 rounded-full', parseFloat(payForm.amount) > 0 ? 'bg-mr-lime-ink' : 'bg-mr-amber')} />{parseFloat(payForm.amount) > 0 ? 'Amount entered' : 'Enter an amount'}</p>
+                  </div>
+                </aside>
+              </div>
 
               {/* hidden submit keeps Enter-to-submit working; visible button lives in the footer below */}
               <button type="submit" hidden aria-hidden="true" tabIndex={-1} />
             </form>
           </div>
 
-          <div className="shrink-0 flex items-center justify-between gap-2.5 border-t border-slate-100 bg-slate-50/60 px-5 py-3 sm:px-6">
-            <p className="hidden sm:block text-[11px] text-slate-400">
+          <div className="flex shrink-0 items-center justify-between gap-2.5 border-t border-mr-line bg-mr-surface-2/40 px-5 py-3 sm:px-6">
+            <p className="hidden text-[11px] text-mr-faint sm:block">
               Enter: next field · Shift+Tab: previous · Esc: close
             </p>
             <div className="flex items-center gap-2.5">
-              <Button type="button" variant="outline" onClick={() => setPayOpen(false)} disabled={paySubmitting} className="h-10 rounded-full px-5">
+              <Button type="button" variant="outline" onClick={() => setPayOpen(false)} disabled={paySubmitting} className="h-10 rounded-full border-mr-line px-5">
                 Cancel
               </Button>
               <Button
@@ -2032,7 +2007,7 @@ export default function PlotDetail() {
                 disabled={paySubmitting || voucherUploading}
                 className={cn(
                   'h-10 rounded-full px-5 text-white',
-                  payMode === 'refund' ? 'bg-red-600 hover:bg-red-700' : 'bg-emerald-600 hover:bg-emerald-700'
+                  payMode === 'refund' ? 'bg-mr-coral-ink hover:brightness-110' : 'bg-mr-lime-ink hover:brightness-110'
                 )}
               >
                 {paySubmitting ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : null}
