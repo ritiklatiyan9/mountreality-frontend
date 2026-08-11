@@ -1,3 +1,4 @@
+import { writePrintDocument } from '../lib/safePrint';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -58,6 +59,7 @@ import {
   EntryDialog, EntryFooter, EntryRow, EntryField, EntryAmount, EntryModeChips,
 } from '../components/EntryModal';
 import BulkActionsBar from '../components/BulkActionsBar';
+import BankAccountSelect from '../components/BankAccountSelect';
 import { EmptyState, SkeletonBlock } from '../components/dashboard/primitives';
 import ExpenseSummary from '../components/expenses/ExpenseSummary';
 import ExpenseTable from '../components/expenses/ExpenseTable';
@@ -232,9 +234,6 @@ const Expenses = () => {
   const [message, setMessage] = useState({ type: '', text: '' });
   const [submitting, setSubmitting] = useState(false);
 
-  const [members, setMembers] = useState([]);
-  const [memberSearch, setMemberSearch] = useState('');
-  const [memberOpen, setMemberOpen] = useState(false);
   const [categoryOpen, setCategoryOpen] = useState(false);
   const [uploadingVoucher, setUploadingVoucher] = useState(false);
   const [approvers, setApprovers] = useState([]);
@@ -285,7 +284,8 @@ const Expenses = () => {
   // Form
   const [form, setForm] = useState({
     date: toLocal(new Date()),
-    from_entity: '', to_entity: '', payment_mode: '',
+    payment_mode: '',
+    bank_account_id: '',
     amount: '', remark: '', account_no: '',
     branch: '', category: '',
     assigned_user_id: null, voucher_url: '',
@@ -410,32 +410,22 @@ const Expenses = () => {
     if (breakdownOpen || radarOpen) fetchBreakdown();
   }, [breakdownOpen, radarOpen, fetchBreakdown]);
 
-  // Fetch autocomplete + categories + members + approvers once per site change
+  // Fetch autocomplete, categories and approvers once per site change
   useEffect(() => {
     if (!siteId) return;
     Promise.all([
       api.get(`/expenses/autocomplete?site_id=${siteId}`),
       api.get('/expense-categories'),
-      api.get('/members', { params: { site_id: siteId, limit: 1000 } }),
       api.get(`/admin/approvers?site_id=${siteId}`).catch(() => ({ data: { approvers: [] } })),
-    ]).then(([acRes, catRes, memRes, appRes]) => {
+    ]).then(([acRes, catRes, appRes]) => {
       setAutocomplete(acRes.data || {
         fromEntities: [], toEntities: [], paymentModes: [], remarks: [],
         accountNos: [], branches: [], categories: [],
       });
       setCustomExpenseCategories((catRes.data.categories || []).map(c => c.name));
-      setMembers(memRes.data.members || []);
       setApprovers(appRes.data.approvers || []);
     }).catch(() => { });
   }, [siteId]);
-
-  const getAssignedAdminLabel = (entry) => {
-    if (entry?.assigned_admin_name) return entry.assigned_admin_name;
-    const assignedId = entry?.assigned_admin_id;
-    if (!assignedId) return null;
-    const approver = approvers.find((a) => String(a.id) === String(assignedId));
-    return approver?.full_name || approver?.name || approver?.email || `Admin #${assignedId}`;
-  };
 
   // Merged category list for dropdowns
   const allCategoryOptions = useMemo(() => {
@@ -452,86 +442,7 @@ const Expenses = () => {
     if (!filterCategoryOpen) setFilterCategorySearch('');
   }, [filterCategoryOpen]);
 
-  // Memoized filtered members for the TO dropdown
-  const filteredMembers = useMemo(() => {
-    if (!memberSearch) return members;
-    const q = memberSearch.toLowerCase();
-    return members.filter(m => m.full_name?.toLowerCase().includes(q) || m.phone?.includes(memberSearch));
-  }, [members, memberSearch]);
-
-  const filteredAutoEntities = useMemo(() => {
-    const memberNames = new Set(members.map(m => m.full_name));
-    return (autocomplete.toEntities || [])
-      .filter(t => !memberNames.has(t))
-      .filter(t => !memberSearch || t.toLowerCase().includes(memberSearch.toLowerCase()));
-  }, [autocomplete.toEntities, members, memberSearch]);
-
-  const [fromOpen, setFromOpen] = useState(false);
-  const [fromSearch, setFromSearch] = useState('');
-
-  // ── Register-new-user, shared by the FROM and TO comboboxes ───────────────
-  const [registerOpen, setRegisterOpen] = useState(false);
-  const [registerTarget, setRegisterTarget] = useState('to'); // 'from' | 'to'
-  const [registerForm, setRegisterForm] = useState({ full_name: '', phone: '', member_type: 'VENDOR' });
-  const [registerError, setRegisterError] = useState('');
-  const [registering, setRegistering] = useState(false);
-
-  // Open the register dialog, prefilling the name from whatever the user has
-  // already typed into the relevant combobox.
-  const openRegister = (target) => {
-    setRegisterTarget(target);
-    const typed = target === 'from' ? fromSearch : memberSearch;
-    setRegisterForm({ full_name: (typed || '').toUpperCase(), phone: '', member_type: 'VENDOR' });
-    setRegisterError('');
-    setFromOpen(false);
-    setMemberOpen(false);
-    setRegisterOpen(true);
-  };
-
-  const handleRegisterMember = async () => {
-    if (!siteId) return;
-    const fullName = registerForm.full_name.trim();
-    if (!fullName) { setRegisterError('Name is required'); return; }
-    setRegistering(true);
-    setRegisterError('');
-    try {
-      const { data } = await api.post('/members', {
-        site_id: siteId,
-        full_name: fullName,
-        phone: registerForm.phone.trim() || null,
-        member_type: registerForm.member_type || 'OTHER',
-      });
-      const m = data?.member;
-      if (m) {
-        setMembers((prev) => {
-          const next = [...prev.filter((x) => x.id !== m.id), m];
-          next.sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''));
-          return next;
-        });
-        if (registerTarget === 'from') {
-          setForm((prev) => ({ ...prev, from_entity: m.full_name }));
-          setFromSearch('');
-        } else {
-          setForm((prev) => ({ ...prev, assigned_user_id: m.id, to_entity: m.full_name }));
-          setMemberSearch('');
-        }
-      }
-      setRegisterOpen(false);
-      setRegisterForm({ full_name: '', phone: '', member_type: 'VENDOR' });
-    } catch (err) {
-      setRegisterError(err.response?.data?.message || 'Failed to register user');
-    } finally {
-      setRegistering(false);
-    }
-  };
-  const filteredFromEntities = useMemo(() => {
-    const list = autocomplete.fromEntities || [];
-    if (!fromSearch) return list;
-    const q = fromSearch.toLowerCase();
-    return list.filter(f => f.toLowerCase().includes(q));
-  }, [autocomplete.fromEntities, fromSearch]);
-
-  const isBankMode = ['BANK', 'UPI', 'CHEQUE', 'NEFT', 'RTGS', 'IMPS', 'TRANSFER'].includes(form.payment_mode);
+  const isBankMode = Boolean(form.payment_mode) && form.payment_mode !== 'CASH';
 
   const voucherInputRef = useRef(null);
 
@@ -539,14 +450,14 @@ const Expenses = () => {
   const resetForm = () => {
     setForm({
       date: toLocal(new Date()),
-      from_entity: '', to_entity: '', payment_mode: '',
+      payment_mode: '',
+      bank_account_id: '',
       amount: '', remark: '', account_no: '',
       branch: '', category: '',
       assigned_user_id: null, voucher_url: '',
       assigned_admin_id: null,
     });
     setTxnType('debit');
-    setMemberSearch('');
     setEditingId(null);
     setMessage({ type: '', text: '' });
     if (voucherInputRef.current) voucherInputRef.current.value = '';
@@ -565,8 +476,8 @@ const Expenses = () => {
     const resolvedDate = toLocal(e.date) || toLocal(e.created_at) || toLocal(new Date());
     setForm({
       date: resolvedDate,
-      from_entity: e.from_entity || '', to_entity: e.to_entity || '',
       payment_mode: e.payment_mode || '',
+      bank_account_id: e.bank_account_id ? String(e.bank_account_id) : '',
       amount: String(nextTxnType === 'credit' ? credit : debit),
       remark: e.remark || '', account_no: e.account_no || '',
       branch: e.branch || '', category: e.category || '',
@@ -574,7 +485,6 @@ const Expenses = () => {
       assigned_admin_id: e.assigned_admin_id || null,
       cheque_no: e.cheque_no || '',
     });
-    setMemberSearch(e.assigned_user_name ? `${e.assigned_user_name} - ${e.to_entity}` : e.to_entity || '');
     setEditingId(e.id);
     setDialogOpen(true);
   };
@@ -582,6 +492,10 @@ const Expenses = () => {
   const handleSubmit = async (ev) => {
     ev.preventDefault();
     setMessage({ type: '', text: '' });
+    if (isBankMode && !form.bank_account_id) {
+      setMessage({ type: 'error', text: 'Select the bank account used for this transaction' });
+      return;
+    }
     setSubmitting(true);
     try {
       const amt = Math.abs(parseFloat(form.amount) || 0);
@@ -593,9 +507,8 @@ const Expenses = () => {
       const payload = {
         site_id: siteId,
         date: form.date || toLocal(new Date()),
-        from_entity: form.from_entity,
-        to_entity: form.to_entity,
         payment_mode: form.payment_mode,
+        bank_account_id: form.bank_account_id || null,
         cheque_no: form.payment_mode === 'CHEQUE' ? (form.cheque_no || null) : null,
         debit: txnType === 'debit' ? amt : 0,
         credit: txnType === 'credit' ? amt : 0,
@@ -1112,7 +1025,7 @@ const Expenses = () => {
 </body></html>`;
 
     const w = window.open('', '_blank', 'width=1000,height=750');
-    w.document.write(html);
+    writePrintDocument(w, html);
     w.document.close();
   };
 
@@ -1139,7 +1052,7 @@ const Expenses = () => {
 </body></html>`;
 
     const w = window.open('', '_blank', 'width=1000,height=750');
-    w.document.write(html);
+    writePrintDocument(w, html);
     w.document.close();
   };
 
@@ -1597,14 +1510,11 @@ const Expenses = () => {
                 visibleNativeIds={visibleNativeIds}
                 sortOrder={sortOrder}
                 onToggleSort={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
-                page={currentPage}
-                perPage={itemsPerPage}
                 isAdmin={isAdmin}
                 canUpdate={canUpdate}
                 canDelete={canDelete}
                 uploadingBillId={uploadingBillId}
                 onRefreshCheque={fetchExpenses}
-                getAssignedAdminLabel={getAssignedAdminLabel}
                 actions={expenseActions}
               />
               <ExpenseMobileList
@@ -1613,7 +1523,6 @@ const Expenses = () => {
                 canUpdate={canUpdate}
                 canDelete={canDelete}
                 uploadingBillId={uploadingBillId}
-                getAssignedAdminLabel={getAssignedAdminLabel}
                 actions={expenseActions}
               />
 
@@ -1887,164 +1796,13 @@ const Expenses = () => {
               }}
             />
 
-            {/* FROM + TO */}
-            <EntryRow>
-              <EntryField label="FROM">
-                <Popover open={fromOpen} onOpenChange={setFromOpen}>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      role="combobox"
-                      aria-expanded={fromOpen}
-                      className={`w-full justify-between font-normal px-3 h-9 ${
-                        form.from_entity
-                          ? 'border-blue-300 bg-blue-50/40 text-blue-800'
-                          : 'border-slate-200 text-slate-600'
-                      }`}
-                    >
-                      <span className="truncate">
-                        {form.from_entity || 'Select or type...'}
-                      </span>
-                      <ChevronDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-[320px] p-0" align="start">
-                    <Command shouldFilter={false}>
-                      <CommandInput
-                        placeholder="Type or search..."
-                        value={fromSearch}
-                        onValueChange={(val) => {
-                          setFromSearch(val);
-                          setForm(prev => ({ ...prev, from_entity: val.toUpperCase() }));
-                        }}
-                      />
-                      <CommandList className="max-h-55">
-                        <CommandEmpty className="py-4 text-center text-xs text-slate-400">No match — type to enter manually</CommandEmpty>
-                        <CommandGroup>
-                          <CommandItem
-                            value="__register_from__"
-                            onSelect={() => openRegister('from')}
-                            className="flex items-center gap-2 text-blue-600 data-[selected=true]:bg-blue-50"
-                          >
-                            <UserPlus className="h-3.5 w-3.5 shrink-0" />
-                            <span className="text-sm font-medium">Register new user</span>
-                          </CommandItem>
-                          {filteredFromEntities.map((entity) => (
-                            <CommandItem
-                              key={entity}
-                              value={entity}
-                              onSelect={() => {
-                                setForm(prev => ({ ...prev, from_entity: entity }));
-                                setFromSearch('');
-                                setFromOpen(false);
-                              }}
-                              className="flex items-center gap-2"
-                            >
-                              <Check className={`h-3.5 w-3.5 shrink-0 ${form.from_entity === entity ? 'opacity-100 text-blue-600' : 'opacity-0'}`} />
-                              <span className="text-sm text-slate-700">{entity}</span>
-                              <span className="ml-auto text-[9px] bg-slate-100 text-slate-400 px-1.5 py-0.5 rounded-full">past</span>
-                            </CommandItem>
-                          ))}
-                        </CommandGroup>
-                      </CommandList>
-                    </Command>
-                  </PopoverContent>
-                </Popover>
-              </EntryField>
-              <EntryField label="TO (Member / Vendor)">
-                <Popover open={memberOpen} onOpenChange={setMemberOpen}>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      role="combobox"
-                      aria-expanded={memberOpen}
-                      className={`w-full justify-between font-normal px-3 h-9 ${
-                        form.assigned_user_id
-                          ? 'border-blue-300 bg-blue-50/40 text-blue-800'
-                          : 'border-slate-200 text-slate-600'
-                      }`}
-                    >
-                      <span className="truncate">
-                        {form.assigned_user_id
-                          ? members.find(m => m.id === form.assigned_user_id)?.full_name || form.to_entity
-                          : form.to_entity || 'Search member...'}
-                      </span>
-                      <ChevronDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-[320px] p-0" align="start">
-                    <Command shouldFilter={false}>
-                      <CommandInput
-                        placeholder="Name or phone..."
-                        value={memberSearch}
-                        onValueChange={(val) => {
-                          setMemberSearch(val);
-                          setForm(prev => ({ ...prev, to_entity: val.toUpperCase(), assigned_user_id: null }));
-                        }}
-                      />
-                      <CommandList className="max-h-55">
-                        <CommandEmpty className="py-4 text-center text-xs text-slate-400">No match found</CommandEmpty>
-                        <CommandGroup>
-                          <CommandItem
-                            value="__register_to__"
-                            onSelect={() => openRegister('to')}
-                            className="flex items-center gap-2 text-blue-600 data-[selected=true]:bg-blue-50"
-                          >
-                            <UserPlus className="h-3.5 w-3.5 shrink-0" />
-                            <span className="text-sm font-medium">Register new user</span>
-                          </CommandItem>
-                          {filteredMembers.map((member) => (
-                            <CommandItem
-                              key={member.id}
-                              value={`${member.full_name} - ${member.phone}`}
-                              onSelect={() => {
-                                setForm(prev => ({ ...prev, assigned_user_id: member.id, to_entity: member.full_name }));
-                                setMemberSearch('');
-                                setMemberOpen(false);
-                              }}
-                              className="flex items-center gap-2"
-                            >
-                              <Check className={`h-3.5 w-3.5 shrink-0 ${form.assigned_user_id === member.id ? "opacity-100 text-blue-600" : "opacity-0"}`} />
-                              <div className="flex-1 min-w-0">
-                                <span className="font-medium text-sm text-slate-800 truncate">{member.full_name}</span>
-                                {member.phone && <span className="ml-1.5 text-slate-400 text-[11px]">{member.phone}</span>}
-                              </div>
-                              <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-semibold uppercase tracking-wide ${
-                                member.member_type === 'CLIENT' ? 'bg-blue-100 text-blue-700' :
-                                member.member_type === 'FARMER' ? 'bg-emerald-100 text-emerald-700' :
-                                member.member_type === 'VENDOR' ? 'bg-orange-100 text-orange-700' :
-                                member.member_type === 'BROKER' ? 'bg-amber-100 text-amber-700' :
-                                member.member_type === 'PARTNER' ? 'bg-cyan-100 text-cyan-700' :
-                                member.member_type === 'EMPLOYEE' ? 'bg-indigo-100 text-indigo-700' :
-                                'bg-slate-100 text-slate-600'
-                              }`}>
-                                {member.member_type ? member.member_type.slice(0, 3) : '—'}
-                              </span>
-                            </CommandItem>
-                          ))}
-                          {filteredAutoEntities.map((tEntry) => (
-                            <CommandItem
-                              key={`auto-${tEntry}`}
-                              value={tEntry}
-                              onSelect={() => {
-                                setForm(prev => ({ ...prev, assigned_user_id: null, to_entity: tEntry }));
-                                setMemberSearch('');
-                                setMemberOpen(false);
-                              }}
-                              className="flex items-center gap-2"
-                            >
-                              <Check className={`h-3.5 w-3.5 shrink-0 ${form.to_entity === tEntry && !form.assigned_user_id ? "opacity-100 text-blue-600" : "opacity-0"}`} />
-                              <span className="text-slate-500 text-sm">{tEntry}</span>
-                              <span className="ml-auto text-[9px] bg-slate-100 text-slate-400 px-1.5 py-0.5 rounded-full">past</span>
-                            </CommandItem>
-                          ))}
-                        </CommandGroup>
-                      </CommandList>
-                    </Command>
-                  </PopoverContent>
-                </Popover>
-              </EntryField>
-            </EntryRow>
+            <BankAccountSelect
+              value={form.bank_account_id}
+              onChange={(value) => setForm((prev) => ({ ...prev, bank_account_id: value }))}
+              paymentMode={form.payment_mode}
+              disabled={submitting}
+              required
+            />
 
             {form.payment_mode === 'CHEQUE' && (
               <div className="rounded-lg border border-slate-200 p-3 space-y-3">
@@ -2211,69 +1969,6 @@ const Expenses = () => {
             </EntryField>
           </form>
       </EntryDialog>
-
-      {/* Register New User — opened from the FROM / TO comboboxes */}
-      <Dialog open={registerOpen} onOpenChange={(o) => { setRegisterOpen(o); if (!o) setRegisterError(''); }}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-base font-semibold flex items-center gap-2">
-              <UserPlus className="w-4 h-4 text-blue-600" /> Register New User
-            </DialogTitle>
-            <DialogDescription className="text-xs text-slate-500">
-              Adds a member to {currentSite?.name}. It is selected as the {registerTarget === 'from' ? 'FROM' : 'TO'} party.
-            </DialogDescription>
-          </DialogHeader>
-          {registerError && (
-            <div className="flex gap-2 p-2.5 rounded-lg text-xs font-medium bg-red-50 border border-red-200 text-red-700">
-              <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" /> {registerError}
-            </div>
-          )}
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium">Name *</Label>
-              <Input
-                value={registerForm.full_name}
-                onChange={(e) => setRegisterForm((p) => ({ ...p, full_name: e.target.value.toUpperCase() }))}
-                placeholder="FULL NAME"
-                autoFocus
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-xs font-medium">Phone</Label>
-                <Input
-                  value={registerForm.phone}
-                  onChange={(e) => setRegisterForm((p) => ({ ...p, phone: e.target.value }))}
-                  placeholder="Optional"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs font-medium">Type</Label>
-                <Select value={registerForm.member_type} onValueChange={(v) => setRegisterForm((p) => ({ ...p, member_type: v }))}>
-                  <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="VENDOR">Vendor</SelectItem>
-                    <SelectItem value="CLIENT">Client</SelectItem>
-                    <SelectItem value="FARMER">Farmer</SelectItem>
-                    <SelectItem value="BROKER">Broker</SelectItem>
-                    <SelectItem value="PARTNER">Partner</SelectItem>
-                    <SelectItem value="EMPLOYEE">Employee</SelectItem>
-                    <SelectItem value="MEMBER">Member</SelectItem>
-                    <SelectItem value="OTHER">Other</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" size="sm" onClick={() => setRegisterOpen(false)} disabled={registering}>Cancel</Button>
-            <Button type="button" size="sm" onClick={handleRegisterMember} disabled={registering} className="bg-blue-600 hover:bg-blue-700 text-white">
-              {registering ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <UserPlus className="w-3.5 h-3.5 mr-1.5" />}
-              Register
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* ── Category Radar Modal ── */}
       <Dialog open={radarOpen} onOpenChange={setRadarOpen}>

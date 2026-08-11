@@ -77,9 +77,9 @@ const TOOLTIP_STYLE = {
 };
 
 const AXIS_TICK = { fontSize: 11, fill: '#98a0ad' };
-const AQUA = '#22b8cc';   // aqua at a weight that reads on white
-const CORAL = '#ff654a';
-const LIME = '#8ac52a';
+const AQUA = '#15803d';   // credit / incoming
+const CORAL = '#dc2626';  // debit / outgoing
+const LIME = '#15803d';   // positive profit
 
 /* ── Revenue vs Expense Bar Chart ── */
 export const RevenueVsExpenseChart = memo(function RevenueVsExpenseChart({ siteId, range, resolution = 'MONTH', excludeOldPlots = false }) {

@@ -47,6 +47,7 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "date-fns": "^4.1.0",
+    "dompurify": "^3.3.2",
     "embla-carousel-react": "^8.6.0",
     "firebase": "^12.15.0",
     "framer-motion": "^12.38.0",
@@ -56,6 +57,7 @@
     "html2pdf.js": "^0.14.0",
     "input-otp": "^1.4.2",
     "jspdf": "^4.2.0",
+    "leaflet": "^1.9.4",
     "lucide-react": "^0.575.0",
     "luckyexcel": "^1.0.1",
     "pdf-lib": "^1.17.1",
@@ -65,15 +67,16 @@
     "react-dom": "^19.2.0",
     "react-dropzone": "^15.0.0",
     "react-hook-form": "^7.71.2",
+    "react-leaflet": "^5.0.0",
     "react-resizable-panels": "^4.6.5",
-    "react-router-dom": "^6.30.3",
+    "react-router-dom": "^7.18.2",
     "recharts": "^3.8.0",
     "socket.io-client": "^4.8.3",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.5.0",
     "tailwindcss-animate": "^1.0.7",
     "vaul": "^1.1.2",
-    "xlsx": "^0.18.5",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -91,5 +94,8 @@
     "shadcn": "^3.8.5",
     "tailwindcss": "^4.2.1",
     "vite": "^7.3.1"
+  },
+  "overrides": {
+    "uuid": "11.1.1"
   }
 }

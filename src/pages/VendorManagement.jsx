@@ -1,5 +1,6 @@
+import { writePrintDocument } from '../lib/safePrint';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/api';
@@ -7,12 +8,18 @@ import { useRowSelection } from '../hooks/useRowSelection';
 import BulkActionsBar from '../components/BulkActionsBar';
 import VoucherUpload from '../components/VoucherUpload';
 import UserAvatar from '../components/UserAvatar';
-import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
-import { Badge } from '../components/ui/badge';
+import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '../components/ui/sheet';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '../components/ui/dropdown-menu';
+import VendorCell from '../components/inventory/VendorCell';
+import ProcurementTimeline from '../components/inventory/ProcurementTimeline';
+import VendorModuleTabs from '../components/inventory/VendorModuleTabs';
+import { PageHeader, EmptyBlock, PRIMARY_BTN } from '../components/ui/page';
+import { FinancialMetric, SkeletonBlock, EmptyState, StatusPill } from '../components/dashboard/primitives';
+import BankAccountSelect from '../components/BankAccountSelect';
 import { Checkbox } from '../components/ui/checkbox';
 import {
   Dialog,
@@ -51,10 +58,10 @@ import {
   ChevronLeft,
   ChevronRight,
   ArrowUpDown,
-  Package,
   Pencil,
   Trash2,
   X,
+  MoreHorizontal,
   Search,
   UserPlus,
 } from 'lucide-react';
@@ -105,6 +112,7 @@ const emptyPaymentForm = {
   payment_date: todayISO(),
   amount: '',
   payment_mode: 'cash',
+  bank_account_id: '',
   reference_no: '',
   note: '',
   voucher_url: '',
@@ -116,15 +124,16 @@ const money = (n) => {
   return num.toLocaleString('en-IN', { maximumFractionDigits: 2, minimumFractionDigits: 0 });
 };
 
-const statusBadgeClass = (status) => {
-  if (status === 'closed') return 'bg-emerald-100 text-emerald-700 border-emerald-200';
-  if (status === 'cancelled') return 'bg-red-100 text-red-700 border-red-200';
-  return 'bg-amber-100 text-amber-700 border-amber-200';
+const statusTone = (status) => {
+  if (status === 'closed') return 'positive';
+  if (status === 'cancelled' || status === 'over-paid') return 'negative';
+  return 'attention';
 };
 
 const VendorManagement = () => {
   const navigate = useNavigate();
-  const { currentSite, canManage, isAdmin, hasPermission } = useAuth();
+  const [searchParams] = useSearchParams();
+  const { currentSite, canManage, hasPermission } = useAuth();
   const canWrite  = canManage && hasPermission('vendors', 'write');
   const canUpdate = canManage && hasPermission('vendors', 'update');
   const canDelete = canManage && hasPermission('vendors', 'delete');
@@ -135,9 +144,7 @@ const VendorManagement = () => {
 
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [uploadingVoucher, setUploadingVoucher] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
-  const voucherInputRef = useRef(null);
 
   const [vendorUsers, setVendorUsers] = useState([]);
   const [heads, setHeads] = useState([]);
@@ -154,7 +161,7 @@ const VendorManagement = () => {
   // Filter states (applied immediately via API)
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [categoryFilter, setCategoryFilter] = useState(() => searchParams.get('category') || 'all');
   const [currentPage, setCurrentPage] = useState(1);
 
   // Debounce search
@@ -172,6 +179,7 @@ const VendorManagement = () => {
   const [paymentForm, setPaymentForm] = useState({ ...emptyPaymentForm });
   const [headName, setHeadName] = useState('');
   const [sortOrder, setSortOrder] = useState('desc');
+  const [selectedCommitment, setSelectedCommitment] = useState(null);
 
   // Vendor dropdown: controlled open state (so the Register button can close it),
   // an in-dropdown search filter, and the Register-Vendor dialog + its form.
@@ -197,6 +205,10 @@ const VendorManagement = () => {
   useEffect(() => {
     setCurrentPage(1);
   }, [statusFilter, categoryFilter]);
+
+  useEffect(() => {
+    setCategoryFilter(searchParams.get('category') || 'all');
+  }, [searchParams]);
 
   const loadCommitments = useCallback(async () => {
     if (!siteId) return;
@@ -371,7 +383,7 @@ const VendorManagement = () => {
       </tr>`).join('');
     const win = window.open('', '_blank');
     if (!win) return;
-    win.document.write(`
+    writePrintDocument(win, `
       <html>
         <head>
           <title>Vendor Commitments — ${currentSite?.name || ''}</title>
@@ -412,32 +424,7 @@ const VendorManagement = () => {
       payment_date: todayISO(),
       amount: commitment.remaining_amount > 0 ? String(commitment.remaining_amount) : '',
     });
-    if (voucherInputRef.current) voucherInputRef.current.value = '';
     setPaymentDialogOpen(true);
-  };
-
-  const handleVoucherUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const validTypes = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
-    if (!validTypes.includes(file.type)) {
-      setMessage({ type: 'error', text: 'Invalid file type. Please upload image or PDF.' });
-      return;
-    }
-    setUploadingVoucher(true);
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      const res = await api.post('/upload/single?provider=s3', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      setPaymentForm((prev) => ({ ...prev, voucher_url: res.data.fileUrl || res.data.url || '' }));
-      setMessage({ type: 'success', text: 'Voucher uploaded successfully' });
-    } catch (err) {
-      setMessage({ type: 'error', text: err.response?.data?.message || 'Voucher upload failed' });
-    } finally {
-      setUploadingVoucher(false);
-    }
   };
 
   const onVendorMemberChange = (memberId) => {
@@ -566,6 +553,10 @@ const VendorManagement = () => {
 
   const handleAddPayment = async () => {
     if (!siteId || !paymentForm.commitment_id) return;
+    if (!CASH_MODES.includes(paymentForm.payment_mode) && !paymentForm.bank_account_id) {
+      setMessage({ type: 'error', text: 'Select the bank account used for this transaction' });
+      return;
+    }
     setSubmitting(true);
     try {
       await api.post(`/vendors/commitments/${paymentForm.commitment_id}/payments`, {
@@ -573,6 +564,7 @@ const VendorManagement = () => {
         payment_date: paymentForm.payment_date || todayISO(),
         amount: parseFloat(paymentForm.amount) || 0,
         payment_mode: paymentForm.payment_mode,
+        bank_account_id: paymentForm.bank_account_id || null,
         reference_no: paymentForm.reference_no,
         cheque_no: paymentForm.payment_mode === 'cheque' ? (paymentForm.reference_no || null) : null,
         note: paymentForm.note,
@@ -602,190 +594,126 @@ const VendorManagement = () => {
   };
 
   if (!currentSite) {
-    return (
-      <div className="flex flex-col items-center justify-center py-20 text-center">
-        <Store className="w-10 h-10 text-slate-200 mb-3" />
-        <p className="text-sm text-slate-500">Select a site to manage vendor commitments</p>
-      </div>
-    );
+    return <EmptyBlock icon={Store} title="Select a site to manage vendor commitments" tall />;
   }
 
   const { page, totalPages, total } = pagination;
   const startItem = total === 0 ? 0 : (page - 1) * PAGE_LIMIT + 1;
   const endItem = Math.min(page * PAGE_LIMIT, total);
 
+  const contractAmt = parseFloat(summary.total_contract_amount) || 0;
+  const paidAmt = parseFloat(summary.total_paid_amount) || 0;
+  const paidPct = contractAmt > 0 ? Math.min(100, (paidAmt / contractAmt) * 100) : 0;
+
   return (
-    <div className="w-full max-w-full md:max-w-350 space-y-5">
-      {/* Header */}
-      <div className="rounded-2xl border border-slate-200 bg-gradient-to-r from-white via-slate-50 to-emerald-50/60 p-4 sm:p-5">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">Vendor Management</h1>
-            <p className="text-sm text-slate-500 mt-0.5">
-              Contracts &amp; payment transactions for <span className="font-medium text-slate-700">{currentSite.name}</span>
-            </p>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
+    <div className="mx-auto w-full max-w-[1400px] pb-16">
+      <PageHeader
+        title="Vendors"
+        description={`Supplier commitments, procurement and outstanding obligations · ${currentSite.name}`}
+        actions={
+          <>
             <BulkActionsBar
               count={selection.count}
               onClear={selection.clear}
-              onEdit={canUpdate ? () => {
-                const row = commitments.find((c) => selection.isSelected(c.id));
-                if (row) openEditDialog(row);
-              } : undefined}
+              onEdit={canUpdate ? () => { const row = commitments.find((c) => selection.isSelected(c.id)); if (row) openEditDialog(row); } : undefined}
               onDelete={canDelete ? handleBulkDelete : undefined}
               onPrint={handleBulkPrint}
               entityLabel="commitment"
               deleting={bulkDeleting}
             />
-            <Button variant="outline" size="sm" onClick={() => navigate('/inventory?tab=procurement')}>
-              <Package className="w-4 h-4 mr-1.5" /> Inventory
-            </Button>
             {canWrite && (
-              <>
-                <Button variant="outline" size="sm" onClick={() => setHeadDialogOpen(true)}>
-                  <Plus className="w-4 h-4 mr-1.5" /> Add Category
-                </Button>
-                <Button size="sm" onClick={openCommitmentDialog} className="shadow-sm">
-                  <Plus className="w-4 h-4 mr-1.5" /> Add Commitment
-                </Button>
-              </>
+              <button type="button" className={PRIMARY_BTN} onClick={openCommitmentDialog}>
+                <Plus className="h-4 w-4" strokeWidth={2} aria-hidden="true" /> Add commitment
+              </button>
             )}
-          </div>
-        </div>
-      </div>
+          </>
+        }
+      />
+
+      <VendorModuleTabs active="commitments" className="mt-6" />
 
       {message.text && (
-        <div className={`flex items-center gap-2 p-3 rounded-lg text-sm border ${message.type === 'success'
-            ? 'bg-emerald-50 border-emerald-100 text-emerald-700'
-            : 'bg-red-50 border-red-100 text-red-700'
-          }`}>
-          {message.type === 'success' ? <Check className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+        <div className={`mt-5 flex items-center gap-2 rounded-control border p-3 text-[13px] ${message.type === 'success' ? 'border-mr-lime-ink/15 bg-mr-lime-soft text-mr-lime-ink' : 'border-mr-coral-ink/15 bg-mr-coral-soft text-mr-coral-ink'}`}>
+          {message.type === 'success' ? <Check className="h-4 w-4 shrink-0" strokeWidth={1.9} /> : <AlertCircle className="h-4 w-4 shrink-0" strokeWidth={1.9} />}
           <span>{message.text}</span>
         </div>
       )}
 
-      {/* Summary Cards */}
-      {(() => {
-        const contractAmt = parseFloat(summary.total_contract_amount) || 0;
-        const paidAmt = parseFloat(summary.total_paid_amount) || 0;
-        const paidPct = contractAmt > 0 ? Math.min(100, (paidAmt / contractAmt) * 100) : 0;
-        return (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <div className="rounded-2xl border border-slate-200 bg-white p-4">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Contracts</span>
-                <div className="h-8 w-8 rounded-xl bg-blue-50 flex items-center justify-center">
-                  <Store className="w-4 h-4 text-blue-600" />
-                </div>
-              </div>
-              <p className="text-2xl font-bold text-slate-900 tabular-nums">{summary.total_contracts || 0}</p>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-white p-4">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Contract Value</span>
-                <div className="h-8 w-8 rounded-xl bg-amber-50 flex items-center justify-center">
-                  <IndianRupee className="w-4 h-4 text-amber-600" />
-                </div>
-              </div>
-              <p className="text-xl font-bold text-slate-900 tabular-nums">₹{money(contractAmt)}</p>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-white p-4">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Paid</span>
-                <div className="h-8 w-8 rounded-xl bg-emerald-50 flex items-center justify-center">
-                  <Wallet className="w-4 h-4 text-emerald-600" />
-                </div>
-              </div>
-              <p className="text-xl font-bold text-emerald-700 tabular-nums">₹{money(paidAmt)}</p>
-              <div className="mt-2 h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
-                <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${paidPct}%` }} />
-              </div>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-white p-4">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Remaining</span>
-                <div className="h-8 w-8 rounded-xl bg-red-50 flex items-center justify-center">
-                  <AlertCircle className="w-4 h-4 text-red-500" />
-                </div>
-              </div>
-              <p className="text-xl font-bold text-red-600 tabular-nums">₹{money(summary.total_remaining_amount)}</p>
-            </div>
-          </div>
-        );
-      })()}
-
-     
+      {/* Financial control strip */}
+      <dl className="mt-6 grid grid-cols-2 divide-x divide-mr-line border-b border-mr-line sm:grid-cols-4">
+        <FinancialMetric label="Commitments" value={summary.total_contracts || 0} accent="blue" />
+        <FinancialMetric label="Committed value" value={contractAmt} accent="blue" />
+        <FinancialMetric label="Paid" value={paidAmt} accent="lime" hint={`${Math.round(paidPct)}% of committed`} />
+        <FinancialMetric label="Outstanding" value={summary.total_remaining_amount} accent="amber" />
+      </dl>
 
       {/* Filters */}
-      <Card className="shadow-none border-slate-200">
-        <CardContent className="p-3 flex flex-wrap items-center gap-2">
-          <div className="relative flex-1 w-full sm:max-w-72">
-            <Input
-              placeholder="Search vendor, work, category..."
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              className="h-9 text-sm pr-8"
-            />
-            {query && (
-              <button onClick={() => setQuery('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="h-9 w-34 text-sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Status</SelectItem>
-              <SelectItem value="open">Open</SelectItem>
-              <SelectItem value="closed">Closed</SelectItem>
-              <SelectItem value="cancelled">Cancelled</SelectItem>
-            </SelectContent>
-          </Select>
-
-          <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-            <SelectTrigger className="h-9 w-44 text-sm font-medium bg-slate-50 border-slate-200">
-              <div className="flex items-center gap-1.5 truncate">
-                <Store className="w-3 h-3 text-slate-400 shrink-0" />
-                <SelectValue placeholder="All Categories" />
-              </div>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Categories</SelectItem>
-              {heads.map((h) => (
-                <SelectItem key={h.id} value={String(h.id)} className="text-[11px] font-medium">{h.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          {total > 0 && (
-            <span className="text-xs text-slate-400 ml-auto">
-              {startItem}–{endItem} of {total} commitments
-            </span>
+      <div className="mt-5 flex flex-wrap items-center gap-2">
+        <div className="relative w-full flex-1 sm:max-w-72">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-mr-faint" strokeWidth={1.9} />
+          <Input
+            placeholder="Search vendor, work, category..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="h-9 rounded-control border-mr-line bg-mr-surface pl-8 pr-8 text-sm shadow-none focus-visible:border-mr-blue focus-visible:ring-2 focus-visible:ring-mr-blue/20"
+          />
+          {query && (
+            <button onClick={() => setQuery('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-mr-faint hover:text-mr-text">
+              <X className="w-3.5 h-3.5" />
+            </button>
           )}
-        </CardContent>
-      </Card>
+        </div>
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="h-9 w-34 rounded-control border-mr-line bg-mr-surface text-sm shadow-none">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Status</SelectItem>
+            <SelectItem value="open">Open</SelectItem>
+            <SelectItem value="closed">Closed</SelectItem>
+            <SelectItem value="cancelled">Cancelled</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+          <SelectTrigger className="h-9 w-44 rounded-control border-mr-line bg-mr-surface text-sm font-medium shadow-none">
+            <div className="flex items-center gap-1.5 truncate">
+              <Store className="w-3 h-3 shrink-0 text-mr-faint" />
+              <SelectValue placeholder="All Categories" />
+            </div>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Categories</SelectItem>
+            {heads.map((h) => (
+              <SelectItem key={h.id} value={String(h.id)} className="text-[11px] font-medium">{h.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {total > 0 && (
+          <span className="ml-auto text-xs text-mr-muted">
+            {startItem}–{endItem} of {total} commitments
+          </span>
+        )}
+      </div>
 
       {/* Commitments Table */}
-      <Card className="shadow-none border-slate-200">
-        <CardContent className="p-0">
+      <section className="mt-5 border-t border-mr-line">
           {loading ? (
-            <div className="flex items-center justify-center py-16">
-              <div className="w-5 h-5 border-2 border-slate-200 border-t-slate-600 rounded-full animate-spin" />
+            <div className="space-y-3 p-5 sm:p-6">
+              {[0, 1, 2, 3, 4].map((i) => <SkeletonBlock key={i} className="h-14 w-full" />)}
             </div>
           ) : commitments.length === 0 ? (
-            <div className="text-center py-16">
-              <Wallet className="w-8 h-8 text-slate-200 mx-auto mb-2" />
-              <p className="text-sm text-slate-500">No vendor commitments found</p>
-              <p className="text-xs text-slate-400 mt-0.5">Add first commitment with contract amount and start recording payments</p>
-            </div>
+            <EmptyState
+              icon={Wallet}
+              title="No vendor commitments found"
+              description="Add the first commitment with a contract amount and start recording payments."
+            />
           ) : (
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
-                  <TableRow className="hover:bg-transparent bg-slate-50/80">
+                  <TableRow className="hover:bg-transparent border-mr-line bg-mr-surface-2/60">
                     <TableHead className="w-8" onClick={(e) => e.stopPropagation()}>
                       <Checkbox
                         checked={
@@ -817,7 +745,7 @@ const VendorManagement = () => {
                   {displayCommitments.map((c) => (
                     <TableRow
                       key={c.id}
-                      className="cursor-pointer hover:bg-slate-50 transition-colors"
+                      className="cursor-pointer border-mr-line transition-colors duration-150 hover:bg-mr-surface-2/70"
                       onClick={() => navigate(`/vendors/${c.id}`)}
                     >
                       <TableCell onClick={(e) => e.stopPropagation()}>
@@ -828,71 +756,47 @@ const VendorManagement = () => {
                         />
                       </TableCell>
                       <TableCell>
-                        <p className="text-sm font-semibold text-slate-800">{c.vendor_name}</p>
-                        <p className="text-[11px] text-slate-400">{c.vendor_member_name || 'Manual vendor'}</p>
+                        <VendorCell name={c.vendor_name} photo={c.vendor_member_photo} secondary={c.vendor_member_name || 'Manual vendor'} />
                       </TableCell>
                       <TableCell>
-                        <p className="text-xs font-semibold text-slate-700">{c.head_name}</p>
-                        <p className="text-xs text-slate-500">{c.work_title}</p>
-                        <p className="text-[11px] text-slate-400 mt-0.5">
+                        <p className="text-xs font-semibold text-mr-text">{c.head_name}</p>
+                        <p className="text-xs text-mr-muted">{c.work_title}</p>
+                        <p className="text-[11px] text-mr-faint mt-0.5">
                           {c.payment_count ?? 0} payments
                           {(parseInt(c.inventory_item_count) || 0) > 0 && (
-                            <span className="ml-1.5 text-indigo-500">· {c.inventory_item_count} items</span>
+                            <span className="ml-1.5 text-mr-blue">· {c.inventory_item_count} items</span>
                           )}
                         </p>
                       </TableCell>
-                      <TableCell className="text-right text-sm font-semibold text-slate-900">₹{money(c.contract_amount)}</TableCell>
-                      <TableCell className="text-right text-sm font-semibold text-emerald-700">₹{money(c.paid_amount)}</TableCell>
-                      <TableCell className="text-right text-sm font-semibold text-red-600">
+                      <TableCell className="text-right text-sm font-semibold text-mr-text">₹{money(c.contract_amount)}</TableCell>
+                      <TableCell className="text-right text-sm font-semibold text-mr-lime-ink">₹{money(c.paid_amount)}</TableCell>
+                      <TableCell className="text-right text-sm font-semibold text-mr-coral-ink">
                         {parseFloat(c.remaining_amount) < 0 ? (
-                          <span className="text-red-600 bg-red-50 px-1 rounded">Overpaid: ₹{money(Math.abs(c.remaining_amount))}</span>
+                          <span className="rounded bg-mr-coral-soft px-1 text-mr-coral-ink">Overpaid: ₹{money(Math.abs(c.remaining_amount))}</span>
                         ) : (
                           `₹${money(c.remaining_amount)}`
                         )}
                       </TableCell>
                       <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
-                        <Badge variant="outline" className={`text-[10px] uppercase ${statusBadgeClass(c.status)}`}>
+                        <StatusPill tone={statusTone(parseFloat(c.remaining_amount) < 0 ? 'over-paid' : c.status)}>
                           {parseFloat(c.remaining_amount) < 0 ? 'over-paid' : c.status}
-                        </Badge>
+                        </StatusPill>
                       </TableCell>
                       <TableCell>
                         <UserAvatar name={c.created_by_name} label="Created by" />
                       </TableCell>
                       <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                        <div className="inline-flex items-center gap-1.5">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-slate-400 hover:text-slate-600"
-                            title="View"
-                            onClick={(e) => { e.stopPropagation(); navigate(`/vendors/${c.id}`); }}
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                          </Button>
-                       
-                          {canUpdate && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-blue-400 hover:text-blue-600 hover:bg-blue-50"
-                              title="Edit"
-                              onClick={(e) => { e.stopPropagation(); openEditDialog(c); }}
-                            >
-                              <Pencil className="w-3.5 h-3.5" />
-                            </Button>
-                          )}
-                          {canDelete && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-slate-300 hover:text-red-500 hover:bg-red-50"
-                              title="Delete"
-                              onClick={(e) => { e.stopPropagation(); handleDeleteCommitment(c); }}
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </Button>
-                          )}
-                        </div>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7 text-mr-faint" aria-label={`Actions for ${c.vendor_name}`}><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-44">
+                            <DropdownMenuLabel className="text-[11px] text-mr-faint">Vendor actions</DropdownMenuLabel>
+                            <DropdownMenuItem onClick={() => setSelectedCommitment(c)}><Eye /> Quick view</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => navigate(`/vendors/${c.id}`)}><Eye /> Open full detail</DropdownMenuItem>
+                            {canUpdate && <DropdownMenuItem onClick={() => openEditDialog(c)}><Pencil /> Edit commitment</DropdownMenuItem>}
+                            <DropdownMenuItem onClick={() => openPaymentDialog(c)}><IndianRupee /> Record payment</DropdownMenuItem>
+                            {canDelete && <><DropdownMenuSeparator /><DropdownMenuItem className="text-mr-coral-ink focus:text-mr-coral-ink" onClick={() => handleDeleteCommitment(c)}><Trash2 /> Delete commitment</DropdownMenuItem></>}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -900,12 +804,10 @@ const VendorManagement = () => {
               </Table>
             </div>      
           )}
-        </CardContent>
-
         {/* Pagination Footer */}
         {!loading && totalPages > 1 && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100">
-            <span className="text-xs text-slate-500">
+          <div className="flex items-center justify-between border-t border-mr-line px-4 py-3">
+            <span className="text-xs text-mr-muted">
               Page {page} of {totalPages}
             </span>
             <div className="flex items-center gap-1">
@@ -955,7 +857,7 @@ const VendorManagement = () => {
             </div>
           </div>
         )}
-      </Card>
+      </section>
 
       {/* Edit Commitment Dialog */}
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
@@ -1387,6 +1289,12 @@ const VendorManagement = () => {
               </div>
             </div>
 
+            <BankAccountSelect
+              value={paymentForm.bank_account_id}
+              onChange={(bankAccountId) => setPaymentForm((form) => ({ ...form, bank_account_id: bankAccountId }))}
+              paymentMode={paymentForm.payment_mode}
+            />
+
             {/* Bank-only: Reference No */}
             {!CASH_MODES.includes(paymentForm.payment_mode) && (
               <div className="space-y-1.5">
@@ -1444,6 +1352,21 @@ const VendorManagement = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Sheet open={!!selectedCommitment} onOpenChange={(open) => !open && setSelectedCommitment(null)}>
+        <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 sm:max-w-xl">
+          <SheetHeader className="shrink-0 border-b border-slate-100 px-6 py-5 text-left">
+            <div className="pr-6"><p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Commitment overview</p><div className="mt-3"><VendorCell name={selectedCommitment?.vendor_name} photo={selectedCommitment?.vendor_member_photo} secondary={selectedCommitment?.vendor_member_name || 'Manual vendor'} /></div><SheetTitle className="sr-only">{selectedCommitment?.vendor_name || 'Vendor commitment'}</SheetTitle><SheetDescription className="mt-3">{selectedCommitment?.work_title || 'Vendor commitment'} · {selectedCommitment?.head_name || 'Uncategorised'}</SheetDescription></div>
+          </SheetHeader>
+          {selectedCommitment && <div className="flex-1 space-y-6 overflow-y-auto px-6 py-5">
+            <div className="flex items-center justify-between border-b border-mr-line pb-4"><div><p className="text-[11px] font-semibold uppercase tracking-wide text-mr-faint">Outstanding</p><p className="mt-1 text-xl font-semibold tabular-nums text-mr-text">₹{money(selectedCommitment.remaining_amount)}</p></div><StatusPill tone={statusTone(selectedCommitment.status)}>{selectedCommitment.status}</StatusPill></div>
+            <section><h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">Commitment flow</h3><ProcurementTimeline vertical stages={[{ label: 'Commitment created', status: 'complete', detail: selectedCommitment.start_date ? `Starts ${selectedCommitment.start_date.split('T')[0]}` : 'Vendor obligation recorded' }, { label: 'Purchase items', status: Number(selectedCommitment.inventory_item_count) > 0 ? 'complete' : 'pending', detail: `${selectedCommitment.inventory_item_count || 0} linked items` }, { label: 'Payments', status: Number(selectedCommitment.paid_amount) > 0 && Number(selectedCommitment.remaining_amount) > 0 ? 'current' : (Number(selectedCommitment.remaining_amount) <= 0 ? 'complete' : 'pending'), detail: `₹${money(selectedCommitment.paid_amount)} paid` }, { label: 'Close', status: selectedCommitment.status === 'closed' ? 'complete' : 'pending', detail: selectedCommitment.status === 'closed' ? 'Closed' : 'Requires final reconciliation' }]} /></section>
+            <section className="border-t border-slate-100 pt-5"><h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">Financial summary</h3><div className="grid grid-cols-3 gap-4 text-sm"><div><p className="text-[11px] text-slate-400">Contract</p><p className="mt-1 font-semibold">₹{money(selectedCommitment.contract_amount)}</p></div><div><p className="text-[11px] text-slate-400">Paid</p><p className="mt-1 font-semibold text-emerald-700">₹{money(selectedCommitment.paid_amount)}</p></div><div><p className="text-[11px] text-slate-400">Items</p><p className="mt-1 font-semibold">{selectedCommitment.inventory_item_count || 0}</p></div></div></section>
+            {selectedCommitment.note && <p className="border-t border-slate-100 pt-5 text-sm leading-6 text-slate-600">{selectedCommitment.note}</p>}
+          </div>}
+          <SheetFooter className="shrink-0 border-t border-slate-100 bg-white px-6 py-4 sm:justify-between"><Button variant="ghost" size="sm" onClick={() => selectedCommitment && navigate(`/vendors/${selectedCommitment.id}`)}>Open full detail</Button>{selectedCommitment && canWrite && <Button size="sm" onClick={() => { openPaymentDialog(selectedCommitment); setSelectedCommitment(null); }}><IndianRupee className="mr-1.5 h-4 w-4" /> Record payment</Button>}</SheetFooter>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 };

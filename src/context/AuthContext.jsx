@@ -1,6 +1,8 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import api from '../api/api';
+import { isPolicyOnlyKey, SITE_POLICY_MODES } from '../lib/sitePolicy';
+import { resetThemeToWhite } from '../lib/appearance';
 
 // Keep the same context object during Vite hot updates. Without this, an already
 // rendered provider can retain the previous context while a reloaded consumer
@@ -12,7 +14,7 @@ if (import.meta.hot) {
     data.authContext = AuthContext;
   });
 }
-const INACTIVITY_TIMEOUT = 49 * 24 * 60 * 60 * 1000; // 7 weeks
+const INACTIVITY_TIMEOUT = 7 * 24 * 60 * 60 * 1000;
 const INACTIVITY_CHECK_INTERVAL = 60 * 1000; // poll instead of one long setTimeout (its delay is capped at ~24.8 days)
 
 export const AuthProvider = ({ children }) => {
@@ -21,6 +23,8 @@ export const AuthProvider = ({ children }) => {
   const [sites, setSites] = useState([]);
   const [currentSite, setCurrentSiteState] = useState(null);
   const [permissions, setPermissions] = useState([]);
+  const [portalMemberships, setPortalMemberships] = useState([]);
+  const [siteAuthorization, setSiteAuthorization] = useState({ siteId: null, mode: null, modules: null, modulesDeclared: false });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -28,7 +32,7 @@ export const AuthProvider = ({ children }) => {
   const fetchMe = useCallback(async () => {
     try {
       const response = await api.get('/auth/me');
-      const { user: userData, organization: org, sites: userSites, permissions: userPerms } = response.data;
+      const { user: userData, organization: org, sites: userSites, permissions: userPerms, portalMemberships: memberships } = response.data;
 
       setUser(userData);
       setOrganization(org || null);
@@ -36,36 +40,58 @@ export const AuthProvider = ({ children }) => {
       localStorage.setItem('user', JSON.stringify(userData));
       if (org) localStorage.setItem('organization', JSON.stringify(org)); else localStorage.removeItem('organization');
       localStorage.setItem('sites', JSON.stringify(userSites || []));
+      setPortalMemberships(memberships || []);
+      localStorage.setItem('portalMemberships', JSON.stringify(memberships || []));
 
       if (userPerms) {
         setPermissions(userPerms);
         localStorage.setItem('permissions', JSON.stringify(userPerms));
       }
 
-      // If no current site selected but sites exist, pick first
-      const stored = localStorage.getItem('currentSite');
-      if (!stored && userSites?.length > 0) {
-        setCurrentSiteState(userSites[0]);
-        localStorage.setItem('currentSite', JSON.stringify(userSites[0]));
-      } else if (stored) {
-        setCurrentSiteState(JSON.parse(stored));
+      // Resolve the selected ID against the freshly authorised site list. The
+      // older build stored a whole Site object; accept it once for migration,
+      // but never restore that stale object directly.
+      let selectedId = localStorage.getItem('currentSiteId');
+      if (!selectedId) {
+        try {
+          selectedId = JSON.parse(localStorage.getItem('currentSite') || 'null')?.id;
+        } catch {
+          selectedId = null;
+        }
+      }
+      const selected = (userSites || []).find((site) => String(site.id) === String(selectedId))
+        || userSites?.[0]
+        || null;
+      setCurrentSiteState(selected);
+      if (selected) {
+        localStorage.setItem('currentSiteId', String(selected.id));
+        localStorage.setItem('currentSite', JSON.stringify(selected));
+      } else {
+        localStorage.removeItem('currentSiteId');
+        localStorage.removeItem('currentSite');
       }
     } catch (err) {
       console.error('Failed to fetch user data:', err);
       const status = err?.response?.status;
-      // Only force logout on explicit auth failures.
-      if (status === 401 || status === 403) {
+      // A 403 means the authenticated user cannot perform that operation; it
+      // must never destroy an otherwise valid session. Only a confirmed 401
+      // from /auth/me is an authentication failure.
+      if (status === 401) {
         localStorage.removeItem('accessToken');
         localStorage.removeItem('refreshToken');
         localStorage.removeItem('sessionId');
         localStorage.removeItem('user');
         localStorage.removeItem('sites');
         localStorage.removeItem('currentSite');
+        localStorage.removeItem('currentSiteId');
         localStorage.removeItem('permissions');
+        localStorage.removeItem('portalMemberships');
+        resetThemeToWhite();
         setUser(null);
         setSites([]);
         setCurrentSiteState(null);
         setPermissions([]);
+        setPortalMemberships([]);
       }
     } finally {
       setLoading(false);
@@ -79,8 +105,10 @@ export const AuthProvider = ({ children }) => {
       const sessionId = localStorage.getItem('sessionId');
       const userData = localStorage.getItem('user');
       const sitesData = localStorage.getItem('sites');
+      const activeSiteId = localStorage.getItem('currentSiteId');
       const activeSite = localStorage.getItem('currentSite');
       const permsData = localStorage.getItem('permissions');
+      const portalMembershipData = localStorage.getItem('portalMemberships');
 
       if (accessToken) {
         api.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
@@ -96,12 +124,19 @@ export const AuthProvider = ({ children }) => {
           if (sitesData) {
             setSites(JSON.parse(sitesData));
           }
-          if (activeSite) {
-            setCurrentSiteState(JSON.parse(activeSite));
+          if (activeSiteId && sitesData) {
+            const restoredSites = JSON.parse(sitesData);
+            setCurrentSiteState(restoredSites.find((site) => String(site.id) === String(activeSiteId)) || null);
+          } else if (activeSite) {
+            // One-release compatibility path for the previous storage shape.
+            const legacySite = JSON.parse(activeSite);
+            const restoredSites = sitesData ? JSON.parse(sitesData) : [];
+            setCurrentSiteState(restoredSites.find((site) => String(site.id) === String(legacySite?.id)) || null);
           }
           if (permsData) {
             setPermissions(JSON.parse(permsData));
           }
+          if (portalMembershipData) setPortalMemberships(JSON.parse(portalMembershipData));
           // Fetch latest details (including permissions) from backend so they are up-to-date
           await fetchMe();
         } catch (err) {
@@ -140,10 +175,15 @@ export const AuthProvider = ({ children }) => {
 
 
   const setCurrentSite = (site) => {
+    // Never carry the previous Site's effective module policy into the next
+    // Site, even for one render while its policy request is in flight.
+    setSiteAuthorization({ siteId: site?.id ? String(site.id) : null, mode: null, modules: null, modulesDeclared: false });
     setCurrentSiteState(site);
     if (site) {
+      localStorage.setItem('currentSiteId', String(site.id));
       localStorage.setItem('currentSite', JSON.stringify(site));
     } else {
+      localStorage.removeItem('currentSiteId');
       localStorage.removeItem('currentSite');
     }
   };
@@ -167,6 +207,7 @@ export const AuthProvider = ({ children }) => {
 
     localStorage.setItem('user', JSON.stringify(data.user));
     localStorage.setItem('sites', JSON.stringify(data.sites || []));
+    localStorage.setItem('portalMemberships', JSON.stringify(data.portalMemberships || []));
 
     if (data.permissions) {
       localStorage.setItem('permissions', JSON.stringify(data.permissions));
@@ -177,6 +218,7 @@ export const AuthProvider = ({ children }) => {
     setOrganization(data.organization || null);
     if (data.organization) localStorage.setItem('organization', JSON.stringify(data.organization));
     setSites(data.sites || []);
+    setPortalMemberships(data.portalMemberships || []);
 
     // Auto-select first site
     if (data.sites?.length > 0) {
@@ -252,7 +294,10 @@ export const AuthProvider = ({ children }) => {
       localStorage.removeItem('user');
       localStorage.removeItem('sites');
       localStorage.removeItem('currentSite');
+      localStorage.removeItem('currentSiteId');
       localStorage.removeItem('permissions');
+      localStorage.removeItem('portalMemberships');
+      resetThemeToWhite();
 
       delete api.defaults.headers.common['Authorization'];
       delete api.defaults.headers.common['X-Session-ID']; // Remove sessionId header
@@ -260,11 +305,13 @@ export const AuthProvider = ({ children }) => {
       setSites([]);
       setCurrentSiteState(null);
       setPermissions([]);
+      setPortalMemberships([]);
+      setSiteAuthorization({ siteId: null, mode: null, modules: null, modulesDeclared: false });
       setLoading(false);
     }
   };
 
-  // 7-week inactivity auto-logout
+  // Match the maximum refresh-session lifetime.
   const lastActivityRef = useRef(Date.now());
   const resetInactivityTimer = useCallback(() => {
     lastActivityRef.current = Date.now();
@@ -325,6 +372,10 @@ export const AuthProvider = ({ children }) => {
         } else {
           setCurrentSite(null);
         }
+      } else if (currentSite) {
+        // Keep names/status/profile hints fresh without changing selection.
+        const refreshed = newSites.find((site) => site.id === currentSite.id);
+        if (refreshed) setCurrentSite(refreshed);
       }
 
       return newSites;
@@ -333,8 +384,38 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Permission helper: returns true if user has the given action for the given module
+  // SitePolicyProvider publishes its normalized gate here. Keeping the final
+  // permission intersection in this existing helper means every current
+  // consumer (sidebar, launcher, quick entry, dashboard and action buttons)
+  // receives the same profile-aware result without parallel permission APIs.
+  const applySiteAuthorization = useCallback((policy) => {
+    setSiteAuthorization({
+      siteId: policy?.siteId ? String(policy.siteId) : null,
+      mode: policy?.mode || null,
+      modules: policy?.modules || null,
+      modulesDeclared: policy?.modulesDeclared === true,
+    });
+  }, []);
+
+  // Permission helper: user grant AND selected Site policy must both allow it.
   const hasPermission = useCallback((module, action) => {
+    const selectedSiteId = currentSite?.id ? String(currentSite.id) : null;
+    const gateMatchesSite = selectedSiteId && siteAuthorization.siteId === selectedSiteId;
+    // The profile control plane must remain reachable so an administrator can
+    // configure a legacy Site that does not yet have a published profile.
+    const isProfileControlPlane = module === 'operating_profile';
+    let siteAllows = isProfileControlPlane || !isPolicyOnlyKey(module);
+    if (gateMatchesSite && siteAuthorization.mode === SITE_POLICY_MODES.LEGACY) {
+      siteAllows = isProfileControlPlane || !isPolicyOnlyKey(module);
+    } else if (!isProfileControlPlane && gateMatchesSite && siteAuthorization.mode === SITE_POLICY_MODES.PROFILE) {
+      if (Object.prototype.hasOwnProperty.call(siteAuthorization.modules || {}, module)) {
+        siteAllows = siteAuthorization.modules[module] === true;
+      } else if (siteAuthorization.modulesDeclared) {
+        siteAllows = false;
+      }
+    }
+    if (!siteAllows) return false;
+
     // Admin and super_admin always have full access
     if (user?.role === 'admin' || user?.role === 'super_admin') return true;
 
@@ -348,7 +429,7 @@ export const AuthProvider = ({ children }) => {
     }
 
     return perm[`can_${action}`] === true;
-  }, [user, permissions]);
+  }, [currentSite?.id, permissions, siteAuthorization, user]);
 
   // First-login workspace-domain modal: mark seen server-side so it never
   // returns on another device, and flip the local user immediately.
@@ -372,6 +453,7 @@ export const AuthProvider = ({ children }) => {
     currentSite,
     setCurrentSite,
     permissions,
+    portalMemberships,
     setPermissions,
     loading,
     error,
@@ -383,6 +465,7 @@ export const AuthProvider = ({ children }) => {
     fetchMe,
     refreshSites,
     hasPermission,
+    applySiteAuthorization,
     isAuthenticated: !!user,
     isAdmin: user?.role === 'admin' || user?.role === 'super_admin',
     canManage: user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'sub_admin',

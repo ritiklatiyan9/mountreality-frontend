@@ -1,3 +1,4 @@
+import { writePrintDocument } from '../lib/safePrint';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -65,6 +66,7 @@ import ChequeStatusControl from '../components/ChequeStatusControl';
 import { toast } from 'sonner';
 import { useRowSelection } from '../hooks/useRowSelection';
 import BulkActionsBar from '../components/BulkActionsBar';
+import BankAccountSelect from '../components/BankAccountSelect';
 import { classifyPaymentMode } from '../utils/paymentMode';
 
 const MONTH_NAMES = [
@@ -195,6 +197,7 @@ const CashFlow = () => {
     credit: '',
     remarks: '',
     cash_type: 'cash',
+    bank_account_id: '',
     voucher_url: '',
     is_firm_transaction: false,
     from_firm_id: '',
@@ -498,6 +501,7 @@ const CashFlow = () => {
       credit: '',
       remarks: '',
       cash_type: 'cash',
+      bank_account_id: '',
       voucher_url: '',
       is_firm_transaction: false,
       from_firm_id: '',
@@ -524,6 +528,7 @@ const CashFlow = () => {
       credit: e.credit && parseFloat(e.credit) !== 0 ? String(e.credit) : '',
       remarks: e.remarks || '',
       cash_type: e.cash_type || 'bank',
+      bank_account_id: e.bank_account_id ? String(e.bank_account_id) : '',
       voucher_url: e.voucher_url || '',
       is_firm_transaction: !!e.is_firm_transaction,
       from_firm_id: e.from_firm_id ? String(e.from_firm_id) : '',
@@ -556,6 +561,10 @@ const CashFlow = () => {
         return;
       }
     }
+    if (classifyPaymentMode(entryForm.cash_type) !== 'cash' && !entryForm.bank_account_id) {
+      setMessage({ type: 'error', text: 'Select the bank account used for this entry' });
+      return;
+    }
 
     const currentDate = todayISO();
     const payload = {
@@ -566,6 +575,7 @@ const CashFlow = () => {
       credit: parseFloat(entryForm.credit) || 0,
       remarks: entryForm.remarks,
       cash_type: entryForm.cash_type,
+      bank_account_id: entryForm.bank_account_id || null,
       cheque_no: entryForm.cash_type === 'cheque' ? (entryForm.cheque_no || null) : null,
       voucher_url: entryForm.voucher_url || null,
       is_firm_transaction: entryForm.is_firm_transaction,
@@ -927,7 +937,7 @@ const CashFlow = () => {
   const openPrintWindow = (html, title, size = 'width=1100,height=800') => {
     const printWindow = window.open('', '_blank', size);
     if (!printWindow) return;
-    printWindow.document.write(html);
+    writePrintDocument(printWindow, html);
     printWindow.document.close();
   };
 
@@ -2060,6 +2070,14 @@ const CashFlow = () => {
               </EntryField>
             </EntryRow>
 
+            <BankAccountSelect
+              value={entryForm.bank_account_id}
+              onChange={(value) => setEntryForm((current) => ({ ...current, bank_account_id: value }))}
+              paymentMode={entryForm.cash_type}
+              disabled={submitting}
+              required
+            />
+
             <EntryAmount
               direction={entryDirection}
               inputProps={{
@@ -2394,7 +2412,7 @@ const CashFlow = () => {
 </body></html>`;
     const w = window.open('', '_blank', 'width=1200,height=800');
     if (!w) return;
-    w.document.write(html);
+    writePrintDocument(w, html);
     w.document.close();
   };
 

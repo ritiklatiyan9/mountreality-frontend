@@ -31,7 +31,7 @@ import {
   Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
 } from '../components/ui/tooltip';
 import {
-  QrCode, Plus, Landmark, IndianRupee, Loader2, CheckCircle2,
+  QrCode, Loader2, CheckCircle2,
   XCircle, Clock, Edit2, Trash2, Building2, RefreshCw, MonitorPlay,
   Download, Eye,
 } from 'lucide-react';
@@ -82,7 +82,7 @@ const ReceivePayments = () => {
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({ totalItems: 0, totalPages: 1, currentPage: 1 });
 
-  // Receive payment dialog (step 1: amount → step 2: QR)
+  // QR payment dialog (step 1: amount → step 2: QR)
   const [receiveDialog, setReceiveDialog] = useState(false);
   const [receiveForm, setReceiveForm] = useState({ upi_account_id: '', amount: '', note: '' });
   const [activeQr, setActiveQr] = useState(null);
@@ -98,10 +98,30 @@ const ReceivePayments = () => {
     if (!siteId) return;
     try {
       setAccountsLoading(true);
-      const res = await api.get('/upi/accounts', { params: { site_id: siteId } });
-      setAccounts(res.data.accounts || []);
+      // Bank Configs is the canonical Site account register. The old UPI
+      // account endpoint intentionally hid accounts without VPA/payee data,
+      // so accounts created in Bank Configs could disappear from this page.
+      let res = await api.get('/bank-accounts/options', { params: { site_id: siteId } });
+      let nextAccounts = res.data.accounts || [];
+
+      // Keep QR Payments compatible with an older backend process and make
+      // sure it uses the same source that visibly powers Bank Configs.
+      const optionsHaveQrFields = nextAccounts.every((account) => (
+        Object.prototype.hasOwnProperty.call(account, 'vpa')
+        && Object.prototype.hasOwnProperty.call(account, 'payee_name')
+      ));
+      if (!nextAccounts.length || !optionsHaveQrFields) {
+        res = await api.get('/bank-accounts', { params: { site_id: siteId } });
+        nextAccounts = res.data.accounts || [];
+      }
+      setAccounts(nextAccounts);
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to load accounts');
+      try {
+        const fallback = await api.get('/bank-accounts', { params: { site_id: siteId } });
+        setAccounts(fallback.data.accounts || []);
+      } catch (fallbackError) {
+        toast.error(fallbackError.response?.data?.message || err.response?.data?.message || 'Failed to load Bank Config accounts');
+      }
     } finally {
       setAccountsLoading(false);
     }
@@ -124,27 +144,39 @@ const ReceivePayments = () => {
   }, [siteId, statusFilter, page]);
 
   useEffect(() => { fetchAccounts(); }, [fetchAccounts]);
+  useEffect(() => {
+    const refresh = () => void fetchAccounts();
+    window.addEventListener('bank-accounts:changed', refresh);
+    return () => window.removeEventListener('bank-accounts:changed', refresh);
+  }, [fetchAccounts]);
   useEffect(() => { fetchQrs(); }, [fetchQrs]);
 
-  const activeAccounts = accounts.filter((a) => a.is_active);
+  // /bank-accounts/options is already restricted to active accounts. Treat
+  // a missing flag as active for compatibility with an older backend process.
+  const activeBankAccounts = accounts.filter((a) => a.is_active !== false);
+  const activeAccounts = activeBankAccounts.filter((a) => String(a.vpa || '').trim());
 
-  // ── Receive payment / dynamic QR ──
+  // ── QR payment / dynamic QR ──
   // 'H' error correction — the UPI badge overlaid on the centre stays scannable
   const renderQrImage = async (qr) =>
     QRCode.toDataURL(buildUpiUri(qr), { width: 640, margin: 2, errorCorrectionLevel: 'H' });
 
   const openReceive = () => {
-    if (!activeAccounts.length) {
+    if (!activeBankAccounts.length) {
       toast.error('No active account — set one up in Bank Configs first');
       return;
     }
-    setReceiveForm({ upi_account_id: String(activeAccounts[0].id), amount: '', note: '' });
+    setReceiveForm({ upi_account_id: activeAccounts[0] ? String(activeAccounts[0].id) : '', amount: '', note: '' });
     setActiveQr(null);
     setQrImage(null);
     setReceiveDialog(true);
   };
 
   const generateQr = async () => {
+    if (!receiveForm.upi_account_id) {
+      toast.error('Select a QR-ready account with a UPI ID / VPA');
+      return;
+    }
     const amt = parseFloat(receiveForm.amount);
     if (!Number.isFinite(amt) || amt <= 0) {
       toast.error('Enter a valid amount');
@@ -259,7 +291,7 @@ const ReceivePayments = () => {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
         <Building2 className="w-10 h-10 text-slate-200 mb-3" />
-        <p className="text-sm text-slate-500">Select a site to receive payments</p>
+        <p className="text-sm text-slate-500">Select a site to manage QR payments</p>
       </div>
     );
   }
@@ -275,8 +307,8 @@ const ReceivePayments = () => {
             <QrCode className="w-7 h-7 text-white" />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-medium text-emerald-400/80 uppercase tracking-wider mb-1">Payments</p>
-            <h1 className="text-2xl font-bold text-white tracking-tight">Receive Money</h1>
+            <p className="text-xs font-medium text-emerald-400/80 uppercase tracking-wider mb-1">QR Payments</p>
+            <h1 className="text-2xl font-bold text-white tracking-tight">QR Payments</h1>
             <p className="text-slate-400 text-sm mt-0.5">
               Generate a payment QR — customer scans, amount comes pre-filled and locked
             </p>
@@ -289,7 +321,7 @@ const ReceivePayments = () => {
             {canWrite && (
               <Button size="sm" onClick={openReceive}
                 className="bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/25">
-                <IndianRupee className="w-4 h-4 mr-1.5" /> Receive Payment
+                <QrCode className="w-4 h-4 mr-1.5" /> Create QR
               </Button>
             )}
           </div>
@@ -435,14 +467,14 @@ const ReceivePayments = () => {
         </CardContent>
       </Card>
 
-      {/* ── Receive payment dialog ── */}
+      {/* ── QR payment dialog ── */}
       <Dialog open={receiveDialog} onOpenChange={(o) => { if (!generating) { setReceiveDialog(o); if (!o) setActiveQr(null); } }}>
         <DialogContent className="sm:max-w-md">
           {!activeQr ? (
             <>
               <DialogHeader>
                 <DialogTitle className="text-base flex items-center gap-2">
-                  <IndianRupee className="w-4 h-4 text-emerald-600" /> Receive Payment
+                  <QrCode className="w-4 h-4 text-emerald-600" /> Create QR Payment
                 </DialogTitle>
                 <DialogDescription className="text-xs">
                   Enter the amount — a QR locked to that amount is generated for the customer to scan.
@@ -450,18 +482,24 @@ const ReceivePayments = () => {
               </DialogHeader>
               <div className="space-y-3">
                 <div className="space-y-1.5">
-                  <Label className="text-xs">Receive Into</Label>
+                  <Label className="text-xs">QR payment account</Label>
                   <Select value={receiveForm.upi_account_id}
                     onValueChange={(v) => setReceiveForm((f) => ({ ...f, upi_account_id: v }))}>
                     <SelectTrigger><SelectValue placeholder="Select account" /></SelectTrigger>
                     <SelectContent>
-                      {activeAccounts.map((a) => (
-                        <SelectItem key={a.id} value={String(a.id)}>
-                          {a.label}
+                      {activeBankAccounts.map((a) => {
+                        const qrReady = Boolean(String(a.vpa || '').trim());
+                        return (
+                        <SelectItem key={a.id} value={String(a.id)} disabled={!qrReady}>
+                          {a.bank_name ? `${a.bank_name} · ${a.label}` : a.label}{!qrReady ? ' · Add UPI ID' : ''}
                         </SelectItem>
-                      ))}
+                        );
+                      })}
                     </SelectContent>
                   </Select>
+                  {activeBankAccounts.length > 0 && activeAccounts.length === 0 ? (
+                    <p className="text-[11px] text-amber-600">This account is connected from Bank Configs. Add its UPI ID / VPA there to enable QR creation.</p>
+                  ) : null}
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs">Amount (₹) *</Label>
@@ -478,7 +516,7 @@ const ReceivePayments = () => {
               </div>
               <DialogFooter>
                 <Button variant="ghost" size="sm" onClick={() => setReceiveDialog(false)}>Cancel</Button>
-                <Button size="sm" onClick={generateQr} disabled={generating}
+                <Button size="sm" onClick={generateQr} disabled={generating || !receiveForm.upi_account_id}
                   className="bg-emerald-600 hover:bg-emerald-700 text-white">
                   {generating ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <QrCode className="w-3.5 h-3.5 mr-1.5" />}
                   Generate QR

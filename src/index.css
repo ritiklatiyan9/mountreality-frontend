@@ -13,15 +13,13 @@
    Each accent ships a -soft background and an -ink text shade, so a tint
    is never used for text that has to be read.
 
-   Canvas and surface-2 are cool blue-greys, not the neutral warm greys
-   they were: the product is one blue-tinted field end to end, dashboard
-   included, with `.mr-tech-field` laying the gradient over the top.
-   Surface stays pure white — panels carry dense figures and want the
-   full step up from the canvas behind them. ── */
+   The product workspace stays neutral and flat; colour is reserved for
+   decisions, status and navigation. Surface stays pure white so dense
+   operational data has a clear reading plane. ── */
 @theme {
-  --color-mr-canvas: #eef3fa;
+  --color-mr-canvas: #f4f5f7;
   --color-mr-surface: #ffffff;
-  --color-mr-surface-2: #e7eef8;
+  --color-mr-surface-2: #edeef1;
 
   /* ── Public-page tones ──────────────────────────────────────────────
      The marketing pages are read, not worked in, and they are mostly
@@ -63,6 +61,57 @@
   --radius-control: 14px;
 }
 
+/* ── Dark theme ──────────────────────────────────────────────────────
+   Toggled by the header AnimatedThemeToggler (class on <html>, persisted
+   in localStorage, applied pre-paint in index.html). Only surfaces, text,
+   lines and the -soft/-ink accent pairs flip. `ink`/`ink-2` deliberately
+   stay near-black: they double as fills (`bg-mr-ink text-white` buttons,
+   `bg-mr-ink/50` scrims) across ~40 files, and dark fills with white text
+   stay correct on a dark canvas. Accents (blue/aqua/lime/amber/coral) are
+   bright enough to keep as-is.
+   ponytail: shell/paper (marketing-page tones) stay light — restyle the
+   public pages separately if dark marketing is ever wanted. */
+.dark {
+  color-scheme: dark;
+  --color-mr-canvas: #0f1013;
+  --color-mr-surface: #17181c;
+  --color-mr-surface-2: #24262c;
+  --color-mr-text: #f2f3f5;
+  --color-mr-muted: #9aa3b2;
+  --color-mr-faint: #6d7583;
+  --color-mr-line: rgba(255, 255, 255, 0.09);
+  --color-mr-line-strong: rgba(255, 255, 255, 0.16);
+  --color-mr-blue-deep: #5b87ff;
+  --color-mr-blue-soft: #1d2a4a;
+  --color-mr-aqua-soft: #0d3038;
+  --color-mr-aqua-ink: #5fd3e4;
+  --color-mr-lime-soft: #222f0e;
+  --color-mr-lime-ink: #a9e15f;
+  --color-mr-amber-soft: #382a10;
+  --color-mr-amber-ink: #f0b45a;
+  --color-mr-coral-soft: #3d1a13;
+  --color-mr-coral-ink: #ff8d79;
+}
+
+/* View Transitions drive the theme toggle's circular reveal; the default
+   cross-fade would fight the clip-path animation. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+/* Set by the toggler for the duration of the reveal: without this, every
+   element carrying transition-colors keeps color-shifting inside the
+   already-revealed region, which strobes on dense pages like the dashboard.
+   Infinite animations (pulses, sheens) restart afterwards — invisible. */
+.theme-switching *,
+.theme-switching *::before,
+.theme-switching *::after {
+  transition: none !important;
+  animation: none !important;
+}
+
 /* Respect the OS reduced-motion setting across the whole app. */
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -82,6 +131,161 @@
 .mr-rise {
   animation: mr-rise 240ms cubic-bezier(0.32, 0.72, 0, 1) both;
 }
+
+/* ── Liquid glass controls ───────────────────────────────────────────
+   iOS-style control surface, used on dashboard buttons, segmented
+   controls and toggles. Three parts do the work:
+     · a translucent, slightly tinted fill (the "liquid")
+     · a bright inset rim on the top edge and a soft drop shadow, which
+       is what actually reads as glass here
+     · a specular sheen that sweeps across on hover
+
+   Deliberately NO backdrop-filter. Every one of these controls sits on
+   an opaque white panel or a smooth gradient, so blurring the backdrop
+   returns the backdrop — it buys nothing visually — while forcing the
+   browser to re-sample it on every frame of a transform, which is what
+   made the toggles strobe when pressed. Add it back only over genuinely
+   busy content (imagery, a table showing through).
+
+   Written as plain classes rather than Tailwind utilities because the
+   rim is four stacked shadows; unlayered CSS also wins over Tailwind's
+   layered utilities, so .mr-glass owns background, border and shadow —
+   pairing it with a bg- or border- utility does nothing, the utility
+   loses. */
+.mr-glass {
+  position: relative;
+  background-color: rgba(255, 255, 255, 0.72);
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.85) 0%, rgba(234, 236, 241, 0.72) 100%);
+  border: 1px solid rgba(16, 17, 20, 0.07);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    inset 0 -1px 1px rgba(16, 17, 20, 0.03),
+    0 1px 1px rgba(16, 17, 20, 0.04),
+    0 8px 20px -10px rgba(16, 17, 20, 0.22);
+}
+
+.dark .mr-glass {
+  background-color: rgba(30, 32, 37, 0.72);
+  background-image: linear-gradient(180deg, rgba(44, 46, 53, 0.85) 0%, rgba(24, 25, 29, 0.72) 100%);
+  border-color: rgba(255, 255, 255, 0.09);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.09),
+    inset 0 -1px 1px rgba(0, 0, 0, 0.3),
+    0 1px 1px rgba(0, 0, 0, 0.35),
+    0 8px 20px -10px rgba(0, 0, 0, 0.7);
+}
+
+/* Only a pressable control clips, and only because it carries the sheen. */
+.mr-glass.mr-press {
+  overflow: hidden;
+}
+
+/* Selected pill inside a segmented control: keeps its solid ink fill and
+   adds the same top gloss + lift, so the selection reads as raised glass. */
+.mr-glass-ink {
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0) 58%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    0 2px 6px rgba(16, 17, 20, 0.26),
+    0 10px 20px -10px rgba(16, 17, 20, 0.55);
+}
+
+/* Gloss with no shadow, for a pill that framer-motion moves by projection:
+   a layout animation scales the element horizontally, which smears a
+   box-shadow but leaves a vertical gradient intact. */
+.mr-gloss {
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0) 58%);
+}
+
+/* Sheen. Sits above the label on purpose — a reflection falls on what is
+   under the glass. Buttons only (never the blurred trays, see above),
+   pointer-inert, hover-capable devices only. */
+.mr-glass.mr-press::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  pointer-events: none;
+  background-image: linear-gradient(105deg, rgba(255, 255, 255, 0) 34%, rgba(255, 255, 255, 0.55) 48%, rgba(255, 255, 255, 0) 62%);
+  opacity: 0;
+  transform: translateX(-115%);
+}
+@media (hover: hover) {
+  .mr-glass.mr-press:hover::after {
+    opacity: 1;
+    transform: translateX(115%);
+    transition: transform 760ms cubic-bezier(0.32, 0.72, 0, 1), opacity 200ms ease;
+  }
+}
+
+/* Glass checkbox. Plain CSS rather than utilities on the Radix root: the
+   shared Checkbox already sets border/background utilities, and two
+   utilities for the same property resolve by stylesheet order, not by
+   class order — unlayered rules win outright. */
+.mr-check {
+  border-radius: 6px;
+  border-color: rgba(16, 17, 20, 0.18);
+  background-color: rgba(255, 255, 255, 0.65);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 1px 1px rgba(16, 17, 20, 0.05);
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease;
+}
+.mr-check[data-state='checked'] {
+  background-color: var(--color-mr-blue);
+  border-color: transparent;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 2px 8px rgba(47, 107, 255, 0.35);
+}
+.mr-check[data-state='checked'] svg {
+  animation: mr-check-pop 280ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+@keyframes mr-check-pop {
+  from { opacity: 0; transform: scale(0.5); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Tactile press. Transform only, so it composites; the global
+   reduced-motion rule above collapses the duration to nothing. */
+.mr-press {
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    transform 260ms cubic-bezier(0.32, 0.72, 0, 1),
+    background-color 200ms ease,
+    border-color 200ms ease,
+    color 200ms ease;
+}
+.mr-press:active:not(:disabled):not([aria-disabled='true']) {
+  transform: scale(0.955);
+  transition-duration: 90ms;
+}
+
+/* ── Auth micro-interactions ─────────────────────────────────────────
+   Transform-only, all neutralised by the global reduced-motion rule
+   above. Typing feedback is state-driven CSS transitions (progress bar
+   width, icon crossfades) — never keyframe retriggers per keystroke,
+   which read as flicker. */
+@keyframes mr-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(4px); }
+}
+.mr-shake { animation: mr-shake 340ms cubic-bezier(0.36, 0.07, 0.19, 0.97); }
+
+/* Ambient orbs behind the auth card — plain radial gradients moved by
+   transform, deliberately not filter: blur() (see .mr-tech-field note). */
+@keyframes mr-drift {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(4%, 6%, 0); }
+}
+.mr-drift-a { animation: mr-drift 16s ease-in-out infinite alternate; }
+.mr-drift-b { animation: mr-drift 22s ease-in-out infinite alternate-reverse; }
 
 /* ── Hero entrance ───────────────────────────────────────────────────
    Longer and further than mr-rise: this is the first thing on the page
@@ -105,11 +309,9 @@
 .animate-fade-rise-delay-2 { animation-delay: 0.4s; }
 
 /* ── Tech field ──────────────────────────────────────────────────────
-   The product's background, marketing and app alike. A flat neutral read
-   as dull next to the blue actions, so this lays two low-opacity
-   brand-blue/aqua fields over a cool base — light enough that muted body
-   text still clears 4.5:1 on it, and cheap enough to sit behind a whole
-   scrolling page.
+   Reserved for public marketing and authentication screens. Product
+   workspaces deliberately use the neutral canvas above, without a
+   decorative background competing with tables and financial data.
 
    Gradients, not filter: blur(). A blurred layer this size would cost a
    full-viewport raster pass on every scroll frame; radial stops are
@@ -123,9 +325,43 @@
    through grey and leave a dirty fringe mid-gradient. ── */
 .mr-tech-field {
   background-image:
-    radial-gradient(72% 48% at 88% 0%, rgba(80, 221, 235, 0.20) 0%, rgba(47, 107, 255, 0.11) 42%, rgba(233, 238, 246, 0) 76%),
-    radial-gradient(58% 42% at 4% 96%, rgba(47, 107, 255, 0.14) 0%, rgba(80, 221, 235, 0.07) 46%, rgba(233, 238, 246, 0) 78%);
+    radial-gradient(72% 48% at 88% 0%, rgba(80, 221, 235, 0.07) 0%, rgba(47, 107, 255, 0.04) 42%, rgba(233, 238, 246, 0) 76%),
+    radial-gradient(58% 42% at 4% 96%, rgba(47, 107, 255, 0.05) 0%, rgba(80, 221, 235, 0.025) 46%, rgba(233, 238, 246, 0) 78%);
   background-attachment: fixed, fixed;
+}
+
+/* Shared register chrome: dense operational tables use a zinc-black rail
+   for their column headings and totals so the accounting data reads as one
+   deliberate surface across modules. */
+.mr-dark-table thead th,
+.mr-dark-table thead th[class*="bg-"],
+.mr-dark-table thead th button {
+  background-color: #18181b !important;
+  color: #ffffff !important;
+  border-color: #3f3f46 !important;
+}
+
+.mr-dark-table thead th *,
+.mr-dark-table tfoot td *,
+.mr-dark-table tfoot th * {
+  color: inherit !important;
+}
+
+.mr-dark-table thead th button:hover {
+  background-color: #27272a !important;
+}
+
+.mr-dark-table tfoot td,
+.mr-dark-table tfoot th {
+  background-color: #18181b !important;
+  color: #ffffff !important;
+  border-color: #3f3f46 !important;
+}
+
+.mr-dark-table tr.bg-zinc-900 td,
+.mr-dark-table tr.bg-zinc-900 td * {
+  color: #ffffff !important;
+  border-color: #3f3f46 !important;
 }
 
 /* Fixed attachment is a known jank source on mobile, where the address
@@ -395,47 +631,9 @@
   animation: route-fade-in 0.22s cubic-bezier(0.32, 0.72, 0, 1) both;
 }
 
-/* ── Page translator (LanguageSwitcher.jsx) — driven entirely by our own
-   dropdown; the widget's own banner/tooltip/highlight UI must never appear.
-
-   The banner ("Translated into: X / Show original") is an iframe with
-   inline visibility:visible nested in a direct-child div.skiptranslate.
-   Verified empirically (Playwright, scratchpad/gt-test):
-   - visibility:hidden on the wrapper → overridden by the child's inline style
-   - display:none or JS remove()/style-churn → BREAKS the translation engine
-   - clip-path on the wrapper → hides every pixel, becomes the containing
-     block for the fixed child iframe, can't be overridden by children, and
-     the engine keeps working. CSS only — do NOT fight it from JS. ── */
-body > div.skiptranslate,
-body > iframe.skiptranslate {
-  clip-path: inset(100%) !important;
-  pointer-events: none !important;
-}
-.goog-te-gadget-icon,
-#goog-gt-tt,
-.goog-tooltip,
-.goog-tooltip:hover {
-  display: none !important;
-}
-.goog-text-highlight {
-  background: none !important;
-  box-shadow: none !important;
-}
-body {
-  top: 0 !important;
-}
-/* Rendered (not display:none) so Google's script can initialize, but kept
-   completely off-screen and inert. */
-.gt-host {
-  position: fixed !important;
-  top: 0 !important;
-  left: 0 !important;
-  width: 1px !important;
-  height: 1px !important;
-  overflow: hidden !important;
-  opacity: 0 !important;
-  pointer-events: none !important;
-}
+/* The Google Translate widget and the header language dropdown that drove
+   it were removed; their chrome-suppression rules went with them. A stale
+   googtrans cookie is inert now — nothing loads the engine. */
 
 /* ── Print Styles ── */
 @media print {

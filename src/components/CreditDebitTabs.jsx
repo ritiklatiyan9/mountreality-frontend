@@ -29,8 +29,8 @@ export default function CreditDebitTabs({
   className,
 }) {
   const visuals = {
-    in: { icon: ArrowDownLeft, activeCls: 'bg-emerald-600 text-white shadow-sm' },
-    out: { icon: ArrowUpRight, activeCls: 'bg-red-600 text-white shadow-sm' },
+    in: { icon: ArrowDownLeft, activeCls: 'bg-mr-lime-ink text-white shadow-sm' },
+    out: { icon: ArrowUpRight, activeCls: 'bg-mr-coral-ink text-white shadow-sm' },
   };
   const tabs = [
     { key: 'credit', label: creditLabel, ...visuals[creditVisual] },
@@ -38,7 +38,7 @@ export default function CreditDebitTabs({
   ];
   return (
     <div className={className}>
-      <div className="grid grid-cols-2 gap-1 p-1 bg-slate-100 rounded-lg">
+      <div className="grid grid-cols-2 gap-1 rounded-panel-sm border border-mr-line bg-mr-surface-2 p-1">
         {tabs.map((t) => (
           <button
             key={t.key}
@@ -47,8 +47,8 @@ export default function CreditDebitTabs({
             aria-pressed={value === t.key}
             onClick={() => onChange(t.key)}
             className={cn(
-              'flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-              value === t.key ? t.activeCls : 'text-slate-600 hover:bg-white/60',
+              'flex items-center justify-center gap-1.5 rounded-control px-3 py-2 text-[13px] font-semibold transition-colors',
+              value === t.key ? t.activeCls : 'text-mr-muted hover:bg-mr-surface hover:text-mr-text',
               disabled && 'opacity-50 cursor-not-allowed'
             )}
           >
@@ -57,7 +57,7 @@ export default function CreditDebitTabs({
           </button>
         ))}
       </div>
-      <p className="mt-1 text-[11px] text-slate-400">
+      <p className="mt-1 text-[11px] text-mr-faint">
         {value === 'credit' ? creditHint : debitHint}
       </p>
     </div>

@@ -43,6 +43,7 @@ import {
 import VoucherUpload, { VoucherThumbnail } from '../components/VoucherUpload';
 import ApprovalStatusBadge from '../components/ApprovalStatusBadge';
 import { EntryDialog, EntryFooter, EntryRow, EntryField, EntryAmount } from '../components/EntryModal';
+import BankAccountSelect from '../components/BankAccountSelect';
 
 const Commissions = () => {
   const { currentSite, isAdmin, canManage, hasPermission } = useAuth();
@@ -84,6 +85,8 @@ const Commissions = () => {
     plot_size: '',
     plot_rate: '',
     amount: '',
+    payment_mode: 'BANK',
+    bank_account_id: '',
     by_note: '',
     remarks: '',
     voucher_url: '',
@@ -143,6 +146,8 @@ const Commissions = () => {
       plot_size: '',
       plot_rate: '',
       amount: '',
+      payment_mode: 'BANK',
+      bank_account_id: '',
       by_note: '',
       remarks: '',
       voucher_url: '',
@@ -163,6 +168,8 @@ const Commissions = () => {
       plot_size: c.plot_size || '',
       plot_rate: c.plot_rate || '',
       amount: c.amount || '',
+      payment_mode: c.payment_mode || 'BANK',
+      bank_account_id: c.bank_account_id ? String(c.bank_account_id) : '',
       by_note: c.by_note || '',
       remarks: c.remarks || '',
       voucher_url: c.voucher_url || '',
@@ -175,6 +182,10 @@ const Commissions = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setMessage({ type: '', text: '' });
+    if (formData.payment_mode !== 'CASH' && !formData.bank_account_id) {
+      setMessage({ type: 'error', text: 'Select the bank account used for this transaction' });
+      return;
+    }
     setSubmitting(true);
     try {
       const payload = { ...formData, site_id: siteId, amount: parseFloat(formData.amount) || 0, assigned_admin_id: formData.assigned_admin_id };
@@ -940,6 +951,16 @@ const Commissions = () => {
           </EntryRow>
 
           <EntryRow>
+            <EntryField label="Payment Mode" required>
+              <Select value={formData.payment_mode} onValueChange={(value) => setFormData({ ...formData, payment_mode: value })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {['CASH', 'BANK', 'UPI', 'CHEQUE', 'NEFT', 'RTGS', 'IMPS'].map((mode) => (
+                    <SelectItem key={mode} value={mode}>{mode}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </EntryField>
             <EntryField label="By">
               <Input
                 placeholder="G, OM BANK, CASH..."
@@ -948,6 +969,12 @@ const Commissions = () => {
               />
             </EntryField>
           </EntryRow>
+
+          <BankAccountSelect
+            value={formData.bank_account_id}
+            onChange={(bankAccountId) => setFormData((form) => ({ ...form, bank_account_id: bankAccountId }))}
+            paymentMode={formData.payment_mode}
+          />
 
           <EntryField label="Remarks">
             <Textarea

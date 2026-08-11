@@ -41,7 +41,7 @@ export default function AttentionPanel({
 
         <div className="flex items-center gap-2">
           {isAdmin && (
-            <div role="radiogroup" aria-label="Approval direction" className="flex items-center gap-0.5 rounded-full border border-mr-line bg-mr-surface-2 p-1">
+            <div role="radiogroup" aria-label="Approval direction" className="mr-glass flex items-center gap-0.5 rounded-full p-1">
               {[{ key: 'received', label: 'Received' }, { key: 'sent', label: 'Sent' }].map(({ key, label }) => (
                 <button
                   key={key}
@@ -49,8 +49,8 @@ export default function AttentionPanel({
                   role="radio"
                   aria-checked={tab === key}
                   onClick={() => onTabChange(key)}
-                  className={`rounded-full px-3 py-1.5 text-[12px] font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue focus-visible:ring-offset-1 ${
-                    tab === key ? 'bg-mr-ink text-white' : 'text-mr-muted hover:text-mr-text'
+                  className={`mr-press rounded-full px-3 py-1.5 text-[12px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue focus-visible:ring-offset-1 ${
+                    tab === key ? 'mr-glass-ink bg-mr-ink text-white' : 'text-mr-muted hover:text-mr-text'
                   }`}
                 >
                   {label}
@@ -60,9 +60,14 @@ export default function AttentionPanel({
           )}
           <Link
             to={viewAllHref}
-            className="inline-flex h-9 items-center gap-1 rounded-full px-3 text-[12px] font-semibold text-mr-blue transition-colors hover:bg-mr-blue-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue focus-visible:ring-offset-2"
+            className="mr-press group inline-flex h-9 items-center gap-1 rounded-full px-3 text-[12px] font-semibold text-mr-blue hover:bg-mr-blue-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue focus-visible:ring-offset-2"
           >
-            View all <ArrowUpRight className="h-3.5 w-3.5" strokeWidth={2} aria-hidden="true" />
+            View all
+            <ArrowUpRight
+              className="h-3.5 w-3.5 transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:-translate-y-0.5 group-hover:translate-x-0.5"
+              strokeWidth={2}
+              aria-hidden="true"
+            />
           </Link>
         </div>
       </div>

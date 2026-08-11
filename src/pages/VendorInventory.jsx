@@ -2,12 +2,18 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/api';
-import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
-import { Badge } from '../components/ui/badge';
+import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '../components/ui/sheet';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '../components/ui/dropdown-menu';
+import MaterialCell from '../components/inventory/MaterialCell';
+import VendorCell from '../components/inventory/VendorCell';
+import DeliveryProgress from '../components/inventory/DeliveryProgress';
+import ProcurementTimeline from '../components/inventory/ProcurementTimeline';
+import { EmptyBlock } from '../components/ui/page';
+import { FinancialMetric, SkeletonBlock, EmptyState, StatusPill } from '../components/dashboard/primitives';
 import {
   Dialog,
   DialogContent,
@@ -44,9 +50,7 @@ import {
   Plus,
   Receipt,
   Search,
-  Store,
-  Wallet,
-  X,
+  X, MoreHorizontal, ClipboardList,
 } from 'lucide-react';
 
 const todayLocal = () => {
@@ -67,10 +71,10 @@ const fmtDate = (d) => {
 };
 
 const STATUS_META = {
-  open:      { label: 'Unpaid',    cls: 'bg-blue-50 text-blue-700 border-blue-200' },
-  partial:   { label: 'Partial',   cls: 'bg-amber-50 text-amber-700 border-amber-200' },
-  completed: { label: 'Paid',      cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-  cancelled: { label: 'Cancelled', cls: 'bg-slate-100 text-slate-500 border-slate-200' },
+  open:      { label: 'Unpaid',    tone: 'info' },
+  partial:   { label: 'Partial',   tone: 'attention' },
+  completed: { label: 'Paid',      tone: 'positive' },
+  cancelled: { label: 'Cancelled', tone: 'neutral' },
 };
 
 const PAGE_LIMIT = 20;
@@ -91,16 +95,15 @@ const emptyForm = {
 };
 
 const CATEGORY_PALETTE = [
-  { bg: 'from-blue-50 to-blue-100/60',       border: 'border-blue-200',    text: 'text-blue-700',    bar: 'bg-blue-500' },
-  { bg: 'from-amber-50 to-amber-100/60',     border: 'border-amber-200',   text: 'text-amber-700',   bar: 'bg-amber-500' },
-  { bg: 'from-emerald-50 to-emerald-100/60', border: 'border-emerald-200', text: 'text-emerald-700', bar: 'bg-emerald-500' },
-  { bg: 'from-violet-50 to-violet-100/60',   border: 'border-violet-200',  text: 'text-violet-700',  bar: 'bg-violet-500' },
-  { bg: 'from-pink-50 to-pink-100/60',       border: 'border-pink-200',    text: 'text-pink-700',    bar: 'bg-pink-500' },
-  { bg: 'from-cyan-50 to-cyan-100/60',       border: 'border-cyan-200',    text: 'text-cyan-700',    bar: 'bg-cyan-500' },
+  { chip: 'bg-mr-blue-soft text-mr-blue',       bar: 'bg-mr-blue' },
+  { chip: 'bg-mr-amber-soft text-mr-amber-ink', bar: 'bg-mr-amber' },
+  { chip: 'bg-mr-lime-soft text-mr-lime-ink',   bar: 'bg-mr-lime' },
+  { chip: 'bg-mr-aqua-soft text-mr-aqua-ink',   bar: 'bg-mr-aqua' },
+  { chip: 'bg-mr-coral-soft text-mr-coral-ink', bar: 'bg-mr-coral' },
 ];
 const catColor = (i) => CATEGORY_PALETTE[i % CATEGORY_PALETTE.length];
 
-const VendorInventory = ({ embedded = false }) => {
+const VendorInventory = () => {
   const navigate   = useNavigate();
   const { currentSite, canManage, hasPermission } = useAuth();
   const canWrite  = canManage && hasPermission('vendors', 'write');
@@ -132,6 +135,7 @@ const VendorInventory = ({ embedded = false }) => {
   // Receive-into-stock (procurement → inventory ledger)
   const [materials, setMaterials] = useState([]);
   const [receiveOrder, setReceiveOrder] = useState(null);
+  const [selectedOrder, setSelectedOrder] = useState(null);
   const [receiveForm, setReceiveForm] = useState({ material_id: 'auto', qty: '', rate: '', note: '' });
 
   const gross = (() => {
@@ -307,12 +311,7 @@ const VendorInventory = ({ embedded = false }) => {
   };
 
   if (!currentSite) {
-    return (
-      <div className="flex flex-col items-center justify-center py-24 text-center">
-        <Package className="w-10 h-10 text-slate-200 mb-3" />
-        <p className="text-sm text-slate-500">Select a site to view inventory</p>
-      </div>
-    );
+    return <EmptyBlock icon={Package} title="Select a site to view inventory" tall />;
   }
 
   const { page, totalPages, total } = pagination;
@@ -326,98 +325,43 @@ const VendorInventory = ({ embedded = false }) => {
   const paidPct    = totalValue > 0 ? Math.min(100, (totalPaid / totalValue) * 100) : 0;
 
   return (
-    <div className="w-full max-w-full md:max-w-350 space-y-5">
-      {/* Header — hidden when embedded in the Inventory module's Procurement tab */}
-      {embedded ? (
-        canWrite && (
-          <div className="flex justify-end">
-            <Button size="sm" onClick={openCreate} className="shadow-sm">
-              <Plus className="w-4 h-4 mr-1.5" /> New Purchase Item
-            </Button>
-          </div>
-        )
-      ) : (
-      <div className="rounded-2xl border border-slate-200 bg-gradient-to-r from-white via-slate-50 to-indigo-50/60 p-4 sm:p-5">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <div className="flex items-center gap-2 text-xs text-slate-400 mb-1">
-              <button onClick={() => navigate('/vendors')} className="hover:text-slate-600 transition-colors">Vendor Management</button>
-              <span>/</span>
-              <span className="font-medium text-slate-600">Inventory</span>
-            </div>
-            <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">Inventory</h1>
-            <p className="text-sm text-slate-500 mt-0.5">
-              Items, orders &amp; payment transactions for <span className="font-medium text-slate-700">{currentSite.name}</span>
-            </p>
-          </div>
-          {canWrite && (
-            <Button size="sm" onClick={openCreate} className="shadow-sm">
-              <Plus className="w-4 h-4 mr-1.5" /> New Item
-            </Button>
-          )}
+    <div className="w-full space-y-6 pb-16 text-mr-text">
+      <div className="flex flex-col items-start justify-between gap-4 border-b border-mr-line pb-5 sm:flex-row sm:items-center">
+        <div>
+          <h2 className="text-[clamp(1.35rem,2.3vw,1.75rem)] font-semibold tracking-[-0.035em] text-mr-text">Purchase register</h2>
+          <p className="mt-1 text-[13px] text-mr-muted">Ordered materials, payment position and stock receipt</p>
         </div>
+        {canWrite && (
+          <button type="button" className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-full bg-mr-ink px-4 text-[13px] font-semibold text-white transition-colors hover:bg-mr-ink-2" onClick={openCreate}>
+            <Plus className="h-4 w-4" strokeWidth={2} aria-hidden="true" /> New purchase item
+          </button>
+        )}
       </div>
-      )}
 
       {/* Alert */}
       {message.text && (
-        <div className={`flex items-center gap-2 p-3 rounded-lg text-sm border ${message.type === 'success' ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-red-50 border-red-100 text-red-700'}`}>
-          {message.type === 'success' ? <Check className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
+        <div className={`flex items-center gap-2 rounded-control border p-3 text-[13px] ${message.type === 'success' ? 'border-mr-lime-ink/15 bg-mr-lime-soft text-mr-lime-ink' : 'border-mr-coral-ink/15 bg-mr-coral-soft text-mr-coral-ink'}`}>
+          {message.type === 'success' ? <Check className="h-4 w-4 shrink-0" strokeWidth={1.9} /> : <AlertCircle className="h-4 w-4 shrink-0" strokeWidth={1.9} />}
           <span>{message.text}</span>
           <button className="ml-auto" onClick={() => setMessage({ type: '', text: '' })}><X className="w-3.5 h-3.5" /></button>
         </div>
       )}
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <div className="rounded-2xl border border-slate-200 bg-white p-4">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Total Items</span>
-            <div className="h-8 w-8 rounded-xl bg-indigo-50 flex items-center justify-center">
-              <Package className="w-4 h-4 text-indigo-600" />
-            </div>
-          </div>
-          <p className="text-2xl font-bold text-slate-900 tabular-nums">{totals.total_items || 0}</p>
-        </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-4">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Total Value</span>
-            <div className="h-8 w-8 rounded-xl bg-amber-50 flex items-center justify-center">
-              <IndianRupee className="w-4 h-4 text-amber-600" />
-            </div>
-          </div>
-          <p className="text-xl font-bold text-slate-900 tabular-nums">₹{money(totalValue)}</p>
-        </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-4">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Paid</span>
-            <div className="h-8 w-8 rounded-xl bg-emerald-50 flex items-center justify-center">
-              <Wallet className="w-4 h-4 text-emerald-600" />
-            </div>
-          </div>
-          <p className="text-xl font-bold text-emerald-700 tabular-nums">₹{money(totalPaid)}</p>
-          <div className="mt-2 h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
-            <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${paidPct}%` }} />
-          </div>
-        </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-4">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Outstanding</span>
-            <div className="h-8 w-8 rounded-xl bg-red-50 flex items-center justify-center">
-              <Receipt className="w-4 h-4 text-red-500" />
-            </div>
-          </div>
-          <p className="text-xl font-bold text-red-600 tabular-nums">₹{money(totalOutstanding)}</p>
-        </div>
-      </div>
+      {/* Summary strip */}
+      <dl className="grid grid-cols-2 divide-x divide-mr-line overflow-hidden rounded-panel border border-mr-line bg-mr-surface sm:grid-cols-4">
+        <FinancialMetric label="Total items" value={totals.total_items || 0} icon={Package} accent="blue" />
+        <FinancialMetric label="Total value" value={totalValue} icon={IndianRupee} accent="blue" />
+        <FinancialMetric label="Paid" value={totalPaid} icon={IndianRupee} accent="lime" tone="positive" hint={`${Math.round(paidPct)}% of total`} />
+        <FinancialMetric label="Outstanding" value={totalOutstanding} icon={Receipt} accent="coral" />
+      </dl>
 
       {/* Category Breakdown */}
       {stockSummary.categories?.length > 0 && (
         <div>
-          <h2 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
-            <Package className="w-4 h-4 text-slate-400" /> By Category
+          <h2 className="mb-3 flex items-center gap-2 text-[13px] font-semibold text-mr-text">
+            <Package className="h-4 w-4 text-mr-faint" strokeWidth={1.9} /> By category
           </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div className="divide-y divide-mr-line overflow-hidden rounded-panel border border-mr-line bg-mr-surface sm:grid sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-3">
             {stockSummary.categories.map((cat, idx) => {
               const c = catColor(idx);
               const val  = parseFloat(cat.total_value) || 0;
@@ -429,28 +373,26 @@ const VendorInventory = ({ embedded = false }) => {
                 <button
                   key={cat.category}
                   onClick={() => setCatFilter(isActive ? 'all' : cat.category)}
-                  className={`text-left rounded-2xl border ${isActive ? 'ring-2 ring-indigo-400 ' + c.border : c.border} bg-gradient-to-br ${c.bg} p-4 transition-all hover:shadow-md`}
+                  className={`text-left p-3.5 transition-colors ${isActive ? 'bg-mr-surface-2' : 'hover:bg-mr-surface-2/70'}`}
                 >
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className={`text-sm font-bold uppercase tracking-wide ${c.text}`}>{cat.category}</h3>
-                    <Badge variant="outline" className={`text-[9px] font-semibold ${c.border} ${c.text} px-1.5 py-0`}>
-                      {cat.item_count} items
-                    </Badge>
+                  <div className="mb-2.5 flex items-center justify-between">
+                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${c.chip}`}>{cat.category}</span>
+                    <span className="text-[11px] font-medium text-mr-faint">{cat.item_count} items</span>
                   </div>
-                  <div className="mb-3">
-                    <div className="flex items-center justify-between text-[11px] mb-1">
-                      <span className="text-slate-500">Paid</span>
-                      <span className="font-semibold text-slate-700 tabular-nums">₹{money(paid)} / ₹{money(val)}</span>
+                  <div className="mb-2.5">
+                    <div className="mb-1 flex items-center justify-between text-[11px]">
+                      <span className="text-mr-muted">Paid</span>
+                      <span className="font-semibold tabular-nums text-mr-text">₹{money(paid)} / ₹{money(val)}</span>
                     </div>
-                    <div className="w-full h-2 bg-white/80 rounded-full overflow-hidden">
-                      <div className={`h-full ${c.bar} rounded-full transition-all`} style={{ width: `${pct}%` }} />
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-mr-surface-2">
+                      <div className={`h-full rounded-full ${c.bar}`} style={{ width: `${pct}%` }} />
                     </div>
                   </div>
-                  <div className="flex items-center justify-between text-xs pt-2 border-t border-white/60">
-                    <span className={out > 0 ? 'text-red-600 font-semibold' : 'text-emerald-600 font-semibold'}>
+                  <div className="flex items-center justify-between border-t border-mr-line pt-2 text-xs">
+                    <span className={out > 0 ? 'font-semibold text-mr-coral-ink' : 'font-semibold text-emerald-800'}>
                       {out > 0 ? `Due: ₹${money(out)}` : '✓ Paid'}
                     </span>
-                    <span className="text-slate-400 font-semibold text-[10px] tabular-nums">{Math.round(pct)}%</span>
+                    <span className="text-[10px] font-semibold tabular-nums text-mr-faint">{Math.round(pct)}%</span>
                   </div>
                 </button>
               );
@@ -461,126 +403,120 @@ const VendorInventory = ({ embedded = false }) => {
 
       {/* Recent Transactions */}
       {stockSummary.recentTransactions?.length > 0 && (
-        <Card className="shadow-none border-slate-200">
-          <CardContent className="p-0">
-            <div className="px-4 py-2.5 border-b border-slate-100 flex items-center gap-2">
-              <Receipt className="w-3.5 h-3.5 text-slate-400" />
-              <span className="text-xs font-semibold text-slate-700">Recent Payment Transactions</span>
-            </div>
-            <div className="divide-y divide-slate-50">
-              {stockSummary.recentTransactions.slice(0, 6).map((t) => (
-                <div key={t.id} className="px-4 py-2.5 flex items-center justify-between">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="h-7 w-7 rounded-lg bg-emerald-50 flex items-center justify-center shrink-0">
-                      <IndianRupee className="w-3.5 h-3.5 text-emerald-600" />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-xs font-medium text-slate-800 truncate">{t.item_name}</p>
-                      <p className="text-[10px] text-slate-400">
-                        {fmtDate(t.date)}
-                        {t.item_category && <> &middot; {t.item_category}</>}
-                        {t.payment_mode && <> &middot; {t.payment_mode.toUpperCase()}</>}
-                      </p>
-                    </div>
+        <div className="border-t border-mr-line">
+          <div className="flex items-center gap-2 border-b border-mr-line py-2.5">
+            <Receipt className="h-3.5 w-3.5 text-mr-faint" strokeWidth={1.9} />
+            <span className="text-xs font-semibold text-mr-text">Recent payment transactions</span>
+          </div>
+          <div className="divide-y divide-mr-line">
+            {stockSummary.recentTransactions.slice(0, 6).map((t) => (
+              <div key={t.id} className="flex items-center justify-between py-2.5">
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-800">
+                    <IndianRupee className="h-3.5 w-3.5" strokeWidth={1.9} />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="truncate text-xs font-medium text-mr-text">{t.item_name}</p>
+                    <p className="text-[10px] text-mr-faint">
+                      {fmtDate(t.date)}
+                      {t.item_category && <> &middot; {t.item_category}</>}
+                      {t.payment_mode && <> &middot; {t.payment_mode.toUpperCase()}</>}
+                    </p>
                   </div>
-                  <span className="text-sm font-bold text-emerald-700 tabular-nums">₹{money(t.amount)}</span>
                 </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+                <span className="text-sm font-bold tabular-nums text-emerald-800">₹{money(t.amount)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       {/* Filters */}
-      <Card className="shadow-none border-slate-200">
-        <CardContent className="p-3.5">
-          <div className="flex flex-col sm:flex-row gap-2.5">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
-              <Input
-                className="pl-8 h-9 text-sm"
-                placeholder="Search item, vendor, category..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-              {search && (
-                <button onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-full sm:w-36 h-9 text-sm">
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="open">Unpaid</SelectItem>
-                <SelectItem value="partial">Partial</SelectItem>
-                <SelectItem value="completed">Paid</SelectItem>
-                <SelectItem value="cancelled">Cancelled</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={catFilter} onValueChange={setCatFilter}>
-              <SelectTrigger className="w-full sm:w-40 h-9 text-sm">
-                <SelectValue placeholder="Category" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Categories</SelectItem>
-                {heads.map((h) => (
-                  <SelectItem key={h.id} value={h.name}>{h.name}</SelectItem>
-                ))}
-                {categories.filter(c => !heads.some(h => h.name === c)).map((c) => (
-                  <SelectItem key={c} value={c}>{c}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {catFilter !== 'all' && (
-              <Button variant="ghost" size="sm" className="h-9 text-xs text-slate-500" onClick={() => setCatFilter('all')}>
-                <X className="w-3 h-3 mr-1" /> Clear
-              </Button>
+      <div className="border-t border-mr-line pt-5">
+        <div className="flex flex-col gap-2.5 sm:flex-row">
+          <div className="relative flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-mr-faint" strokeWidth={1.9} />
+            <Input
+              className="h-10 rounded-full border-mr-line bg-mr-surface-2 pl-8 text-sm shadow-none focus-visible:border-mr-blue focus-visible:bg-mr-surface focus-visible:ring-2 focus-visible:ring-mr-blue/20"
+              placeholder="Search item, vendor, category..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            {search && (
+              <button onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-mr-faint hover:text-mr-text">
+                <X className="w-3.5 h-3.5" />
+              </button>
             )}
           </div>
-        </CardContent>
-      </Card>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="h-10 w-full rounded-full border-mr-line bg-mr-surface-2 text-sm shadow-none sm:w-36">
+              <SelectValue placeholder="Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Status</SelectItem>
+              <SelectItem value="open">Unpaid</SelectItem>
+              <SelectItem value="partial">Partial</SelectItem>
+              <SelectItem value="completed">Paid</SelectItem>
+              <SelectItem value="cancelled">Cancelled</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={catFilter} onValueChange={setCatFilter}>
+            <SelectTrigger className="h-10 w-full rounded-full border-mr-line bg-mr-surface-2 text-sm shadow-none sm:w-40">
+              <SelectValue placeholder="Category" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Categories</SelectItem>
+              {heads.map((h) => (
+                <SelectItem key={h.id} value={h.name}>{h.name}</SelectItem>
+              ))}
+              {categories.filter(c => !heads.some(h => h.name === c)).map((c) => (
+                <SelectItem key={c} value={c}>{c}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {catFilter !== 'all' && (
+            <Button variant="ghost" size="sm" className="h-9 text-xs text-mr-muted" onClick={() => setCatFilter('all')}>
+              <X className="w-3 h-3 mr-1" /> Clear
+            </Button>
+          )}
+        </div>
+      </div>
 
       {/* Items Table */}
-      <Card className="shadow-none border-slate-200 overflow-hidden">
+      <div className="overflow-hidden rounded-panel border border-mr-line bg-mr-surface">
         {catFilter !== 'all' && (
-          <div className="px-4 py-2 bg-indigo-50 border-b border-indigo-100 flex items-center justify-between">
-            <span className="text-xs font-semibold text-indigo-700">Showing: {catFilter}</span>
-            <button onClick={() => setCatFilter('all')} className="text-xs text-indigo-500 hover:text-indigo-700 flex items-center gap-1">
-              <X className="w-3 h-3" /> Show All
+          <div className="flex items-center justify-between border-b border-mr-line bg-mr-blue-soft px-1 py-2">
+            <span className="text-xs font-semibold text-mr-blue">Showing: {catFilter}</span>
+            <button onClick={() => setCatFilter('all')} className="flex items-center gap-1 text-xs text-mr-blue hover:brightness-90">
+              <X className="w-3 h-3" /> Show all
             </button>
           </div>
         )}
         {loading ? (
-          <div className="flex items-center justify-center py-16">
-            <Loader2 className="w-6 h-6 animate-spin text-slate-300" />
+          <div className="space-y-3 p-5 sm:p-6">
+            {[0, 1, 2, 3, 4].map((i) => <SkeletonBlock key={i} className="h-14 w-full" />)}
           </div>
         ) : orders.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-center">
-            <Package className="w-9 h-9 text-slate-200 mb-3" />
-            <p className="text-sm font-medium text-slate-500">No inventory items found</p>
-            <p className="text-xs text-slate-400 mt-1">
-              {search || statusFilter !== 'all' || catFilter !== 'all' ? 'Try clearing your filters' : 'Add items via "New Item" or from a Vendor Commitment'}
-            </p>
-          </div>
+          <EmptyState
+            icon={Package}
+            title="No inventory items found"
+            description={search || statusFilter !== 'all' || catFilter !== 'all' ? 'Try clearing your filters' : 'Add items via "New purchase item" or from a vendor commitment'}
+          />
         ) : (
           <>
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
-                  <TableRow className="bg-slate-50/80 border-b border-slate-200">
-                    <TableHead className="text-[10px] font-bold text-slate-500 uppercase tracking-wide pl-4 py-2.5">Item / Vendor</TableHead>
-                    <TableHead className="text-[10px] font-bold text-slate-500 uppercase tracking-wide py-2.5">Category</TableHead>
-                    <TableHead className="text-[10px] font-bold text-slate-500 uppercase tracking-wide text-right py-2.5">Qty × Rate</TableHead>
-                    <TableHead className="text-[10px] font-bold text-slate-500 uppercase tracking-wide text-right py-2.5">Net Value</TableHead>
-                    <TableHead className="text-[10px] font-bold text-slate-500 uppercase tracking-wide text-right py-2.5">Paid</TableHead>
-                    <TableHead className="text-[10px] font-bold text-slate-500 uppercase tracking-wide text-right py-2.5">Due</TableHead>
-                    <TableHead className="text-[10px] font-bold text-slate-500 uppercase tracking-wide text-right py-2.5">Stock In</TableHead>
-                    <TableHead className="text-[10px] font-bold text-slate-500 uppercase tracking-wide py-2.5">Status</TableHead>
-                    <TableHead className="py-2.5 pr-4 w-12" />
+                  <TableRow className="border-b border-mr-line bg-mr-surface-2/60 hover:bg-mr-surface-2/60">
+                    <TableHead className="bg-zinc-900 text-[10px] font-semibold uppercase tracking-wide text-zinc-300 pl-4 py-3">Material / Vendor</TableHead>
+                    <TableHead className="bg-zinc-900 text-[10px] font-semibold uppercase tracking-wide text-zinc-300 py-3">Category</TableHead>
+                    <TableHead className="bg-zinc-900 text-[10px] font-semibold uppercase tracking-wide text-zinc-300 text-right py-3">Qty × Rate</TableHead>
+                    <TableHead className="bg-zinc-900 text-[10px] font-semibold uppercase tracking-wide text-zinc-300 text-right py-3">Net Value</TableHead>
+                    <TableHead className="bg-zinc-900 text-[10px] font-semibold uppercase tracking-wide text-zinc-300 text-right py-3">Paid</TableHead>
+                    <TableHead className="bg-zinc-900 text-[10px] font-semibold uppercase tracking-wide text-zinc-300 text-right py-3">Due</TableHead>
+                    <TableHead className="bg-zinc-900 text-[10px] font-semibold uppercase tracking-wide text-zinc-300 text-right py-3">Stock In</TableHead>
+                    <TableHead className="bg-zinc-900 text-[10px] font-semibold uppercase tracking-wide text-zinc-300 py-3">Status</TableHead>
+                    <TableHead className="bg-zinc-900 py-3 pr-4 w-12" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -592,65 +528,56 @@ const VendorInventory = ({ embedded = false }) => {
                     return (
                       <TableRow
                         key={o.id}
-                        className="hover:bg-slate-50/60 cursor-pointer border-b border-slate-50 transition-colors"
-                        onClick={() => navigate(`/vendors/inventory/${o.id}`)}
+                        className="cursor-pointer border-b border-mr-line transition-colors duration-150 hover:bg-mr-surface-2/70"
+                        onClick={() => setSelectedOrder(o)}
                       >
                         <TableCell className="pl-4 py-2.5">
-                          <p className="text-sm font-semibold text-slate-900 leading-tight">{o.item_name}</p>
-                          <p className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-1">
-                            <Store className="w-3 h-3 shrink-0" /> {o.vendor_name}
-                            {o.head_name && <span className="text-[10px] text-slate-400 ml-1">• {o.head_name}</span>}
-                          </p>
+                          <MaterialCell name={o.item_name} category={o.item_category} />
+                          <div className="mt-1" onClick={(e) => e.stopPropagation()}><VendorCell name={o.vendor_name} photo={o.vendor_member_photo} secondary={o.head_name || 'Supplier'} /></div>
                         </TableCell>
                         <TableCell className="py-2.5">
                           {o.item_category ? (
-                            <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-semibold uppercase">{o.item_category}</span>
-                          ) : <span className="text-slate-300 text-xs">—</span>}
+                            <span className="rounded-full bg-mr-surface-2 px-2 py-0.5 text-[10px] font-semibold uppercase text-mr-muted">{o.item_category}</span>
+                          ) : <span className="text-xs text-mr-faint">—</span>}
                         </TableCell>
                         <TableCell className="text-right py-2.5">
-                          <p className="text-sm font-medium text-slate-700 tabular-nums">
-                            {money(o.qty_ordered)} <span className="text-[10px] text-slate-400">{o.unit}</span>
+                          <p className="text-sm font-medium text-mr-text tabular-nums">
+                            {money(o.qty_ordered)} <span className="text-[10px] text-mr-faint">{o.unit}</span>
                           </p>
-                          <p className="text-[10px] text-slate-400 tabular-nums">@ ₹{money(o.rate)}</p>
+                          <p className="text-[10px] text-mr-faint tabular-nums">@ ₹{money(o.rate)}</p>
                         </TableCell>
-                        <TableCell className="text-right py-2.5 tabular-nums text-sm font-semibold text-slate-900">₹{money(orderValue)}</TableCell>
+                        <TableCell className="text-right py-2.5 tabular-nums text-sm font-semibold text-mr-text">₹{money(orderValue)}</TableCell>
                         <TableCell className="text-right py-2.5">
-                          <p className="text-sm font-medium text-emerald-700 tabular-nums">₹{money(paid)}</p>
-                          <div className="mt-1 ml-auto w-16 h-1 bg-slate-100 rounded-full overflow-hidden">
-                            <div className={`h-full rounded-full ${pct >= 100 ? 'bg-emerald-500' : 'bg-emerald-400'}`} style={{ width: `${pct}%` }} />
+                          <p className="text-sm font-medium text-emerald-800 tabular-nums">₹{money(paid)}</p>
+                          <div className="mt-1 ml-auto h-1 w-16 overflow-hidden rounded-full bg-mr-surface-2">
+                            <div className="h-full rounded-full bg-emerald-800" style={{ width: `${pct}%` }} />
                           </div>
                         </TableCell>
                         <TableCell className="text-right py-2.5 tabular-nums text-sm font-semibold">
-                          <span className={outstanding > 0 ? 'text-red-600' : 'text-slate-300'}>{outstanding > 0 ? `₹${money(outstanding)}` : '—'}</span>
+                          <span className={outstanding > 0 ? 'text-mr-coral-ink' : 'text-mr-faint'}>{outstanding > 0 ? `₹${money(outstanding)}` : '—'}</span>
                         </TableCell>
                         <TableCell className="text-right py-2.5">
-                          <p className="text-sm font-medium text-slate-700 tabular-nums">
-                            {money(o.received_qty)}<span className="text-slate-300"> / {money(o.qty_ordered)}</span>
-                          </p>
-                          {parseFloat(o.pending_qty) > 0
-                            ? <p className="text-[10px] text-amber-600 tabular-nums">{money(o.pending_qty)} {o.unit} pending</p>
-                            : <p className="text-[10px] text-emerald-600">✓ in stock</p>}
+                          <DeliveryProgress received={o.received_qty} ordered={o.qty_ordered} unit={o.unit} expectedDate={fmtDate(o.expected_date)} />
                         </TableCell>
                         <TableCell className="py-2.5">
-                          <Badge variant="outline" className={`text-[9px] font-semibold px-2 py-0.5 ${STATUS_META[o.status]?.cls || ''}`}>
-                            {STATUS_META[o.status]?.label || o.status}
-                          </Badge>
+                          <StatusPill tone={STATUS_META[o.payment_status || o.status]?.tone || 'neutral'}>{STATUS_META[o.payment_status || o.status]?.label || o.payment_status || o.status}</StatusPill>
                         </TableCell>
                         <TableCell className="pr-4 py-2.5" onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center gap-0.5 justify-end">
                             {canReceive && parseFloat(o.pending_qty) > 0 && o.status !== 'cancelled' && (
-                              <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-400 hover:text-emerald-600" title="Receive into stock" onClick={() => openReceive(o)}>
+                              <Button variant="ghost" size="icon" className="h-7 w-7 text-mr-faint hover:text-emerald-800" title="Receive into stock" onClick={() => openReceive(o)}>
                                 <ArrowDownToLine className="w-3.5 h-3.5" />
                               </Button>
                             )}
-                            <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-400 hover:text-slate-600" onClick={() => navigate(`/vendors/inventory/${o.id}`)}>
-                              <Eye className="w-3.5 h-3.5" />
-                            </Button>
-                            {canDelete && (
-                              <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-300 hover:text-red-500" onClick={() => handleDelete(o.id)}>
-                                <X className="w-3.5 h-3.5" />
-                              </Button>
-                            )}
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7 text-mr-faint" aria-label={`Actions for ${o.item_name}`}><MoreHorizontal className="w-4 h-4" /></Button></DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-44">
+                                <DropdownMenuLabel className="text-[11px] text-mr-faint">Purchase actions</DropdownMenuLabel>
+                                <DropdownMenuItem onClick={() => setSelectedOrder(o)}><Eye /> Open quick view</DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => navigate(`/vendors/inventory/${o.id}`)}><ClipboardList /> Open full detail</DropdownMenuItem>
+                                {canDelete && <><DropdownMenuSeparator /><DropdownMenuItem className="text-mr-coral-ink focus:text-mr-coral-ink" onClick={() => handleDelete(o.id)}><X /> Delete order</DropdownMenuItem></>}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -660,21 +587,75 @@ const VendorInventory = ({ embedded = false }) => {
               </Table>
             </div>
 
-            <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 bg-slate-50/60">
-              <p className="text-xs text-slate-500">{total === 0 ? 'No results' : `${startItem}–${endItem} of ${total}`}</p>
+            <div className="flex items-center justify-between border-t border-mr-line bg-mr-surface-2/50 px-4 py-3">
+              <p className="text-xs text-mr-muted">{total === 0 ? 'No results' : `${startItem}–${endItem} of ${total}`}</p>
               <div className="flex items-center gap-1">
-                <Button variant="outline" size="icon" className="h-7 w-7" disabled={page <= 1} onClick={() => setCurrentPage((p) => p - 1)}>
+                <Button variant="outline" size="icon" className="h-7 w-7 border-mr-line" disabled={page <= 1} onClick={() => setCurrentPage((p) => p - 1)}>
                   <ChevronLeft className="w-3.5 h-3.5" />
                 </Button>
-                <span className="text-xs text-slate-600 px-2">{page} / {totalPages}</span>
-                <Button variant="outline" size="icon" className="h-7 w-7" disabled={page >= totalPages} onClick={() => setCurrentPage((p) => p + 1)}>
+                <span className="text-xs text-mr-muted px-2">{page} / {totalPages}</span>
+                <Button variant="outline" size="icon" className="h-7 w-7 border-mr-line" disabled={page >= totalPages} onClick={() => setCurrentPage((p) => p + 1)}>
                   <ChevronRight className="w-3.5 h-3.5" />
                 </Button>
               </div>
             </div>
           </>
         )}
-      </Card>
+      </div>
+
+      <Sheet open={!!selectedOrder} onOpenChange={(open) => !open && setSelectedOrder(null)}>
+        <SheetContent side="right" className="flex w-full flex-col gap-0 overflow-hidden border-mr-line bg-mr-surface p-0 sm:max-w-xl">
+          <SheetHeader className="shrink-0 border-b border-zinc-800 bg-zinc-950 px-5 py-5 text-left text-white sm:px-6">
+            <div className="flex items-start gap-3 pr-7">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-zinc-800 text-zinc-200"><Package className="h-4 w-4" /></div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-400">Purchase order #{selectedOrder?.id}</p>
+                <SheetTitle className="mt-1 truncate text-[17px] tracking-[-0.02em] text-white">{selectedOrder?.item_name}</SheetTitle>
+                <SheetDescription className="mt-1 truncate text-[12px] text-zinc-400">{selectedOrder?.vendor_name || 'Supplier not assigned'}</SheetDescription>
+              </div>
+            </div>
+          </SheetHeader>
+          {selectedOrder && (
+            <div className="flex-1 space-y-7 overflow-y-auto bg-mr-surface-2/35 px-5 py-5 sm:px-6">
+              <div className="flex items-end justify-between gap-3 border-b border-mr-line pb-5">
+                <div><p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-mr-faint">Order value</p><p className="mt-1 text-[26px] font-semibold tracking-[-0.04em] tabular-nums text-mr-text">₹{money(selectedOrder.order_value)}</p></div>
+                <StatusPill tone={STATUS_META[selectedOrder.status]?.tone || 'neutral'}>{STATUS_META[selectedOrder.status]?.label || selectedOrder.status}</StatusPill>
+              </div>
+              <section>
+                <div className="mb-4 flex items-center justify-between"><h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-mr-faint">Purchase flow</h3><span className="text-[11px] text-mr-faint">{fmtDate(selectedOrder.order_date)}</span></div>
+                <ProcurementTimeline vertical stages={[
+                  { label: 'Purchase order', status: 'complete', detail: fmtDate(selectedOrder.order_date) },
+                  { label: 'Delivery', status: Number(selectedOrder.received_qty) > 0 && Number(selectedOrder.pending_qty) > 0 ? 'current' : (Number(selectedOrder.received_qty) >= Number(selectedOrder.qty_ordered) ? 'complete' : 'pending'), detail: `${money(selectedOrder.received_qty)} / ${money(selectedOrder.qty_ordered)} ${selectedOrder.unit}` },
+                  { label: 'Inventory receipt', status: Number(selectedOrder.received_qty) > 0 ? 'complete' : 'pending', detail: Number(selectedOrder.received_qty) > 0 ? 'Posted to stock ledger' : 'Awaiting receipt' },
+                  { label: 'Payment', status: Number(selectedOrder.outstanding) <= 0 ? 'complete' : (Number(selectedOrder.total_paid) > 0 ? 'current' : 'pending'), detail: Number(selectedOrder.outstanding) > 0 ? `₹${money(selectedOrder.outstanding)} outstanding` : 'Paid in full' },
+                ]} />
+              </section>
+              <section className="border-t border-mr-line pt-5">
+                <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-[0.1em] text-mr-faint">Material & vendor</h3>
+                <div className="space-y-4">
+                  <MaterialCell name={selectedOrder.item_name} category={selectedOrder.item_category} />
+                  <div className="grid grid-cols-3 divide-x divide-mr-line border-y border-mr-line py-3">
+                    <div className="pr-3"><p className="text-[10px] uppercase tracking-wide text-mr-faint">Quantity</p><p className="mt-1 text-[13px] font-semibold tabular-nums text-mr-text">{money(selectedOrder.qty_ordered)} {selectedOrder.unit}</p></div>
+                    <div className="px-3"><p className="text-[10px] uppercase tracking-wide text-mr-faint">Rate</p><p className="mt-1 text-[13px] font-semibold tabular-nums text-mr-text">₹{money(selectedOrder.rate)}</p></div>
+                    <div className="pl-3"><p className="text-[10px] uppercase tracking-wide text-mr-faint">Category</p><p className="mt-1 truncate text-[13px] font-semibold text-mr-text">{selectedOrder.item_category || 'Uncategorised'}</p></div>
+                  </div>
+                  <VendorCell name={selectedOrder.vendor_name} photo={selectedOrder.vendor_member_photo} secondary={selectedOrder.head_name || 'Supplier'} />
+                </div>
+              </section>
+              <section className="border-t border-mr-line pt-5">
+                <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-[0.1em] text-mr-faint">Delivery progress</h3>
+                <DeliveryProgress received={selectedOrder.received_qty} ordered={selectedOrder.qty_ordered} unit={selectedOrder.unit} expectedDate={fmtDate(selectedOrder.expected_date)} className="max-w-sm" />
+                <div className="mt-5 grid grid-cols-3 divide-x divide-mr-line border-y border-mr-line py-3 text-sm"><div className="pr-3"><p className="text-[11px] text-mr-faint">Rate</p><p className="mt-1 font-semibold tabular-nums text-mr-text">₹{money(selectedOrder.rate)}</p></div><div className="px-3"><p className="text-[11px] text-mr-faint">Paid</p><p className="mt-1 font-semibold tabular-nums text-emerald-800">₹{money(selectedOrder.total_paid)}</p></div><div className="pl-3"><p className="text-[11px] text-mr-faint">Due</p><p className="mt-1 font-semibold tabular-nums text-mr-coral-ink">₹{money(selectedOrder.outstanding)}</p></div></div>
+              </section>
+              {selectedOrder.note && <p className="border-t border-mr-line pt-5 text-[13px] leading-6 text-mr-muted">{selectedOrder.note}</p>}
+            </div>
+          )}
+          <SheetFooter className="shrink-0 flex-row justify-between gap-3 border-t border-zinc-800 bg-zinc-950 px-5 py-4 sm:px-6">
+            <Button variant="ghost" size="sm" className="rounded-full text-zinc-300 hover:bg-zinc-800 hover:text-white" onClick={() => selectedOrder && navigate(`/vendors/inventory/${selectedOrder.id}`)}>Open full detail</Button>
+            {selectedOrder && canReceive && Number(selectedOrder.pending_qty) > 0 && selectedOrder.status !== 'cancelled' && <Button size="sm" className="rounded-full bg-emerald-800 px-4 text-white hover:bg-emerald-700" onClick={() => { openReceive(selectedOrder); setSelectedOrder(null); }}><ArrowDownToLine className="mr-1.5 h-4 w-4" /> Receive into stock</Button>}
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
 
       {/* Receive into stock — appends a RECEIPT to the inventory ledger */}
       <Dialog open={!!receiveOrder} onOpenChange={(v) => !v && setReceiveOrder(null)}>

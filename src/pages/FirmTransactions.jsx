@@ -1,3 +1,4 @@
+import { writePrintDocument } from '../lib/safePrint';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -52,6 +53,7 @@ import {
 } from '../components/EntryModal';
 import ApprovalStatusBadge from '../components/ApprovalStatusBadge';
 import ChequeStatusControl from '../components/ChequeStatusControl';
+import BankAccountSelect from '../components/BankAccountSelect';
 import { classifyPaymentMode } from '../utils/paymentMode';
 
 const todayISO = () => new Date().toISOString().split('T')[0];
@@ -131,6 +133,7 @@ const FirmTransactions = () => {
   const [txnForm, setTxnForm] = useState({
     date: todayISO(),
     payment_mode: 'cash',
+    bank_account_id: '',
     description: '', debit: '', credit: '',
     name: '', purpose: '', remark: '', cheque_no: '', transaction_no: '',
     link_cashflow: false, cf_key: '', ledger_name: '', ledger_type: 'site',
@@ -333,6 +336,7 @@ const FirmTransactions = () => {
     setTxnForm({
       date: todayISO(),
       payment_mode: 'cash',
+      bank_account_id: '',
       description: '', debit: '', credit: '',
       name: '', purpose: '', remark: '', cheque_no: '', transaction_no: '',
       link_cashflow: false, cf_key: '', ledger_name: '', ledger_type: 'site',
@@ -358,6 +362,7 @@ const FirmTransactions = () => {
     setTxnForm({
       date: t.date ? t.date.split('T')[0] : '',
       payment_mode: classifyPaymentMode(t.payment_mode),
+      bank_account_id: t.bank_account_id ? String(t.bank_account_id) : '',
       description: t.description || '',
       debit: t.debit && parseFloat(t.debit) !== 0 ? String(t.debit) : '',
       credit: t.credit && parseFloat(t.credit) !== 0 ? String(t.credit) : '',
@@ -381,11 +386,16 @@ const FirmTransactions = () => {
   const handleSubmitTxn = async (ev) => {
     ev.preventDefault();
     setMessage({ type: '', text: '' });
+    if (classifyPaymentMode(txnForm.payment_mode) !== 'cash' && !txnForm.bank_account_id) {
+      setMessage({ type: 'error', text: 'Select the bank account used for this transaction' });
+      return;
+    }
 
     const payload = {
       firm_id: selectedFirm.id,
       date: txnForm.date || todayISO(),
       payment_mode: classifyPaymentMode(txnForm.payment_mode),
+      bank_account_id: txnForm.bank_account_id || null,
       description: txnForm.description,
       debit: parseFloat(txnForm.debit) || 0,
       credit: parseFloat(txnForm.credit) || 0,
@@ -791,7 +801,7 @@ const FirmTransactions = () => {
 </html>`;
 
     const printWindow = window.open('', '_blank', 'width=600,height=700');
-    printWindow.document.write(html);
+    writePrintDocument(printWindow, html);
     printWindow.document.close();
   };
 
@@ -1530,6 +1540,14 @@ const FirmTransactions = () => {
                   />
                 </EntryField>
               </EntryRow>
+
+              <BankAccountSelect
+                value={txnForm.bank_account_id}
+                onChange={(value) => setTxnForm((current) => ({ ...current, bank_account_id: value }))}
+                paymentMode={txnForm.payment_mode}
+                disabled={submitting}
+                required
+              />
 
               {(txnForm.payment_mode === 'bank' || txnForm.payment_mode === 'cheque') && (
                 <EntryRow>

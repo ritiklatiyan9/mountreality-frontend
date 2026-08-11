@@ -105,9 +105,14 @@ export default function RecentActivity({
         </div>
         <Link
           to={viewAllHref}
-          className="inline-flex h-9 items-center gap-1 rounded-full px-3 text-[12px] font-semibold text-mr-blue transition-colors hover:bg-mr-blue-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue focus-visible:ring-offset-2"
+          className="mr-press group inline-flex h-9 items-center gap-1 rounded-full px-3 text-[12px] font-semibold text-mr-blue hover:bg-mr-blue-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue focus-visible:ring-offset-2"
         >
-          View day book <ArrowUpRight className="h-3.5 w-3.5" strokeWidth={2} aria-hidden="true" />
+          View day book
+          <ArrowUpRight
+            className="h-3.5 w-3.5 transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:-translate-y-0.5 group-hover:translate-x-0.5"
+            strokeWidth={2}
+            aria-hidden="true"
+          />
         </Link>
       </div>
 
@@ -224,7 +229,7 @@ export default function RecentActivity({
                   aria-label="Previous page"
                   disabled={page <= 1 || loading}
                   onClick={() => onPageChange(page - 1)}
-                  className="flex h-9 w-9 items-center justify-center rounded-full border border-mr-line text-mr-muted transition-colors hover:bg-mr-surface-2 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue"
+                  className="mr-glass mr-press flex h-9 w-9 items-center justify-center rounded-full text-mr-muted hover:text-mr-text disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue"
                 >
                   <ChevronLeft className="h-4 w-4" strokeWidth={1.9} aria-hidden="true" />
                 </button>
@@ -238,8 +243,8 @@ export default function RecentActivity({
                     aria-current={p === page ? 'page' : undefined}
                     disabled={loading}
                     onClick={() => onPageChange(p)}
-                    className={`h-9 min-w-9 rounded-full px-2 text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue ${
-                      p === page ? 'bg-mr-ink text-white' : 'border border-mr-line text-mr-muted hover:bg-mr-surface-2'
+                    className={`mr-press h-9 min-w-9 rounded-full px-2 text-[12px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue ${
+                      p === page ? 'mr-glass-ink bg-mr-ink text-white' : 'mr-glass text-mr-muted hover:text-mr-text'
                     }`}
                   >
                     {p}
@@ -250,7 +255,7 @@ export default function RecentActivity({
                   aria-label="Next page"
                   disabled={page >= totalPages || loading}
                   onClick={() => onPageChange(page + 1)}
-                  className="flex h-9 w-9 items-center justify-center rounded-full border border-mr-line text-mr-muted transition-colors hover:bg-mr-surface-2 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue"
+                  className="mr-glass mr-press flex h-9 w-9 items-center justify-center rounded-full text-mr-muted hover:text-mr-text disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue"
                 >
                   <ChevronRight className="h-4 w-4" strokeWidth={1.9} aria-hidden="true" />
                 </button>

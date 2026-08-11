@@ -1,3 +1,4 @@
+import { writePrintDocument } from './safePrint';
 // Shared "cash receipt" — a rich, formal, filled A5 layout used for CASH-mode
 // payments across every module. Above board: keeps the issuing site/company
 // name. No QR verify block, no watermark. Formal acknowledgement wording is
@@ -181,6 +182,6 @@ export function printCashReceipt({
 </body></html>`;
 
   const w = window.open('', '_blank', 'width=780,height=800');
-  w.document.write(html);
+  writePrintDocument(w, html);
   w.document.close();
 }

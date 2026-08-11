@@ -121,11 +121,11 @@ export default function FinancialPulseBoard({
           description="One connected view of approved accounting activity"
           actions={(
             <>
-              <label className="flex h-9 cursor-pointer items-center gap-2 rounded-full border border-mr-line bg-mr-surface px-3 text-[12px] font-medium text-mr-muted transition-colors hover:bg-mr-surface-2">
+              <label className="mr-glass mr-press flex h-9 cursor-pointer items-center gap-2 rounded-full px-3 text-[12px] font-medium text-mr-muted hover:text-mr-text">
                 <Checkbox
                   checked={excludeOldPlots}
                   onCheckedChange={(value) => setExcludeOldPlots(!!value)}
-                  className="h-4 w-4"
+                  className="mr-check h-4 w-4"
                   aria-label="Show new plots only"
                 />
                 New plots only
@@ -134,7 +134,7 @@ export default function FinancialPulseBoard({
               <button
                 type="button"
                 onClick={onVerify}
-                className="inline-flex h-9 items-center gap-1.5 rounded-full bg-mr-lime-soft px-3.5 text-[12px] font-semibold text-mr-lime-ink transition-colors hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue focus-visible:ring-offset-2"
+                className="mr-press inline-flex h-9 items-center gap-1.5 rounded-full bg-mr-lime-soft px-3.5 text-[12px] font-semibold text-mr-lime-ink shadow-[inset_0_1px_0_rgba(255,255,255,0.8),0_6px_16px_-8px_rgba(77,122,0,0.45)] ring-1 ring-inset ring-mr-lime-ink/12 hover:brightness-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue focus-visible:ring-offset-2"
               >
                 <ShieldCheck className="h-4 w-4" strokeWidth={1.9} aria-hidden="true" />
                 Verify
@@ -213,12 +213,12 @@ export default function FinancialPulseBoard({
               {metric.registry && oldCount > 0 && (
                 <label
                   onClick={(event) => event.stopPropagation()}
-                  className="mt-2 inline-flex cursor-pointer items-center gap-1.5 text-[12px] font-medium text-mr-muted"
+                  className="mr-glass mr-press mt-2 inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-full px-2.5 text-[12px] font-medium text-mr-muted hover:text-mr-text"
                 >
                   <Checkbox
                     checked={registryIncludeOld}
                     onCheckedChange={(value) => setRegistryIncludeOld(!!value)}
-                    className="h-3.5 w-3.5"
+                    className="mr-check h-3.5 w-3.5"
                     aria-label={`Include ${oldCount} old plot receipts`}
                   />
                   Include {oldCount} old

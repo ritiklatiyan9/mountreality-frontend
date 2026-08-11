@@ -68,7 +68,7 @@ export default function ConstructionInventoryCards({ siteId }) {
                 <h3 className="text-[13px] font-semibold text-mr-text">Construction delivery</h3>
                 <p className="mt-0.5 text-[12px] text-mr-muted">Average progress across active work</p>
               </div>
-              <button type="button" onClick={() => navigate('/construction')} className="rounded-full px-2 py-1 text-[12px] font-semibold text-mr-blue transition-colors hover:bg-mr-blue-soft">
+              <button type="button" onClick={() => navigate('/construction')} className="mr-press rounded-full px-2 py-1 text-[12px] font-semibold text-mr-blue hover:bg-mr-blue-soft">
                 Open projects
               </button>
             </div>
@@ -133,7 +133,7 @@ export default function ConstructionInventoryCards({ siteId }) {
                 <h3 className="text-[13px] font-semibold text-mr-text">Inventory readiness</h3>
                 <p className="mt-0.5 text-[12px] text-mr-muted">Stock value, risk and incoming supply</p>
               </div>
-              <button type="button" onClick={() => navigate('/inventory')} className="rounded-full px-2 py-1 text-[12px] font-semibold text-mr-blue transition-colors hover:bg-mr-blue-soft">
+              <button type="button" onClick={() => navigate('/inventory')} className="mr-press rounded-full px-2 py-1 text-[12px] font-semibold text-mr-blue hover:bg-mr-blue-soft">
                 Open inventory
               </button>
             </div>

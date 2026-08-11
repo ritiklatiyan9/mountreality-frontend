@@ -1,3 +1,4 @@
+import { writePrintDocument } from '../lib/safePrint';
 import React, { useState, useEffect, useMemo, useCallback, useRef, useDeferredValue } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -15,6 +16,7 @@ import { Checkbox } from '../components/ui/checkbox';
 import { toast } from 'sonner';
 import { useRowSelection } from '../hooks/useRowSelection';
 import BulkActionsBar from '../components/BulkActionsBar';
+import BankAccountSelect from '../components/BankAccountSelect';
 import {
   Dialog,
   DialogContent,
@@ -130,7 +132,7 @@ const parseExcelDateToISO = (value) => {
   }
 
   const asText = value.toString().trim();
-  const ddmmyyyy = asText.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})$/);
+  const ddmmyyyy = asText.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
   if (ddmmyyyy) {
     const day = Number(ddmmyyyy[1]);
     const month = Number(ddmmyyyy[2]);
@@ -141,7 +143,7 @@ const parseExcelDateToISO = (value) => {
     }
   }
 
-  const yyyymmdd = asText.match(/^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})$/);
+  const yyyymmdd = asText.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$/);
   if (yyyymmdd) {
     const year = Number(yyyymmdd[1]);
     const month = Number(yyyymmdd[2]);
@@ -385,6 +387,7 @@ const FirmDetail = () => {
     to_firm_id: '',
     amount: '',
     payment_mode: 'bank',
+    bank_account_id: '',
     description: '',
     purpose: 'FIRM TO FIRM TRANSFER',
     remark: 'FIRM TO FIRM TRANSFER',
@@ -438,6 +441,7 @@ const FirmDetail = () => {
   const [txnForm, setTxnForm] = useState({
     date: todayISO(),
     payment_mode: 'cash',
+    bank_account_id: '',
     cheque_no: '',
     transaction_no: '',
     description: '',
@@ -674,6 +678,7 @@ const FirmDetail = () => {
     setTxnForm({
       date: todayISO(),
       payment_mode: 'cash',
+      bank_account_id: '',
       cheque_no: '',
       transaction_no: '',
       description: '',
@@ -702,6 +707,7 @@ const FirmDetail = () => {
       to_firm_id: '',
       amount: '',
       payment_mode: 'bank',
+      bank_account_id: '',
       description: '',
       purpose: 'FIRM TO FIRM TRANSFER',
       remark: 'FIRM TO FIRM TRANSFER',
@@ -732,6 +738,10 @@ const FirmDetail = () => {
     e.preventDefault();
     if (!txnForm.description.trim() || (!txnForm.debit && !txnForm.credit)) {
       setMessage({ type: 'error', text: 'Please fill required fields' });
+      return;
+    }
+    if (classifyPaymentMode(txnForm.payment_mode) !== 'cash' && !txnForm.bank_account_id) {
+      setMessage({ type: 'error', text: 'Select the bank account used for this transaction' });
       return;
     }
 
@@ -861,6 +871,10 @@ const FirmDetail = () => {
       setTransferMessage({ type: 'error', text: 'Please select target site, target firm, and valid amount.' });
       return;
     }
+    if (classifyPaymentMode(transferForm.payment_mode) !== 'cash' && !transferForm.bank_account_id) {
+      setTransferMessage({ type: 'error', text: 'Select the source bank account for this transfer.' });
+      return;
+    }
 
     setTransferSubmitting(true);
     try {
@@ -870,6 +884,7 @@ const FirmDetail = () => {
         to_firm_id: parseInt(transferForm.to_firm_id),
         amount: amt,
         payment_mode: transferForm.payment_mode,
+        bank_account_id: transferForm.bank_account_id || null,
         description: transferForm.description,
         purpose: transferForm.purpose,
         remark: transferForm.remark,
@@ -989,7 +1004,7 @@ const FirmDetail = () => {
       return;
     }
     win.document.open();
-    win.document.write(docHtml);
+    writePrintDocument(win, docHtml);
     win.document.close();
     win.focus();
     win.print();
@@ -1089,7 +1104,7 @@ const FirmDetail = () => {
     const printWindow = window.open('', '_blank', 'height=900,width=1200');
     if (!printWindow) return;
     printWindow.document.open();
-    printWindow.document.write(docHtml);
+    writePrintDocument(printWindow, docHtml);
     printWindow.document.close();
     printWindow.focus();
     printWindow.print();
@@ -1775,6 +1790,14 @@ const FirmDetail = () => {
             </EntryField>
           </EntryRow>
 
+          <BankAccountSelect
+            value={txnForm.bank_account_id}
+            onChange={(value) => setTxnForm((current) => ({ ...current, bank_account_id: value }))}
+            paymentMode={txnForm.payment_mode}
+            disabled={submitting}
+            required
+          />
+
           <EntryAmount
             direction={txnDirection}
             inputProps={{
@@ -1957,6 +1980,15 @@ const FirmDetail = () => {
                 </Select>
               </div>
             </div>
+
+            <BankAccountSelect
+              value={transferForm.bank_account_id}
+              onChange={(value) => setTransferForm((current) => ({ ...current, bank_account_id: value }))}
+              paymentMode={transferForm.payment_mode}
+              disabled={transferSubmitting}
+              label="Source bank account"
+              required
+            />
 
             <div className="space-y-1.5">
               <Label className="text-xs font-medium">Description</Label>

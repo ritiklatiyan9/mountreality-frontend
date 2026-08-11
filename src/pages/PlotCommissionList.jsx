@@ -1,3 +1,4 @@
+import { writePrintDocument } from '../lib/safePrint';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
@@ -528,7 +529,7 @@ const PlotCommissionList = () => {
       toast.error('Popup blocked — allow popups for this site to print');
       return;
     }
-    w.document.write(html);
+    writePrintDocument(w, html);
     w.document.close();
   };
 

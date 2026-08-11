@@ -32,6 +32,7 @@ import {
   EntryDialog, EntryFooter, EntryRow, EntryField, EntryAmount, EntryModeChips,
 } from '../components/EntryModal';
 import { classifyPaymentMode } from '../utils/paymentMode';
+import BankAccountSelect from '../components/BankAccountSelect';
 
 // ══════════════════════════════════════════════════
 //  CONSTANTS
@@ -125,7 +126,7 @@ export default function PaymentManagementPlots() {
   const [payOpen, setPayOpen] = useState(false);
   const [payPlot, setPayPlot] = useState(null);
   const [payMode, setPayMode] = useState('receive');
-  const [payForm, setPayForm] = useState({ date: today(), amount: '', payment_from: '', payment_type: 'CASH', bank_details: '', narration: '', received_by: '', voucher_url: '', assigned_admin_id: '' });
+  const [payForm, setPayForm] = useState({ date: today(), amount: '', payment_from: '', payment_type: 'CASH', bank_details: '', narration: '', received_by: '', voucher_url: '', assigned_admin_id: '', bank_account_id: '' });
   const [paySubmitting, setPaySubmitting] = useState(false);
 
   // ─── Create Installments Dialog ───
@@ -305,7 +306,8 @@ export default function PaymentManagementPlots() {
       narration: '',
       received_by: '',
       voucher_url: '',
-      assigned_admin_id: plot.assigned_admin_id || ''
+      assigned_admin_id: plot.assigned_admin_id || '',
+      bank_account_id: '',
     });
     setPayOpen(true);
   };
@@ -313,6 +315,7 @@ export default function PaymentManagementPlots() {
   const handleRecordPayment = async (e) => {
     e.preventDefault();
     if (!payForm.amount || parseFloat(payForm.amount) <= 0) return setMessage({ type: 'error', text: 'Enter a valid amount' });
+    if (payForm.payment_type !== 'CASH' && !payForm.bank_account_id) return setMessage({ type: 'error', text: 'Select the bank account used for this transaction' });
     setPaySubmitting(true);
     try {
       const rawAmt = Math.abs(parseFloat(payForm.amount) || 0);
@@ -327,6 +330,7 @@ export default function PaymentManagementPlots() {
         amount: payMode === 'refund' ? -rawAmt : rawAmt,
         voucher_url: payForm.voucher_url || null,
         assigned_admin_id: payForm.assigned_admin_id || null,
+        bank_account_id: payForm.bank_account_id || null,
       });
       setMessage({ type: 'success', text: payMode === 'refund' ? 'Refund recorded' : 'Payment recorded' });
       setPayOpen(false);
@@ -877,6 +881,13 @@ export default function PaymentManagementPlots() {
               />
             </EntryField>
           </EntryRow>
+
+          <BankAccountSelect
+            value={payForm.bank_account_id}
+            onChange={(bankAccountId) => setPayForm({ ...payForm, bank_account_id: bankAccountId })}
+            paymentMode={payForm.payment_type}
+            disabled={paySubmitting}
+          />
 
           <EntryAmount
             direction={payMode === 'refund' ? 'debit' : 'credit'}

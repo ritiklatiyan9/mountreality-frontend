@@ -1,3 +1,4 @@
+import { writePrintDocument } from '../lib/safePrint';
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -99,6 +100,7 @@ import VoucherUpload, { VoucherThumbnail } from '../components/VoucherUpload';
 import { Checkbox } from '../components/ui/checkbox';
 import { useRowSelection } from '../hooks/useRowSelection';
 import BulkActionsBar from '../components/BulkActionsBar';
+import BankAccountSelect from '../components/BankAccountSelect';
 import React from 'react';
 
 // ── Small presentational helpers (module-level so they never re-mount) ──
@@ -164,6 +166,7 @@ const PlotCommissionDetail = () => {
     date: new Date().toISOString().split('T')[0],
     amount: '',
     payment_mode: 'CASH',
+    bank_account_id: '',
     bank_name: '',
     transaction_id: '',
     cheque_no: '',
@@ -325,6 +328,7 @@ const PlotCommissionDetail = () => {
       date: new Date().toISOString().split('T')[0],
       amount: '',
       payment_mode: 'CASH',
+      bank_account_id: '',
       bank_name: '',
       transaction_id: '',
       cheque_no: '',
@@ -374,8 +378,8 @@ const PlotCommissionDetail = () => {
       setOverpayConfirmOpen(true);
       return;
     }
-    if (formData.payment_mode === 'BANK' && !formData.bank_name) {
-      return toast.error('Bank name is required for BANK payments');
+    if (formData.payment_mode !== 'CASH' && !formData.bank_account_id) {
+      return toast.error('Select the bank account used for this payment');
     }
 
     const signedAmount = paymentAction === 'get' ? -amountInput : amountInput;
@@ -391,6 +395,7 @@ const PlotCommissionDetail = () => {
       date: formData.date,
       amount: signedAmount,
       payment_mode: formData.payment_mode,
+      bank_account_id: formData.bank_account_id || null,
       bank_name: formData.bank_name || null,
       transaction_id: formData.transaction_id || null,
       cheque_no: formData.cheque_no || null,
@@ -461,6 +466,7 @@ const PlotCommissionDetail = () => {
       amount: Math.abs(parseFloat(p.amount) || 0),
       is_receive_entry: isReceiveAmount(p.amount),
       payment_mode: p.payment_mode || 'BANK',
+      bank_account_id: p.bank_account_id ? String(p.bank_account_id) : '',
       bank_name: p.bank_name || '',
       transaction_id: p.transaction_id || '',
       cheque_no: p.cheque_no || '',
@@ -474,6 +480,9 @@ const PlotCommissionDetail = () => {
     e.preventDefault();
     if (!editPaymentForm.amount || isNaN(parseFloat(editPaymentForm.amount))) {
       return toast.error('Please enter a valid amount');
+    }
+    if (editPaymentForm.payment_mode !== 'CASH' && !editPaymentForm.bank_account_id) {
+      return toast.error('Select the bank account used for this payment');
     }
     const amountInput = Math.abs(parseFloat(editPaymentForm.amount));
     const signedAmount = editPaymentForm.is_receive_entry ? -amountInput : amountInput;
@@ -824,7 +833,7 @@ const PlotCommissionDetail = () => {
 </body>
 </html>`;
     const w = window.open('', '_blank');
-    w.document.write(html);
+    writePrintDocument(w, html);
     w.document.close();
   };
 
@@ -988,7 +997,7 @@ const PlotCommissionDetail = () => {
 </body></html>`;
 
     const w = window.open('', '_blank', 'width=1000,height=750');
-    w.document.write(html);
+    writePrintDocument(w, html);
     w.document.close();
   };
 
@@ -1307,7 +1316,7 @@ const PlotCommissionDetail = () => {
 </body></html>`;
 
     const w = window.open('', '_blank', 'width=1000,height=750');
-    w.document.write(html);
+    writePrintDocument(w, html);
     w.document.close();
   };
 
@@ -2295,6 +2304,13 @@ const PlotCommissionDetail = () => {
               />
             </EntryField>
           </EntryRow>
+          <BankAccountSelect
+            value={formData.bank_account_id}
+            onChange={(value) => setFormData((current) => ({ ...current, bank_account_id: value }))}
+            paymentMode={formData.payment_mode}
+            disabled={submitLoading}
+            required
+          />
           <EntryAmount
             direction={paymentAction === 'get' ? 'credit' : 'debit'}
             label={paymentAction === 'get'
@@ -2442,6 +2458,13 @@ const PlotCommissionDetail = () => {
               />
             </EntryField>
           </EntryRow>
+          <BankAccountSelect
+            value={editPaymentForm.bank_account_id}
+            onChange={(value) => setEditPaymentForm((current) => ({ ...current, bank_account_id: value }))}
+            paymentMode={editPaymentForm.payment_mode}
+            disabled={editPaymentLoading}
+            required
+          />
           <EntryAmount
             direction={editPaymentForm.is_receive_entry ? 'credit' : 'debit'}
             label={editPaymentForm.is_receive_entry ? 'Received Amount' : 'Payout Amount'}

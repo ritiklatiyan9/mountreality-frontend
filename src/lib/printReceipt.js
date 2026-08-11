@@ -1,3 +1,4 @@
+import { writePrintDocument } from './safePrint';
 // Unified premium receipt — the ONE receipt design shared by every module.
 // A4 portrait, single copy, typography-and-whitespace driven: no nested
 // bordered boxes, hairline horizontal rules between zones only, large
@@ -408,6 +409,6 @@ export async function printUnifiedReceipt({
 </html>`;
 
   const w = window.open('', '_blank', 'width=1000,height=750');
-  w.document.write(html);
+  writePrintDocument(w, html);
   w.document.close();
 }

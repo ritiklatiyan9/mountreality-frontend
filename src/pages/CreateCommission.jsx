@@ -18,6 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../components/ui/select';
+import BankAccountSelect from '../components/BankAccountSelect';
 
 const CreateCommission = () => {
   const { currentSite } = useAuth();
@@ -32,6 +33,8 @@ const CreateCommission = () => {
     plot_size: '',
     plot_rate: '',
     amount: '',
+    payment_mode: 'BANK',
+    bank_account_id: '',
     by_note: '',
     remarks: '',
     member_id: null,
@@ -143,6 +146,10 @@ const CreateCommission = () => {
       setMessage({ type: 'error', text: 'Please select a person (Particuler) from the dropdown' });
       return;
     }
+    if (formData.payment_mode !== 'CASH' && !formData.bank_account_id) {
+      setMessage({ type: 'error', text: 'Select the bank account used for this transaction' });
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -155,6 +162,8 @@ const CreateCommission = () => {
         plot_size: formData.plot_size,
         plot_rate: formData.plot_rate,
         amount: parseFloat(formData.amount) || 0,
+        payment_mode: formData.payment_mode,
+        bank_account_id: formData.bank_account_id || null,
         by_note: formData.by_note,
         remarks: formData.remarks,
         voucher_url: formData.voucher_url,
@@ -378,6 +387,26 @@ const CreateCommission = () => {
                 />
               </div>
             </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">Payment Mode *</Label>
+                <Select value={formData.payment_mode} onValueChange={(value) => setFormData({ ...formData, payment_mode: value })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {['CASH', 'BANK', 'UPI', 'CHEQUE', 'NEFT', 'RTGS', 'IMPS'].map((mode) => (
+                      <SelectItem key={mode} value={mode}>{mode}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <BankAccountSelect
+              value={formData.bank_account_id}
+              onChange={(bankAccountId) => setFormData((form) => ({ ...form, bank_account_id: bankAccountId }))}
+              paymentMode={formData.payment_mode}
+            />
 
             {/* Remarks */}
             <div className="space-y-1.5">

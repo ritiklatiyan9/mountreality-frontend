@@ -1,11 +1,13 @@
-import { useEffect } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { ApolloProvider } from '@apollo/client/react';
 import { apolloClient } from './graphql/client';
 import { AuthProvider } from './context/AuthContext';
+import { SitePolicyProvider } from './context/SitePolicyContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import { DocViewerProvider } from './components/DocViewer';
+import SitePolicyDeniedNotifier from './components/SitePolicyDeniedDialog';
 import Layout from './components/Layout';
 import Landing from './pages/Landing';
 import Pricing from './pages/Pricing';
@@ -13,76 +15,87 @@ import Legal from './pages/Legal';
 import Login from './pages/Login';
 import SignUp from './pages/SignUp';
 import Subscription from './pages/Subscription';
-import Dashboard from './pages/Dashboard';
-import Home from './pages/Home';
-import Clients from './pages/Clients';
-import ClientDetail from './pages/ClientDetail';
-import MemberKycPage from './pages/MemberKycPage';
-import FinanceForecast from './pages/FinanceForecast';
-import Reports from './pages/Reports';
-import Settings from './pages/Settings';
-import Sites from './pages/Sites';
-import SubAdmins from './pages/SubAdmins';
-import Farmers from './pages/Farmers';
-import FarmerPayments from './pages/FarmerPayments';
-import Commissions from './pages/Commissions';
-import CreateCommission from './pages/CreateCommission';
-import PlotCommissionList from './pages/PlotCommissionList';
-import PlotCommissionDetail from './pages/PlotCommissionDetail';
-import PlotCommissionSearch from './pages/PlotCommissionSearch';
-import CashFlow from './pages/CashFlow';
-import CashFlowAnalytics from './pages/CashFlowAnalytics';
-import FirmTransactions from './pages/FirmTransactions';
-import FirmDetail from './pages/FirmDetail';
-import FirmTransactionHistory from './pages/FirmTransactionHistory';
-import PlotPayments from './pages/PlotPayments';
-import PaymentManagement from './pages/PaymentManagement';
-import PaymentManagementPlots from './pages/PaymentManagementPlots';
-import PaymentReminders from './pages/PaymentReminders';
-import PaymentAnalytics from './pages/PaymentAnalytics';
-import Construction from './pages/Construction';
-import Inventory from './pages/Inventory';
-import PlotDetail from './pages/PlotDetail';
-import PlotDocuments from './pages/PlotDocuments';
-import PlotDocumentDetail from './pages/PlotDocumentDetail';
-import PlotRegistry from './pages/PlotRegistry';
-import PlotRegistryDocuments from './pages/PlotRegistryDocuments';
-import Documents from './pages/Documents';
-import PlotRegistryNoc from './pages/PlotRegistryNoc';
-import PlotRegistryNocPrint from './pages/PlotRegistryNocPrint';
-import Expenses from './pages/Expenses';
-import EditApprovals from './pages/EditApprovals';
-import AdminApprovals from './pages/AdminApprovals';
-import PendingApprovals from './pages/PendingApprovals';
-import DayBook from './pages/DayBook';
-import ImprestManagement from './pages/ImprestManagement';
-import ImprestDashboard from './pages/ImprestDashboard';
-import DocumentImprest from './pages/DocumentImprest';
-import ReceivePayments from './pages/ReceivePayments';
-import BankConfigs from './pages/BankConfigs';
-import QrDisplay from './pages/QrDisplay';
-import PermissionManagement from './pages/PermissionManagement';
-import RegisterUser from './pages/RegisterUser';
-import UserCategories from './pages/UserCategories';
-import ExpenseCategories from './pages/ExpenseCategories';
-import ExcelEditor from './pages/ExcelEditor';
-import ExcelFiles from './pages/ExcelFiles';
-import Chat from './pages/Chat';
-import VendorManagement from './pages/VendorManagement';
-import VendorCommitmentDetail from './pages/VendorCommitmentDetail';
-import VendorInventoryDetail from './pages/VendorInventoryDetail';
-import VendorPaymentReceiptPrint from './pages/VendorPaymentReceiptPrint';
-import VendorCategories from './pages/VendorCategories';
-import UserIdManagement from './pages/UserIdManagement';
-import ApprovalManager from './pages/ApprovalManager';
-import DashboardManagement from './pages/DashboardManagement';
-import BalanceSheet from './pages/BalanceSheet';
-import ComplianceLegal from './pages/ComplianceLegal';
-import ComplianceItemDetail from './pages/ComplianceItemDetail';
-import LegalCaseDetail from './pages/LegalCaseDetail';
-import LegalNoticeDetail from './pages/LegalNoticeDetail';
 import './App.css';
 import './fonts.css';
+
+const Dashboard = lazy(() => import('./pages/Dashboard.jsx'));
+const Home = lazy(() => import('./pages/Home.jsx'));
+const Clients = lazy(() => import('./pages/Clients.jsx'));
+const ClientDetail = lazy(() => import('./pages/ClientDetail.jsx'));
+const MemberKycPage = lazy(() => import('./pages/MemberKycPage.jsx'));
+const FinanceForecast = lazy(() => import('./pages/FinanceForecast.jsx'));
+const Reports = lazy(() => import('./pages/Reports.jsx'));
+const Settings = lazy(() => import('./pages/Settings.jsx'));
+const Sites = lazy(() => import('./pages/Sites.jsx'));
+const SubAdmins = lazy(() => import('./pages/SubAdmins.jsx'));
+const FarmerPayments = lazy(() => import('./pages/FarmerPayments.jsx'));
+const LandAcquisition = lazy(() => import('./pages/LandAcquisition.jsx'));
+const LandAcquisitionDetail = lazy(() => import('./pages/LandAcquisitionDetail.jsx'));
+const Commissions = lazy(() => import('./pages/Commissions.jsx'));
+const CreateCommission = lazy(() => import('./pages/CreateCommission.jsx'));
+const PlotCommissionList = lazy(() => import('./pages/PlotCommissionList.jsx'));
+const PlotCommissionDetail = lazy(() => import('./pages/PlotCommissionDetail.jsx'));
+const PlotCommissionSearch = lazy(() => import('./pages/PlotCommissionSearch.jsx'));
+const CashFlow = lazy(() => import('./pages/CashFlow.jsx'));
+const CashFlowAnalytics = lazy(() => import('./pages/CashFlowAnalytics.jsx'));
+const FirmTransactions = lazy(() => import('./pages/FirmTransactions.jsx'));
+const FirmDetail = lazy(() => import('./pages/FirmDetail.jsx'));
+const FirmTransactionHistory = lazy(() => import('./pages/FirmTransactionHistory.jsx'));
+const PlotPayments = lazy(() => import('./pages/PlotPayments.jsx'));
+const PaymentManagement = lazy(() => import('./pages/PaymentManagement.jsx'));
+const PaymentManagementPlots = lazy(() => import('./pages/PaymentManagementPlots.jsx'));
+const PaymentReminders = lazy(() => import('./pages/PaymentReminders.jsx'));
+const PaymentAnalytics = lazy(() => import('./pages/PaymentAnalytics.jsx'));
+const Construction = lazy(() => import('./pages/Construction.jsx'));
+const Inventory = lazy(() => import('./pages/Inventory.jsx'));
+const PlotDetail = lazy(() => import('./pages/PlotDetail.jsx'));
+const PlotDocuments = lazy(() => import('./pages/PlotDocuments.jsx'));
+const PlotDocumentDetail = lazy(() => import('./pages/PlotDocumentDetail.jsx'));
+const PlotRegistry = lazy(() => import('./pages/PlotRegistry.jsx'));
+const PlotRegistryDocuments = lazy(() => import('./pages/PlotRegistryDocuments.jsx'));
+const Documents = lazy(() => import('./pages/Documents.jsx'));
+const PlotRegistryNoc = lazy(() => import('./pages/PlotRegistryNoc.jsx'));
+const PlotRegistryNocPrint = lazy(() => import('./pages/PlotRegistryNocPrint.jsx'));
+const Expenses = lazy(() => import('./pages/Expenses.jsx'));
+const EditApprovals = lazy(() => import('./pages/EditApprovals.jsx'));
+const AdminApprovals = lazy(() => import('./pages/AdminApprovals.jsx'));
+const PendingApprovals = lazy(() => import('./pages/PendingApprovals.jsx'));
+const DayBook = lazy(() => import('./pages/DayBook.jsx'));
+const ImprestManagement = lazy(() => import('./pages/ImprestManagement.jsx'));
+const ImprestDashboard = lazy(() => import('./pages/ImprestDashboard.jsx'));
+const DocumentImprest = lazy(() => import('./pages/DocumentImprest.jsx'));
+const ReceivePayments = lazy(() => import('./pages/ReceivePayments.jsx'));
+const BankConfigs = lazy(() => import('./pages/BankConfigs.jsx'));
+const BankAccountDetail = lazy(() => import('./pages/BankAccountDetail.jsx'));
+const QrDisplay = lazy(() => import('./pages/QrDisplay.jsx'));
+const PermissionManagement = lazy(() => import('./pages/PermissionManagement.jsx'));
+const RegisterUser = lazy(() => import('./pages/RegisterUser.jsx'));
+const UserCategories = lazy(() => import('./pages/UserCategories.jsx'));
+const ExpenseCategories = lazy(() => import('./pages/ExpenseCategories.jsx'));
+const ExcelEditor = lazy(() => import('./pages/ExcelEditor.jsx'));
+const ExcelFiles = lazy(() => import('./pages/ExcelFiles.jsx'));
+const Chat = lazy(() => import('./pages/Chat.jsx'));
+const VendorManagement = lazy(() => import('./pages/VendorManagement.jsx'));
+const VendorCommitmentDetail = lazy(() => import('./pages/VendorCommitmentDetail.jsx'));
+const VendorInventoryDetail = lazy(() => import('./pages/VendorInventoryDetail.jsx'));
+const VendorPaymentReceiptPrint = lazy(() => import('./pages/VendorPaymentReceiptPrint.jsx'));
+const VendorCategories = lazy(() => import('./pages/VendorCategories.jsx'));
+const UserIdManagement = lazy(() => import('./pages/UserIdManagement.jsx'));
+const ApprovalManager = lazy(() => import('./pages/ApprovalManager.jsx'));
+const DashboardManagement = lazy(() => import('./pages/DashboardManagement.jsx'));
+const BalanceSheet = lazy(() => import('./pages/BalanceSheet.jsx'));
+const ComplianceLegal = lazy(() => import('./pages/ComplianceLegal.jsx'));
+const ReraControlCentre = lazy(() => import('./pages/ReraControlCentre.jsx'));
+const ComplianceItemDetail = lazy(() => import('./pages/ComplianceItemDetail.jsx'));
+const LegalCaseDetail = lazy(() => import('./pages/LegalCaseDetail.jsx'));
+const LegalNoticeDetail = lazy(() => import('./pages/LegalNoticeDetail.jsx'));
+const CustomerInventory = lazy(() => import('./pages/CustomerInventory'));
+const ProjectFinance = lazy(() => import('./pages/ProjectFinance'));
+const PortalAccept = lazy(() => import('./pages/PortalAccept'));
+const PortalWorkspace = lazy(() => import('./pages/PortalWorkspace'));
+const EcosystemControlCentre = lazy(() => import('./pages/EcosystemControlCentre'));
+const ConstructionGovernance = lazy(() => import('./pages/ConstructionGovernance'));
+const LazyRouteFallback = () => <div className="mx-auto max-w-7xl space-y-3 px-6 py-8"><div className="h-7 w-56 animate-pulse rounded bg-slate-200 motion-reduce:animate-none" /><div className="h-12 animate-pulse rounded bg-slate-100 motion-reduce:animate-none" /><div className="h-96 animate-pulse rounded-xl border border-slate-200 bg-white motion-reduce:animate-none" /></div>;
 
 /* Route changes must start at the top of the page. Without this, clicking a
    CTA from far down the landing page renders the next route at the same
@@ -101,14 +114,17 @@ function App() {
     <ApolloProvider client={apolloClient}>
     <Router>
       <AuthProvider>
+        <SitePolicyProvider>
         <DocViewerProvider>
         <ScrollToTop />
+        <Suspense fallback={<LazyRouteFallback />}>
         <Routes>
           {/* Public Routes */}
           <Route path="/" element={<Landing />} />
           <Route path="/pricing" element={<Pricing />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<SignUp />} />
+          <Route path="/portal/accept" element={<Suspense fallback={<LazyRouteFallback />}><PortalAccept /></Suspense>} />
           {/* Public policy pages — one component, one route each (footer links here). */}
           <Route path="/terms" element={<Legal />} />
           <Route path="/privacy" element={<Legal />} />
@@ -127,6 +143,10 @@ function App() {
           <Route
             path="/qr-display"
             element={<ProtectedRoute requiredModule="upi_collect"><QrDisplay /></ProtectedRoute>}
+          />
+          <Route
+            path="/portal"
+            element={<ProtectedRoute><Suspense fallback={<LazyRouteFallback />}><PortalWorkspace /></Suspense></ProtectedRoute>}
           />
 
           {/* Protected Routes (all authenticated users) */}
@@ -150,7 +170,9 @@ function App() {
             <Route path="/vendors/categories" element={<ProtectedRoute requiredModule="vendors"><VendorCategories /></ProtectedRoute>} />
             <Route path="/vendors/:id" element={<ProtectedRoute requiredModule="vendors"><VendorCommitmentDetail /></ProtectedRoute>} />
             <Route path="/user-categories" element={<ProtectedRoute requiredRole="admin"><UserCategories /></ProtectedRoute>} />
-            <Route path="/farmers" element={<ProtectedRoute requiredModule="farmers"><Farmers /></ProtectedRoute>} />
+            <Route path="/land-acquisition" element={<ProtectedRoute requiredModule="farmers"><LandAcquisition /></ProtectedRoute>} />
+            <Route path="/land-acquisition/:id" element={<ProtectedRoute requiredModule="farmers"><LandAcquisitionDetail /></ProtectedRoute>} />
+            <Route path="/farmers" element={<Navigate to="/land-acquisition?view=acquisitions" replace />} />
             <Route path="/farmers/:id" element={<ProtectedRoute requiredModule="farmers"><FarmerPayments /></ProtectedRoute>} />
             <Route path="/commissions" element={<ProtectedRoute requiredModule="commissions"><Commissions /></ProtectedRoute>} />
             <Route path="/commissions/create" element={<ProtectedRoute requiredModule="commissions"><CreateCommission /></ProtectedRoute>} />
@@ -171,6 +193,8 @@ function App() {
             <Route path="/firm-transactions/history" element={<ProtectedRoute requiredModule="firm_transactions"><FirmTransactionHistory /></ProtectedRoute>} />
             <Route path="/firm-transactions/:id" element={<ProtectedRoute requiredModule="firm_transactions"><FirmDetail /></ProtectedRoute>} />
             <Route path="/plot-payments" element={<ProtectedRoute requiredModule="plot_payments"><PlotPayments /></ProtectedRoute>} />
+            <Route path="/customer-inventory" element={<ProtectedRoute requiredModule="plot_payments"><Suspense fallback={<LazyRouteFallback />}><CustomerInventory /></Suspense></ProtectedRoute>} />
+            <Route path="/project-finance" element={<ProtectedRoute requiredModule="plot_payments"><Suspense fallback={<LazyRouteFallback />}><ProjectFinance /></Suspense></ProtectedRoute>} />
             <Route path="/plot-payments/:id" element={<ProtectedRoute requiredModule="plot_payments"><PlotDetail /></ProtectedRoute>} />
             <Route path="/plot-documents" element={<ProtectedRoute requiredModule="plot_payments"><PlotDocuments /></ProtectedRoute>} />
             <Route path="/plot-documents/:plotId" element={<ProtectedRoute requiredModule="plot_payments"><PlotDocumentDetail /></ProtectedRoute>} />
@@ -179,6 +203,7 @@ function App() {
             <Route path="/payment-management/reminders" element={<ProtectedRoute requiredModule="plot_payments"><PaymentReminders /></ProtectedRoute>} />
             <Route path="/payment-analytics" element={<ProtectedRoute requiredModule="plot_payments"><PaymentAnalytics /></ProtectedRoute>} />
             <Route path="/construction" element={<ProtectedRoute requiredModule="construction"><Construction /></ProtectedRoute>} />
+            <Route path="/construction/governance" element={<ProtectedRoute requiredModule="construction"><Suspense fallback={<LazyRouteFallback />}><ConstructionGovernance /></Suspense></ProtectedRoute>} />
             <Route path="/inventory" element={<ProtectedRoute requiredModule="inventory"><Inventory /></ProtectedRoute>} />
             <Route path="/plot-registry" element={<ProtectedRoute requiredModule="plot_registry"><PlotRegistry /></ProtectedRoute>} />
             <Route path="/plot-registry/documents" element={<ProtectedRoute requiredModule="plot_registry"><PlotRegistryDocuments /></ProtectedRoute>} />
@@ -190,9 +215,11 @@ function App() {
             <Route path="/imprest" element={<ProtectedRoute requiredModule="imprest"><ImprestDashboard /></ProtectedRoute>} />
             <Route path="/document-imprest" element={<ProtectedRoute requiredModule="document_imprest"><DocumentImprest /></ProtectedRoute>} />
             <Route path="/receive-payments" element={<ProtectedRoute requiredModule="upi_collect"><ReceivePayments /></ProtectedRoute>} />
-            <Route path="/bank-configs" element={<ProtectedRoute requiredModule="upi_collect"><BankConfigs /></ProtectedRoute>} />
+            <Route path="/bank-configs" element={<ProtectedRoute requiredModule="plot_payments"><BankConfigs /></ProtectedRoute>} />
+            <Route path="/bank-configs/:id" element={<ProtectedRoute requiredModule="plot_payments"><BankAccountDetail /></ProtectedRoute>} />
             <Route path="/reports" element={<ProtectedRoute requiredModule="reports"><Reports /></ProtectedRoute>} />
             <Route path="/finance-forecast" element={<ProtectedRoute requiredModule="finance_forecast"><FinanceForecast /></ProtectedRoute>} />
+            <Route path="/rera" element={<ProtectedRoute requiredModule="rera_projects"><ReraControlCentre /></ProtectedRoute>} />
             <Route path="/compliance" element={<Navigate to="/compliance/dashboard" replace />} />
             <Route path="/compliance/dashboard" element={<ProtectedRoute requiredModule="compliance"><ComplianceLegal /></ProtectedRoute>} />
             <Route path="/compliance/my-tasks" element={<ProtectedRoute requiredModule="compliance"><ComplianceLegal /></ProtectedRoute>} />
@@ -213,7 +240,8 @@ function App() {
             <Route path="/legal/hearings" element={<ProtectedRoute requiredModule="legal"><ComplianceLegal /></ProtectedRoute>} />
             <Route path="/legal/inspections" element={<ProtectedRoute requiredModule="compliance"><ComplianceLegal /></ProtectedRoute>} />
             <Route path="/legal/reports" element={<ProtectedRoute requiredModule="legal"><ComplianceLegal /></ProtectedRoute>} />
-            <Route path="/settings" element={<ProtectedRoute requiredModule="settings"><Settings /></ProtectedRoute>} />
+            <Route path="/settings" element={<ProtectedRoute requiredAnyModule={['settings', 'operating_profile']}><Settings /></ProtectedRoute>} />
+            <Route path="/ecosystem" element={<ProtectedRoute requiredRole="admin"><Suspense fallback={<LazyRouteFallback />}><EcosystemControlCentre /></Suspense></ProtectedRoute>} />
             {/* Billing — reachable by every authenticated role (402 redirects land here) */}
             <Route path="/subscription" element={<ProtectedRoute><Subscription /></ProtectedRoute>} />
 
@@ -312,7 +340,10 @@ function App() {
           {/* Catch all */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        </Suspense>
+        <SitePolicyDeniedNotifier />
         </DocViewerProvider>
+        </SitePolicyProvider>
         <Toaster position="top-right" richColors />
       </AuthProvider>
     </Router>

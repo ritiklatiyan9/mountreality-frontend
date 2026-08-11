@@ -1,3 +1,4 @@
+import { writePrintDocument } from '../lib/safePrint';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -15,7 +16,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { useRowSelection } from '../hooks/useRowSelection';
 import BulkActionsBar from '../components/BulkActionsBar';
 import { EmptyState, SkeletonBlock } from '../components/dashboard/primitives';
-import { PageHeader, EmptyBlock, GHOST_BTN, PRIMARY_BTN } from '../components/ui/page';
+import { EmptyBlock, PRIMARY_BTN } from '../components/ui/page';
 import MembersSummary from '../components/clients/MembersSummary';
 import MembersToolbar from '../components/clients/MembersToolbar';
 import MembersTable from '../components/clients/MembersTable';
@@ -322,6 +323,16 @@ export const Clients = () => {
   const handlePhotoSelect = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setMessage({ type: 'error', text: 'Choose a JPG, PNG or WebP profile image.' });
+      e.target.value = '';
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setMessage({ type: 'error', text: 'Profile image must be smaller than 5 MB.' });
+      e.target.value = '';
+      return;
+    }
     setPhotoFile(file);
     setRemovePhoto(false);
     const reader = new FileReader();
@@ -358,14 +369,12 @@ export const Clients = () => {
         if (val) formData.append(`remove_${fieldKey}`, 'true');
       });
 
-      const config = { headers: { 'Content-Type': 'multipart/form-data' } };
-
       let savedMember = null;
       if (editingId) {
-        const { data } = await api.put(`/members/${editingId}`, formData, config);
+        const { data } = await api.put(`/members/${editingId}`, formData);
         savedMember = data?.member || null;
       } else {
-        const { data } = await api.post('/members', formData, config);
+        const { data } = await api.post('/members', formData);
         savedMember = data?.member || null;
       }
 
@@ -458,7 +467,7 @@ export const Clients = () => {
       ? `${selectedIds.size} selected member${selectedIds.size === 1 ? '' : 's'}`
       : `${rows.length} member${rows.length === 1 ? '' : 's'} in current view`;
 
-    win.document.write(`
+    writePrintDocument(win, `
       <!DOCTYPE html>
       <html>
         <head>
@@ -704,7 +713,7 @@ export const Clients = () => {
                     <Camera className="w-6 h-6 text-slate-400" />
                   </div>
                 )}
-                <input type="file" ref={fileInputRef} accept="image/jpeg,image/png,image/jpg" onChange={handlePhotoSelect} className="hidden" />
+                <input type="file" ref={fileInputRef} accept="image/jpeg,image/png,image/webp" onChange={handlePhotoSelect} className="hidden" />
                 <button type="button" onClick={() => fileInputRef.current?.click()}
                   className="absolute inset-0 rounded-xl bg-black/0 group-hover:bg-black/30 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
                   <Camera className="w-5 h-5 text-white" />
@@ -1207,12 +1216,13 @@ export const Clients = () => {
   //  LIST VIEW
   // ═══════════════════════════════════════════════════
   return (
-    <div className="mx-auto w-full max-w-[1400px] pb-16">
-      <PageHeader
-        title="Members"
-        description={`Clients, farmers and members${currentSite?.name ? ` · ${currentSite.name}` : ''}`}
-        actions={
-          <>
+    <div className="w-full space-y-6 pb-16">
+      <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center print:hidden">
+        <div>
+          <h1 className="text-[clamp(1.5rem,2.6vw,2rem)] font-semibold tracking-[-0.035em] text-mr-text">Members</h1>
+          <p className="mt-1 text-[13px] text-mr-muted">Clients, farmers and members{currentSite?.name ? ` · ${currentSite.name}` : ''}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
             <BulkActionsBar
               count={selection.count}
               onClear={selection.clear}
@@ -1225,49 +1235,48 @@ export const Clients = () => {
               entityLabel="client"
               deleting={bulkDeleting}
             />
-            <button type="button" className={GHOST_BTN} onClick={handleBulkPrint} disabled={filteredMembers.length === 0}>
+            <button type="button" className="inline-flex h-10 items-center gap-1.5 rounded-full border border-mr-line bg-mr-surface px-3.5 text-[13px] font-medium text-mr-text transition-colors hover:bg-mr-surface-2 disabled:pointer-events-none disabled:opacity-50" onClick={handleBulkPrint} disabled={filteredMembers.length === 0}>
               <Printer className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden="true" /> Print
             </button>
-            <button type="button" className={GHOST_BTN} onClick={downloadExcel} disabled={filteredMembers.length === 0}>
+            <button type="button" className="inline-flex h-10 items-center gap-1.5 rounded-full border border-mr-line bg-mr-surface px-3.5 text-[13px] font-medium text-mr-text transition-colors hover:bg-mr-surface-2 disabled:pointer-events-none disabled:opacity-50" onClick={downloadExcel} disabled={filteredMembers.length === 0}>
               <Download className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden="true" /> Excel
             </button>
             {canWrite && (
-              <button type="button" className={PRIMARY_BTN} onClick={handleOpenCreate}>
+              <button type="button" className="inline-flex h-10 items-center gap-1.5 rounded-full bg-mr-ink px-4 text-[13px] font-semibold text-white transition-colors hover:bg-mr-ink/90" onClick={handleOpenCreate}>
                 <Plus className="h-4 w-4" strokeWidth={2} aria-hidden="true" /> Add member
               </button>
             )}
-          </>
-        }
-      />
-
-      <div className="mt-7">
-        <MembersSummary summary={summary} />
+          </div>
       </div>
 
-      <div className="mt-5">
-        <MembersToolbar
-        searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
-        filterType={filterType}
-        onTypeChange={setFilterType}
-        filterStatus={filterStatus}
-        onStatusChange={setFilterStatus}
-        statusOptions={STATUS_OPTIONS}
-        filterKyc={filterKyc}
-        onKycChange={setFilterKyc}
-        filterTeam={filterTeam}
-        onTeamChange={setFilterTeam}
-        teams={uniqueTeams}
-        resultCount={filteredMembers.length}
-        onClear={() => {
-          setSearchQuery(''); setFilterType('ALL'); setFilterStatus('ALL');
+      <MembersSummary summary={summary} />
+
+      <section className="overflow-hidden rounded-panel border border-mr-line bg-mr-surface">
+        <div className="border-b border-mr-line px-4 py-3.5 sm:px-5">
+          <MembersToolbar
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          filterType={filterType}
+          onTypeChange={setFilterType}
+          filterStatus={filterStatus}
+          onStatusChange={setFilterStatus}
+          statusOptions={STATUS_OPTIONS}
+          filterKyc={filterKyc}
+          onKycChange={setFilterKyc}
+          filterTeam={filterTeam}
+          onTeamChange={setFilterTeam}
+          teams={uniqueTeams}
+          resultCount={filteredMembers.length}
+          sortOrder={sortOrder}
+          onToggleSort={() => setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
+          onClear={() => {
+            setSearchQuery(''); setFilterType('ALL'); setFilterStatus('ALL');
             setFilterTeam('ALL'); setFilterKyc('ALL');
           }}
-        />
-      </div>
+          />
+        </div>
 
-      {/* ── Member list ── */}
-      <section className="mt-5 border-t border-mr-line">
+        {/* ── Member list ── */}
         {loading ? (
           <div className="space-y-3 p-5 sm:p-6">
             {[0, 1, 2, 3, 4].map((i) => <SkeletonBlock key={i} className="h-14 w-full" />)}

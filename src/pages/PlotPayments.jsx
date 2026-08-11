@@ -1,6 +1,8 @@
-import { useState, useEffect, useMemo, useCallback, useRef, memo } from 'react';
+import { writePrintDocument } from '../lib/safePrint';
+import { useState, useEffect, useMemo, useCallback, useRef, memo, useContext } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { SitePolicyContext } from '../context/SitePolicyContext';
 import QRCode from 'qrcode';
 import { useQuery, useMutation } from '@apollo/client/react';
 import { GET_PLOT_PAGE_DATA, GET_PLOT_PAYMENT_DETAIL, INVALIDATE_PLOT_CACHE } from '../graphql/queries';
@@ -20,6 +22,7 @@ import { Badge } from '../components/ui/badge';
 import { Textarea } from '../components/ui/textarea';
 import { Separator } from '../components/ui/separator';
 import { Checkbox } from '../components/ui/checkbox';
+import { Skeleton } from '../components/ui/skeleton';
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader,
   DialogTitle, DialogFooter,
@@ -110,6 +113,11 @@ const STATUS_COLORS = {
   'DISPUTED': 'bg-rose-50 text-rose-700 border-rose-200',
   'TRANSFERRED': 'bg-sky-50 text-sky-700 border-sky-200',
 };
+
+const emptyAutocomplete = () => ({
+  buyerNames: [], paymentFroms: [], bankDetails: [], narrations: [],
+  receivedBys: [], bookedBys: [], members: [],
+});
 
 const todayISO = () => {
   const d = new Date();
@@ -209,15 +217,36 @@ const PlotRow = memo(function PlotRow({ row, isSelected, onToggleSelect, onNavig
       </td>
       <td className="px-3 py-2"><span className="text-sm text-slate-600">{pl.block || '—'}</span></td>
       <td className="px-3 py-2"><span className="text-sm font-medium text-slate-800">{pl.buyer_name || '—'}</span></td>
-      <td className="text-right px-3 py-2"><span className="text-xs text-slate-600 tabular-nums">{pl.plot_size || '—'}</span></td>
-      <td className="text-right px-3 py-2"><span className="text-xs text-slate-600 tabular-nums">{pl.plot_rate ? `₹${fmt(pl.plot_rate)}` : '—'}</span></td>
-      <td className="text-right px-3 py-2"><span className="text-sm font-semibold text-slate-900 tabular-nums">{sp > 0 ? `₹${fmt(sp)}` : '—'}</span></td>
-      <td className="text-right px-3 py-2"><span className="text-xs font-medium text-slate-600 tabular-nums">₹{fmt(toRecBank)}</span></td>
-      <td className="text-right px-3 py-2"><span className="text-xs font-medium text-slate-600 tabular-nums">₹{fmt(toRecCash)}</span></td>
-      <td className="text-right px-3 py-2"><span className="text-xs font-medium text-green-600 tabular-nums">₹{fmt(recBank)}</span></td>
-      <td className="text-right px-3 py-2"><span className={`text-xs font-medium tabular-nums ${balBank < 0 ? 'text-red-600' : balBank > 0 ? 'text-amber-600' : 'text-slate-400'}`}>{balBank < 0 ? '-' : ''}₹{fmt(Math.abs(balBank))}</span></td>
-      <td className="text-right px-3 py-2"><span className="text-xs font-medium text-green-600 tabular-nums">₹{fmt(recCash)}</span></td>
-      <td className="text-right px-3 py-2"><span className={`text-xs font-medium tabular-nums ${balCash < 0 ? 'text-red-600' : balCash > 0 ? 'text-amber-600' : 'text-slate-400'}`}>{balCash < 0 ? '-' : ''}₹{fmt(Math.abs(balCash))}</span></td>
+      <td className="min-w-[245px] px-3 py-2">
+        <div className="overflow-hidden rounded-xl border border-mr-line bg-mr-surface">
+          <p className="border-b border-mr-line bg-mr-surface-2/60 px-3 py-1.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-mr-muted">Plot value</p>
+          <div className="space-y-0 px-3 py-1.5">
+            <div className="flex items-center justify-between gap-3"><span className="text-[10px] text-mr-faint">Size</span><span className="text-[11px] font-semibold tabular-nums text-mr-text">{pl.plot_size || '—'}</span></div>
+            <div className="flex items-center justify-between gap-3 border-t border-mr-line py-1"><span className="text-[10px] text-mr-faint">Rate</span><span className="text-[11px] font-semibold tabular-nums text-mr-text">{pl.plot_rate ? `₹${fmt(pl.plot_rate)}` : '—'}</span></div>
+            <div className="flex items-center justify-between gap-3 border-t border-mr-line py-1"><span className="text-[10px] font-medium text-mr-muted">Sale price</span><span className="text-[12px] font-bold tabular-nums text-mr-text">{sp > 0 ? `₹${fmt(sp)}` : '—'}</span></div>
+          </div>
+        </div>
+      </td>
+      <td className="min-w-[245px] px-3 py-2">
+        <div className="overflow-hidden rounded-xl border border-mr-line bg-mr-surface">
+          <p className="border-b border-mr-line bg-mr-surface-2/60 px-3 py-1.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-mr-muted">Bank collection</p>
+          <div className="space-y-0 px-3 py-1.5">
+            <div className="flex items-center justify-between gap-3"><span className="text-[10px] text-mr-faint">To receive</span><span className="text-[11px] font-semibold tabular-nums text-mr-text">₹{fmt(toRecBank)}</span></div>
+            <div className="flex items-center justify-between gap-3 border-t border-mr-line py-1"><span className="text-[10px] text-mr-faint">Received</span><span className="text-[11px] font-semibold tabular-nums text-emerald-800">₹{fmt(recBank)}</span></div>
+            <div className="flex items-center justify-between gap-3 border-t border-mr-line py-1"><span className="text-[10px] font-medium text-mr-muted">Pending</span><span className={`text-[12px] font-bold tabular-nums ${balBank > 0 ? 'text-amber-700' : 'text-emerald-800'}`}>₹{fmt(Math.abs(balBank))}</span></div>
+          </div>
+        </div>
+      </td>
+      <td className="min-w-[245px] px-3 py-2">
+        <div className="overflow-hidden rounded-xl border border-mr-line bg-mr-surface">
+          <p className="border-b border-mr-line bg-mr-surface-2/60 px-3 py-1.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-mr-muted">Cash collection</p>
+          <div className="space-y-0 px-3 py-1.5">
+            <div className="flex items-center justify-between gap-3"><span className="text-[10px] text-mr-faint">To receive</span><span className="text-[11px] font-semibold tabular-nums text-mr-text">₹{fmt(toRecCash)}</span></div>
+            <div className="flex items-center justify-between gap-3 border-t border-mr-line py-1"><span className="text-[10px] text-mr-faint">Received</span><span className="text-[11px] font-semibold tabular-nums text-emerald-800">₹{fmt(recCash)}</span></div>
+            <div className="flex items-center justify-between gap-3 border-t border-mr-line py-1"><span className="text-[10px] font-medium text-mr-muted">Pending</span><span className={`text-[12px] font-bold tabular-nums ${balCash > 0 ? 'text-amber-700' : 'text-emerald-800'}`}>₹{fmt(Math.abs(balCash))}</span></div>
+          </div>
+        </div>
+      </td>
       <td className="text-right px-3 py-2"><span className={`text-sm font-semibold tabular-nums ${pct > 100 ? 'text-red-600' : 'text-green-600'}`}>₹{fmt(tr)}</span></td>
       <td className="px-3 py-2">
         <div className="flex items-center gap-2">
@@ -336,10 +365,26 @@ const MultiSelectFilter = ({ label, icon: Icon, options, selected, onToggle, onC
   );
 };
 
+function PlotPaymentsSkeleton() {
+  return (
+    <Card className="overflow-hidden rounded-panel border-mr-line bg-mr-surface shadow-none" aria-busy="true" aria-label="Loading plot payments">
+      <CardContent className="space-y-3 p-4">
+        <div className="flex items-center justify-between"><Skeleton className="h-5 w-36" /><Skeleton className="h-8 w-24 rounded-full" /></div>
+        <div className="overflow-hidden rounded-xl border border-mr-line">
+          <div className="flex gap-4 border-b border-mr-line bg-mr-surface-2 px-4 py-3"><Skeleton className="h-3 w-16" /><Skeleton className="h-3 w-24" /><Skeleton className="h-3 w-32" /><Skeleton className="h-3 w-28" /></div>
+          <div className="space-y-2 p-3">{Array.from({ length: 8 }).map((_, index) => <Skeleton key={index} className="h-16 w-full rounded-lg" />)}</div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 const PlotPayments = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { currentSite, isAdmin, canManage, hasPermission, user } = useAuth();
+  const sitePolicy = useContext(SitePolicyContext);
+  const collectionLabel = sitePolicy?.getTerm?.('collections_module', 'Plot Payments') || 'Plot Payments';
   const siteId = currentSite?.id;
   const canWrite = canManage && hasPermission('plot_payments', 'write');
   const canUpdate = canManage && hasPermission('plot_payments', 'update');
@@ -347,7 +392,8 @@ const PlotPayments = () => {
   const queryFromUrl = useMemo(() => new URLSearchParams(location.search).get('q') || '', [location.search]);
 
   // ── State ──
-  // GraphQL for plots + autocomplete (replaces fetchPlots REST calls)
+  // The initial GraphQL call contains only the table data. Form suggestions
+  // are loaded lazily, after the page is usable.
   const { data: pageData, loading: loadingPlots, refetch: refetchPlots } = useQuery(GET_PLOT_PAGE_DATA, {
     variables: { siteId: String(siteId) },
     skip: !siteId,
@@ -355,7 +401,7 @@ const PlotPayments = () => {
     nextFetchPolicy: 'cache-first',
   });
   const plots = pageData?.plotPageData?.plots || [];
-  const autocomplete = pageData?.plotPageData?.autocomplete || { buyerNames: [], paymentFroms: [], bankDetails: [], narrations: [], receivedBys: [], bookedBys: [], members: [] };
+  const [autocomplete, setAutocomplete] = useState(emptyAutocomplete);
 
   const [selectedPlot, setSelectedPlot] = useState(null);
 
@@ -377,12 +423,27 @@ const PlotPayments = () => {
   const [invalidatePlotCache] = useMutation(INVALIDATE_PLOT_CACHE);
 
   const [approvers, setApprovers] = useState([]);
+  const autocompleteSiteRef = useRef(null);
+  const approversSiteRef = useRef(null);
 
   // Plot selection for printing
   const [selectedPlotIds, setSelectedPlotIds] = useState(new Set());
 
   // Payment selection for printing statement
   const [selectedPayIds, setSelectedPayIds] = useState(new Set());
+  const toggleSelect = (id) => {
+    setSelectedPayIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const toggleSelectAll = (checked) => {
+    setSelectedPayIds(checked === true
+      ? new Set(paymentsWithBalance.map((payment) => payment.id))
+      : new Set());
+  };
 
   // Searchable dropdown state for Buyer Name / Booking By
   const [buyerOpen, setBuyerOpen] = useState(false);
@@ -608,13 +669,30 @@ const PlotPayments = () => {
     assigned_admin_id: null,
   });
 
-  // ── Fetch Approvers (Admins + site sub-admins) ──
-  const fetchApprovers = useCallback(async () => {
+  // Form metadata is intentionally lazy: the main table does not need it to
+  // render, and the server caches this Site-scoped data independently.
+  const ensureAutocomplete = useCallback(async () => {
+    const key = siteId ? String(siteId) : null;
+    if (!key || autocompleteSiteRef.current === key) return;
+    autocompleteSiteRef.current = key;
     try {
-      const url = siteId ? `/admin/approvers?site_id=${siteId}` : '/admin/approvers';
-      const res = await api.get(url);
-      setApprovers(res.data.approvers || []);
+      const res = await api.get(`/plots/autocomplete?site_id=${encodeURIComponent(siteId)}`);
+      if (autocompleteSiteRef.current === key) setAutocomplete(res.data || emptyAutocomplete());
     } catch (err) {
+      if (autocompleteSiteRef.current === key) autocompleteSiteRef.current = null;
+      console.error('Failed to fetch plot metadata:', err);
+    }
+  }, [siteId]);
+
+  const ensureApprovers = useCallback(async () => {
+    const key = siteId ? String(siteId) : null;
+    if (!key || approversSiteRef.current === key) return;
+    approversSiteRef.current = key;
+    try {
+      const res = await api.get(`/admin/approvers?site_id=${encodeURIComponent(siteId)}`);
+      if (approversSiteRef.current === key) setApprovers(res.data.approvers || []);
+    } catch (err) {
+      if (approversSiteRef.current === key) approversSiteRef.current = null;
       console.error('Failed to fetch approvers:', err);
     }
   }, [siteId]);
@@ -644,7 +722,12 @@ const PlotPayments = () => {
   const fetchPlots = useCallback(async () => {
     if (!siteId) return;
     // Invalidate Redis cache then refetch from GraphQL
-    try { await invalidatePlotCache({ variables: { siteId: String(siteId) } }); } catch {}
+    try {
+      await invalidatePlotCache({ variables: { siteId: String(siteId) } });
+    } catch {
+      // A refetch still returns fresh data when the optional cache invalidation
+      // endpoint is unavailable.
+    }
     await refetchPlots();
   }, [siteId, refetchPlots, invalidatePlotCache]);
 
@@ -657,8 +740,22 @@ const PlotPayments = () => {
   useEffect(() => {
     setSelectedPlot(null);
     clearDetailFilters();
-    fetchApprovers();
-  }, [siteId, fetchApprovers]);
+    autocompleteSiteRef.current = null;
+    approversSiteRef.current = null;
+    setAutocomplete(emptyAutocomplete());
+    setApprovers([]);
+  }, [siteId]);
+
+  useEffect(() => {
+    if (!siteId) return undefined;
+    const warmMetadata = () => { void ensureAutocomplete(); };
+    if (typeof window.requestIdleCallback === 'function') {
+      const idleId = window.requestIdleCallback(warmMetadata, { timeout: 1500 });
+      return () => window.cancelIdleCallback(idleId);
+    }
+    const timeoutId = window.setTimeout(warmMetadata, 800);
+    return () => window.clearTimeout(timeoutId);
+  }, [siteId, ensureAutocomplete]);
 
   // GraphQL auto-fetches when selectedPlot changes via useQuery skip condition
 
@@ -693,7 +790,11 @@ const PlotPayments = () => {
     clearProofPhoto();
   };
 
-  const handleOpenCreatePlot = () => { resetPlotForm(); setPlotDialogOpen(true); };
+  const handleOpenCreatePlot = () => {
+    resetPlotForm();
+    setPlotDialogOpen(true);
+    void Promise.all([ensureAutocomplete(), ensureApprovers()]);
+  };
 
   // Stable row callbacks for memoized PlotRow
   const handleRowNavigate = useCallback((id) => navigate(`/plot-payments/${id}`), [navigate]);
@@ -739,6 +840,7 @@ const PlotPayments = () => {
     });
     setEditingPlot(p);
     setPlotDialogOpen(true);
+    void Promise.all([ensureAutocomplete(), ensureApprovers()]);
   };
 
   const handleSubmitPlot = async (e) => {
@@ -898,6 +1000,7 @@ const PlotPayments = () => {
       installments: [{ installment_name: 'Installment 1', amount: '', due_date: '' }],
     });
     setBookPlotDialogOpen(true);
+    void ensureAutocomplete();
   };
 
   const addBookInstallmentRow = () => {
@@ -1049,7 +1152,11 @@ const PlotPayments = () => {
     setPayBookedBySearch('');
   };
 
-  const handleOpenCreatePayment = () => { resetPayForm(); setPaymentDialogOpen(true); };
+  const handleOpenCreatePayment = () => {
+    resetPayForm();
+    setPaymentDialogOpen(true);
+    void Promise.all([ensureAutocomplete(), ensureApprovers()]);
+  };
 
   const handleOpenEditPayment = (p) => {
     const amt = parseFloat(p.amount) || 0;
@@ -1066,6 +1173,7 @@ const PlotPayments = () => {
     });
     setEditingPaymentId(p.id);
     setPaymentDialogOpen(true);
+    void Promise.all([ensureAutocomplete(), ensureApprovers()]);
   };
 
   const handleSubmitPayment = async (ev) => {
@@ -1715,7 +1823,7 @@ const PlotPayments = () => {
 </body></html>`;
 
     const printWindow = window.open('', '_blank', 'width=1200,height=800');
-    printWindow.document.write(html);
+    writePrintDocument(printWindow, html);
     printWindow.document.close();
   };
 
@@ -1875,7 +1983,7 @@ const PlotPayments = () => {
 </body></html>`;
 
     const printWindow = window.open('', '_blank', 'width=1000,height=750');
-    printWindow.document.write(html);
+    writePrintDocument(printWindow, html);
     printWindow.document.close();
   };
 
@@ -2028,7 +2136,7 @@ const PlotPayments = () => {
 </html>`;
 
     const w = window.open('', '_blank', 'width=1100,height=700');
-    w.document.write(html);
+    writePrintDocument(w, html);
     w.document.close();
   };
 
@@ -2663,51 +2771,51 @@ const PlotPayments = () => {
     const isUnderCancellation = p.status === 'UNDER CANCELLATION' || installments.some((inst) => inst.under_cancellation);
 
     return (
-      <div className="w-full max-w-full md:max-w-350 space-y-5">
+      <div className="w-full max-w-[1400px] space-y-6 pb-16">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div className="flex flex-col items-start justify-between gap-4 border-b border-mr-line pb-5 sm:flex-row sm:items-center">
           <div className="flex items-center gap-3">
-            <Button variant="ghost" size="sm" onClick={() => { setSelectedPlot(null); clearDetailFilters(); }} className="h-8 w-8 p-0">
+            <Button variant="ghost" size="sm" onClick={() => { setSelectedPlot(null); clearDetailFilters(); }} className="h-9 w-9 rounded-full border border-mr-line p-0 text-mr-muted hover:bg-mr-surface-2 hover:text-mr-text">
               <ArrowLeft className="w-4 h-4" />
             </Button>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-xl font-semibold text-slate-900">
+                <h1 className="text-[clamp(1.5rem,2.6vw,2rem)] font-semibold tracking-[-0.035em] text-mr-text">
                   Plot {p.plot_no}{p.block ? ` — Block ${p.block}` : ''}
                 </h1>
                 {getStatusBadge(p.status)}
               </div>
-              <p className="text-sm text-slate-500 mt-0.5">
-                {p.buyer_name && <span className="font-medium text-slate-600">{p.buyer_name}</span>}
-                {p.booking_by && <span className="text-slate-400"> · Booked by {p.booking_by}</span>}
+              <p className="mt-1 text-[13px] text-mr-muted">
+                {p.buyer_name && <span className="font-medium text-mr-text">{p.buyer_name}</span>}
+                {p.booking_by && <span className="text-mr-faint"> · Booked by {p.booking_by}</span>}
               </p>
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            <Button variant="ghost" size="sm" onClick={downloadExcel} className="text-slate-400 hover:text-slate-900 h-8 px-2" title="Download Excel">
+            <Button variant="ghost" size="sm" onClick={downloadExcel} className="h-9 w-9 rounded-full p-0 text-mr-muted hover:bg-mr-surface-2 hover:text-mr-text" title="Download Excel">
               <Download className="w-4 h-4" />
             </Button>
             {canManage && (
-              <Button variant="outline" size="sm" onClick={() => handleOpenEditPlot(p)} className="text-xs h-8 border-slate-200">
+              <Button variant="outline" size="sm" onClick={() => handleOpenEditPlot(p)} className="h-9 rounded-full border-mr-line text-xs">
                 <Edit2 className="w-3.5 h-3.5 mr-1" /> Edit Plot
               </Button>
             )}
             {!canManage && (
-              <Button variant="outline" size="sm" onClick={() => handleOpenEditPlot(p)} className="text-xs h-8 border-amber-200 text-amber-700 hover:bg-amber-50">
+              <Button variant="outline" size="sm" onClick={() => handleOpenEditPlot(p)} className="h-9 rounded-full border-amber-200 text-xs text-amber-700 hover:bg-amber-50">
                 <Edit2 className="w-3.5 h-3.5 mr-1" /> Request Edit
               </Button>
             )}
             
             <div className="h-4 w-[1px] bg-slate-200 mx-1 hidden sm:block" />
 
-            <Button variant="outline" size="sm" onClick={printStatement} className="text-xs h-8 border-blue-200 text-blue-700 hover:bg-blue-50">
+            <Button variant="outline" size="sm" onClick={printStatement} className="h-9 rounded-full border-mr-line text-xs text-mr-text hover:bg-mr-surface-2">
               <Printer className="w-3.5 h-3.5 mr-1.5" />
               <span className="hidden sm:inline">{selectedPayIds.size > 0 ? `Print ${selectedPayIds.size} Selected` : 'Print Statement'}</span>
               <span className="sm:hidden">Print</span>
             </Button>
             
             {canManage && (
-              <Button size="sm" onClick={handleOpenCreatePayment} className="h-8 shadow-sm">
+              <Button size="sm" onClick={handleOpenCreatePayment} className="h-9 rounded-full bg-mr-ink px-4 hover:bg-mr-ink-2">
                 <Plus className="w-4 h-4 mr-1.5" /> <span className="hidden sm:inline">Add Payment</span><span className="sm:hidden">Add</span>
               </Button>
             )}
@@ -2715,8 +2823,8 @@ const PlotPayments = () => {
         </div>
 
         {/* Plot Info Strip */}
-        <Card className="shadow-none border-slate-200 bg-slate-50/60">
-          <CardContent className="p-3">
+        <Card className="rounded-panel border-mr-line bg-mr-surface shadow-none">
+          <CardContent className="p-4 sm:p-5">
             <div className="flex items-center gap-6 flex-wrap text-xs">
               <div className="flex items-center gap-1.5">
                 <Ruler className="w-3.5 h-3.5 text-slate-400" />
@@ -2760,75 +2868,33 @@ const PlotPayments = () => {
           </CardContent>
         </Card>
 
-        {/* Summary Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-          <Card className="shadow-none border-slate-200">
-            <CardContent className="p-3">
-              <div className="flex items-center justify-between">
-                <p className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Sale Price</p>
-                <div className="w-6 h-6 rounded bg-blue-50 flex items-center justify-center">
-                  <IndianRupee className="w-3 h-3 text-blue-600" />
-                </div>
-              </div>
-              <p className="text-lg font-bold text-slate-900 mt-1 whitespace-nowrap">₹{fmt(salePrice)}</p>
-            </CardContent>
-          </Card>
-          <Card className="shadow-none border-slate-200">
-            <CardContent className="p-3">
-              <div className="flex items-center justify-between">
-                <p className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Received</p>
-                <div className="w-6 h-6 rounded bg-emerald-50 flex items-center justify-center">
-                  <ArrowDownRight className="w-3 h-3 text-emerald-600" />
-                </div>
-              </div>
-              <p className="text-lg font-bold text-green-600 mt-1 whitespace-nowrap">₹{fmt(totalReceived)}</p>
-            </CardContent>
-          </Card>
-          <Card className="shadow-none border-slate-200">
-            <CardContent className="p-3">
-              <div className="flex items-center justify-between">
-                <p className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Balance</p>
-                <div className={`w-6 h-6 rounded flex items-center justify-center ${balance < 0 ? 'bg-red-50' : balance > 0 ? 'bg-amber-50' : 'bg-green-50'}`}>
-                  <Banknote className={`w-3 h-3 ${balance < 0 ? 'text-red-500' : balance > 0 ? 'text-amber-500' : 'text-green-500'}`} />
-                </div>
-              </div>
-              <p className={`text-lg font-bold mt-1 whitespace-nowrap ${balance < 0 ? 'text-red-600' : balance > 0 ? 'text-amber-600' : 'text-green-600'}`}>
-                {balance < 0 ? '-' : ''}₹{fmt(Math.abs(balance))}
-              </p>
-            </CardContent>
-          </Card>
-          <Card className="shadow-none border-slate-200">
-            <CardContent className="p-3">
-              <div className="flex items-center justify-between">
-                <p className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">% Recd</p>
-                <div className="w-6 h-6 rounded bg-purple-50 flex items-center justify-center">
-                  <Percent className="w-3 h-3 text-purple-600" />
-                </div>
-              </div>
-              <p className="text-lg font-bold text-purple-700 mt-1">{pctReceived.toFixed(1)}%</p>
-            </CardContent>
-          </Card>
-          <Card className="shadow-none border-slate-200">
-            <CardContent className="p-3">
-              <div className="flex items-center justify-between">
-                <p className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Entries</p>
-                <div className="w-6 h-6 rounded bg-slate-100 flex items-center justify-center">
-                  <Hash className="w-3 h-3 text-slate-600" />
-                </div>
-              </div>
-              <p className="text-lg font-bold text-slate-900 mt-1">{payments.length}</p>
-            </CardContent>
-          </Card>
-        </div>
+        {/* Financial position — one connected surface, in the Farmers register style. */}
+        <section className="grid overflow-hidden rounded-panel border border-mr-line bg-mr-surface lg:grid-cols-[minmax(0,1.15fr)_minmax(0,2fr)]">
+          <div className="border-b border-mr-line p-5 sm:p-6 lg:border-b-0 lg:border-r">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-mr-faint">Sale position</p>
+            <p className="mt-2 text-[30px] font-semibold tracking-[-0.045em] tabular-nums text-mr-text">₹{fmt(salePrice)}</p>
+            <div className="mt-6">
+              <div className="flex items-center justify-between text-[12px]"><span className="text-mr-muted">Collection progress</span><span className="font-semibold tabular-nums text-mr-text">{pctReceived.toFixed(1)}%</span></div>
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-mr-surface-2"><div className="h-full rounded-full bg-emerald-800" style={{ width: `${Math.min(pctReceived, 100)}%` }} /></div>
+              <p className="mt-2 text-[12px] text-mr-faint">₹{fmt(totalReceived)} received · ₹{fmt(Math.abs(balance))} {balance > 0 ? 'pending' : 'balance'}</p>
+            </div>
+          </div>
+          <dl className="grid grid-cols-2 sm:grid-cols-4">
+            <div className="border-b border-mr-line px-4 py-5 sm:border-b-0 sm:border-r sm:px-5"><dt className="text-[10px] font-semibold uppercase tracking-[0.1em] text-mr-faint">Received</dt><dd className="mt-2 text-[20px] font-semibold tabular-nums text-emerald-800">₹{fmt(totalReceived)}</dd></div>
+            <div className="border-b border-mr-line px-4 py-5 sm:border-b-0 sm:border-r sm:px-5"><dt className="text-[10px] font-semibold uppercase tracking-[0.1em] text-mr-faint">Balance</dt><dd className={`mt-2 text-[20px] font-semibold tabular-nums ${balance > 0 ? 'text-amber-700' : 'text-emerald-800'}`}>₹{fmt(Math.abs(balance))}</dd></div>
+            <div className="px-4 py-5 sm:border-r sm:px-5"><dt className="text-[10px] font-semibold uppercase tracking-[0.1em] text-mr-faint">Received</dt><dd className="mt-2 text-[20px] font-semibold tabular-nums text-mr-text">{pctReceived.toFixed(1)}%</dd></div>
+            <div className="px-4 py-5 sm:px-5"><dt className="text-[10px] font-semibold uppercase tracking-[0.1em] text-mr-faint">Entries</dt><dd className="mt-2 text-[20px] font-semibold tabular-nums text-mr-text">{payments.length}</dd></div>
+          </dl>
+        </section>
 
         {/* Bank vs Cash Split Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {/* Bank Section */}
-          <Card className="shadow-none border-blue-200 bg-blue-50/30">
+          <Card className="rounded-panel-sm border-mr-line bg-mr-surface shadow-none">
             <CardContent className="p-3">
               <div className="flex items-center gap-2 mb-2">
-                <Landmark className="w-3.5 h-3.5 text-blue-700" />
-                <p className="text-[10px] font-bold text-blue-900 uppercase tracking-widest">Bank Ledger</p>
+                <Landmark className="h-3.5 w-3.5 text-mr-muted" />
+                <p className="text-[10px] font-bold uppercase tracking-widest text-mr-muted">Bank ledger</p>
               </div>
               <div className="grid grid-cols-3 gap-2">
                 <div>
@@ -2848,11 +2914,11 @@ const PlotPayments = () => {
           </Card>
 
           {/* Cash Section */}
-          <Card className="shadow-none border-emerald-200 bg-emerald-50/30">
+          <Card className="rounded-panel-sm border-mr-line bg-mr-surface shadow-none">
             <CardContent className="p-3">
               <div className="flex items-center gap-2 mb-2">
-                <Wallet className="w-3.5 h-3.5 text-emerald-700" />
-                <p className="text-[10px] font-bold text-emerald-900 uppercase tracking-widest">Cash Ledger</p>
+                <Wallet className="h-3.5 w-3.5 text-mr-muted" />
+                <p className="text-[10px] font-bold uppercase tracking-widest text-mr-muted">Cash ledger</p>
               </div>
               <div className="grid grid-cols-3 gap-2">
                 <div>
@@ -3008,9 +3074,9 @@ const PlotPayments = () => {
               </div>
             ) : (
               <div className="overflow-x-auto border border-slate-200 rounded bg-white">
-                <Table>
+                <Table className="mr-dark-table">
                   <TableHeader>
-                    <TableRow className="bg-slate-50/70">
+                    <TableRow className="bg-zinc-900 hover:bg-zinc-900">
                       <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Installment</TableHead>
                       <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Due Date</TableHead>
                       <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-right">Amount (₹)</TableHead>
@@ -3238,9 +3304,9 @@ const PlotPayments = () => {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <Table>
+                <Table className="mr-dark-table">
                   <TableHeader>
-                    <TableRow className="bg-slate-50/80 hover:bg-slate-50/80">
+                    <TableRow className="bg-zinc-900 hover:bg-zinc-900">
                       <TableHead className="w-10">
                         <Checkbox
                           checked={selectedPayIds.size === paymentsWithBalance.length && paymentsWithBalance.length > 0}
@@ -3337,23 +3403,23 @@ const PlotPayments = () => {
                       ))}
 
                       {/* Summary Row */}
-                      <TableRow className="bg-slate-50 hover:bg-slate-50 border-t-2 border-slate-200">
-                        <TableCell colSpan={4} className="text-xs font-semibold text-slate-600 uppercase tracking-wider px-4">
+                      <TableRow className="bg-zinc-900 hover:bg-zinc-900 border-t-2 border-zinc-700">
+                        <TableCell colSpan={4} className="text-xs font-semibold text-white uppercase tracking-wider px-4">
                           Direct Payments Total ({paymentsWithBalance.length} entries)
                         </TableCell>
                         <TableCell className="text-right px-4">
-                          <span className="text-sm font-bold text-slate-900 tabular-nums">₹{fmt(hasActiveDetailFilters ? filteredTotal : directPostedTotal)}</span>
+                          <span className="text-sm font-bold text-white tabular-nums">₹{fmt(hasActiveDetailFilters ? filteredTotal : directPostedTotal)}</span>
                         </TableCell>
                         <TableCell colSpan={7} />
                         <TableCell className="text-right px-4">
-                           <span className="text-xs text-slate-500 text-nowrap">Plot Bal (all receipts): <span className={`font-bold ${balance < 0 ? 'text-red-600' : balance > 0 ? 'text-amber-600' : 'text-green-600'}`}>{balance < 0 ? '-' : ''}₹{fmt(Math.abs(balance))}</span></span>
+                           <span className="text-xs text-zinc-300 text-nowrap">Plot Bal (all receipts): <span className={`font-bold ${balance < 0 ? 'text-rose-300' : balance > 0 ? 'text-amber-300' : 'text-emerald-300'}`}>{balance < 0 ? '-' : ''}₹{fmt(Math.abs(balance))}</span></span>
                         </TableCell>
                       </TableRow>
 
                       {/* % Received Row */}
-                      <TableRow className="hover:bg-slate-50/10 bg-slate-50/5">
+                      <TableRow className="hover:bg-zinc-800 bg-zinc-900">
                         <TableCell colSpan={4} className="text-right px-4">
-                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Overall % Received</span>
+                          <span className="text-[10px] font-bold text-zinc-300 uppercase tracking-widest">Overall % Received</span>
                         </TableCell>
                         <TableCell className="text-right px-4">
                           <span className={`text-sm font-black tabular-nums ${pctReceived >= 100 ? 'text-emerald-700' : pctReceived >= 50 ? 'text-amber-600' : 'text-red-600'}`}>
@@ -3606,19 +3672,19 @@ const PlotPayments = () => {
   //  PLOTS LIST VIEW
   // ═══════════════════════════════════════════════════
   return (
-    <div className="w-full max-w-full md:max-w-350 space-y-3">
+    <div className="w-full max-w-[1400px] space-y-6 pb-16">
       {/* Header + Filters (redesigned) */}
-      <div className="sticky top-0 z-20 bg-white/95 backdrop-blur-sm pt-1 pb-2.5 border-b border-slate-200">
+      <div className="border-b border-mr-line pb-5">
         {/* Row 1 — title + actions */}
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-500 text-white shadow-sm">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-mr-ink text-white">
               <MapPin className="h-4 w-4" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-base font-semibold text-slate-900 leading-tight">Plot Payments</h1>
-                <Badge variant="secondary" className="h-5 rounded-full px-2 text-[10px] font-medium tabular-nums">{filteredPlots.length} plots</Badge>
+                <h1 className="text-[clamp(1.5rem,2.6vw,2rem)] font-semibold tracking-[-0.035em] text-mr-text leading-tight">{collectionLabel}</h1>
+                <Badge variant="secondary" className="h-6 rounded-full bg-mr-surface-2 px-2.5 text-[10px] font-medium tabular-nums text-mr-muted">{filteredPlots.length} plots</Badge>
                 {selectedPlotIds.size > 0 && (
                   <span className="flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 pl-2.5 pr-1 py-0.5">
                     <span className="text-[11px] font-semibold text-sky-700 tabular-nums">{selectedPlotIds.size} selected</span>
@@ -3632,20 +3698,23 @@ const PlotPayments = () => {
                   </span>
                 )}
               </div>
-              <p className="text-[11px] text-slate-500 leading-tight">
-                Payment tracking for <span className="font-medium text-slate-700">{currentSite.name}</span>
+              <p className="mt-1 text-[13px] text-mr-muted leading-tight">
+                Customer collection tracking for <span className="font-medium text-mr-text">{currentSite.name}</span>
               </p>
             </div>
           </div>
           <div className="flex items-center gap-1.5">
-            <Button variant="outline" size="sm" onClick={downloadAllPlotsExcel} className="text-xs h-8 rounded-lg" disabled={filteredPlots.length === 0}>
+            <Button variant="outline" size="sm" onClick={() => navigate('/customer-inventory')} className="h-9 rounded-full border-blue-200 px-3 text-xs text-blue-700 hover:bg-blue-50">
+              <ClipboardList className="mr-1.5 h-3.5 w-3.5" /> Customer lifecycle
+            </Button>
+            <Button variant="outline" size="sm" onClick={downloadAllPlotsExcel} className="h-9 rounded-full border-mr-line px-3 text-xs" disabled={filteredPlots.length === 0}>
               <Download className="w-3.5 h-3.5 mr-1" /> Excel
             </Button>
-            <Button variant="outline" size="sm" onClick={printSelectedPlots} className="text-xs h-8 rounded-lg" disabled={filteredPlots.length === 0}>
+            <Button variant="outline" size="sm" onClick={printSelectedPlots} className="h-9 rounded-full border-mr-line px-3 text-xs" disabled={filteredPlots.length === 0}>
               <Printer className="w-3.5 h-3.5 mr-1" /> {selectedPlotIds.size > 0 ? `Print (${selectedPlotIds.size})` : 'Print All'}
             </Button>
             {canManage && (
-              <Button size="sm" onClick={handleOpenCreatePlot} className="h-8 rounded-lg">
+              <Button size="sm" onClick={handleOpenCreatePlot} className="h-9 rounded-full bg-mr-ink px-4 hover:bg-mr-ink-2">
                 <Plus className="w-4 h-4 mr-1.5" /> Add Plot
               </Button>
             )}
@@ -3659,7 +3728,7 @@ const PlotPayments = () => {
             <Input
               placeholder="Search plots, buyers, booking by…"
               value={listSearch} onChange={(e) => setListSearch(e.target.value)}
-              className="pl-8 h-7 text-xs rounded-full bg-slate-50/80 border-slate-200 focus-visible:bg-white"
+              className="h-10 rounded-full border-mr-line bg-mr-surface-2 pl-8 text-xs focus-visible:bg-mr-surface"
             />
           </div>
           <Filter className="h-3.5 w-3.5 text-slate-300 hidden sm:block" />
@@ -3773,9 +3842,7 @@ const PlotPayments = () => {
 
       {/* Plots Table */}
       {loadingPlots ? (
-        <div className="flex items-center justify-center py-16">
-          <div className="w-5 h-5 border-2 border-slate-200 border-t-slate-600 rounded-full animate-spin" />
-        </div>
+        <PlotPaymentsSkeleton />
       ) : filteredPlots.length === 0 ? (
         <div className="text-center py-16">
           <MapPin className="w-10 h-10 text-slate-200 mx-auto mb-3" />
@@ -3783,10 +3850,10 @@ const PlotPayments = () => {
           <p className="text-xs text-slate-400 mt-0.5">{plots.length === 0 ? 'Create a plot to start tracking payments' : 'Try different search criteria'}</p>
         </div>
       ) : (
-        <Card className="shadow-none border-slate-200">
+        <Card className="overflow-hidden rounded-panel border-mr-line bg-mr-surface shadow-none">
           <CardContent className="p-0">
-            <div ref={tableContainerRef} className="overflow-auto relative z-0 will-change-scroll" style={{ maxHeight: 'calc(100vh - 180px)', WebkitOverflowScrolling: 'touch' }}>
-              <table className="w-full caption-bottom text-sm border-collapse">
+            <div ref={tableContainerRef} className="relative z-0 overflow-auto will-change-scroll" style={{ maxHeight: 'calc(100vh - 250px)', WebkitOverflowScrolling: 'touch' }}>
+              <table className="mr-dark-table w-full caption-bottom text-sm border-collapse">
                 <thead className="sticky top-0 z-30 bg-slate-50" style={{ boxShadow: '0 1px 0 0 #e2e8f0' }}>
                   <tr>
                     <th className="w-8 text-center sticky left-0 z-40 bg-slate-50 px-3 py-2">
@@ -3803,15 +3870,9 @@ const PlotPayments = () => {
                     <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 w-24 sticky left-24 z-40 bg-slate-50 px-3 py-2 text-left" style={{boxShadow: '2px 0 4px -1px rgba(0,0,0,0.08)'}}>Status</th>
                     <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 w-14 px-3 py-2 text-left">Block</th>
                     <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 px-3 py-2 text-left">Buyer Name</th>
-                    <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 w-16 px-3 py-2 text-right">Size</th>
-                    <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-right w-20 px-3 py-2">Rate</th>
-                    <SortTh label="Sale Price" base="sale" sortBy={sortBy} setSortBy={setSortBy} className="w-28" />
-                    <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-right w-24 px-3 py-2">To Rec Bank</th>
-                    <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-right w-24 px-3 py-2">To Rec Cash</th>
-                    <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-right w-28 px-3 py-2">Received Bank</th>
-                    <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-right w-24 px-3 py-2">Bal Bank</th>
-                    <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-right w-28 px-3 py-2">Received Cash</th>
-                    <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-right w-24 px-3 py-2">Bal Cash</th>
+                    <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 min-w-[245px] px-3 py-2 text-left">Plot value</th>
+                    <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 min-w-[245px] px-3 py-2 text-left">Bank collection</th>
+                    <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 min-w-[245px] px-3 py-2 text-left">Cash collection</th>
                     <SortTh label="Received" base="received" sortBy={sortBy} setSortBy={setSortBy} className="w-28" />
                     <SortTh label="% Rec" base="pct" sortBy={sortBy} setSortBy={setSortBy} className="w-20" justify="justify-start" />
                     <SortTh label="Remaining" base="remaining" sortBy={sortBy} setSortBy={setSortBy} className="w-28" />
@@ -3877,37 +3938,9 @@ const PlotPayments = () => {
                         </td>
                         <td className="sticky left-24 z-40 bg-slate-50 px-3 py-2" style={{ boxShadow: '2px 0 4px -1px rgba(0,0,0,0.08)' }} />
                         <td colSpan={2} className="px-3 py-2" />
-                        <td className="text-right px-3 py-2">
-                          <span className="text-xs font-bold text-slate-700 tabular-nums">{fmt(displayTotals.totSize)}</span>
-                        </td>
-                        <td className="text-right px-3 py-2">
-                          <span className="text-xs font-bold text-slate-700 tabular-nums">₹{fmt(displayTotals.totRate)}</span>
-                        </td>
-                        <td className="text-right px-3 py-2">
-                          <span className="text-sm font-bold text-slate-900 tabular-nums">₹{fmt(displayTotals.totSalePrice)}</span>
-                        </td>
-                        <td className="text-right px-3 py-2">
-                          <span className="text-xs font-bold text-slate-700 tabular-nums">₹{fmt(displayTotals.totToRecBank)}</span>
-                        </td>
-                        <td className="text-right px-3 py-2">
-                          <span className="text-xs font-bold text-slate-700 tabular-nums">₹{fmt(displayTotals.totToRecCash)}</span>
-                        </td>
-                        <td className="text-right px-3 py-2">
-                          <span className="text-xs font-bold text-green-600 tabular-nums">₹{fmt(displayTotals.totRecBank)}</span>
-                        </td>
-                        <td className="text-right px-3 py-2">
-                          <span className={`text-xs font-bold tabular-nums ${displayTotals.totBalBank < 0 ? 'text-red-600' : displayTotals.totBalBank > 0 ? 'text-amber-600' : 'text-green-600'}`}>
-                            {displayTotals.totBalBank < 0 ? '-' : ''}₹{fmt(Math.abs(displayTotals.totBalBank))}
-                          </span>
-                        </td>
-                        <td className="text-right px-3 py-2">
-                          <span className="text-xs font-bold text-green-600 tabular-nums">₹{fmt(displayTotals.totRecCash)}</span>
-                        </td>
-                        <td className="text-right px-3 py-2">
-                          <span className={`text-xs font-bold tabular-nums ${displayTotals.totBalCash < 0 ? 'text-red-600' : displayTotals.totBalCash > 0 ? 'text-amber-600' : 'text-green-600'}`}>
-                            {displayTotals.totBalCash < 0 ? '-' : ''}₹{fmt(Math.abs(displayTotals.totBalCash))}
-                          </span>
-                        </td>
+                        <td className="px-3 py-2"><span className="text-xs font-bold text-white tabular-nums">{fmt(displayTotals.totSize)} · ₹{fmt(displayTotals.totRate)} · ₹{fmt(displayTotals.totSalePrice)}</span></td>
+                        <td className="px-3 py-2"><span className="text-xs font-bold text-emerald-300 tabular-nums">₹{fmt(displayTotals.totToRecBank)} · ₹{fmt(displayTotals.totRecBank)} · ₹{fmt(Math.abs(displayTotals.totBalBank))}</span></td>
+                        <td className="px-3 py-2"><span className="text-xs font-bold text-amber-300 tabular-nums">₹{fmt(displayTotals.totToRecCash)} · ₹{fmt(displayTotals.totRecCash)} · ₹{fmt(Math.abs(displayTotals.totBalCash))}</span></td>
                         <td className="text-right px-3 py-2">
                           <span className="text-sm font-bold text-green-600 tabular-nums">₹{fmt(displayTotals.totReceived)}</span>
                         </td>

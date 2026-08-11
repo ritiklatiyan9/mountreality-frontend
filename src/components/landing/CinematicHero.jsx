@@ -40,7 +40,7 @@ export default function CinematicHero() {
   return (
     <section className="relative min-h-screen w-full overflow-hidden">
       {/* ── Backdrop (z-0) ──
-          mr-fade-y masks the bed top and bottom rather than covering it
+          A mask fades the bed top and bottom rather than covering it
           with a shell-coloured gradient. An overlay only hides the edge
           while the colour behind happens to match — which is exactly how
           a seam appeared when the palette was retinted. A mask dissolves
@@ -51,8 +51,21 @@ export default function CinematicHero() {
           only ~530px tall on a laptop, a 2.8:1 letterbox that
           object-cover had to crop about a third of the frame to fill. */}
       <div
-        className="mr-fade-y pointer-events-none absolute z-0"
-        style={{ top: 'clamp(120px, 22vh, 300px)', right: 0, bottom: 0, left: 0 }}
+        className="pointer-events-none absolute z-0"
+        style={{
+          top: 'clamp(120px, 22vh, 300px)',
+          right: 0,
+          bottom: 0,
+          left: 0,
+          /* Same idea as .mr-fade-y, but the bottom stop moves 80% → 94%.
+             The shared class dissolves the last fifth of the bed, and
+             against a shell this light that reads as haze washing the
+             terrace and the road out of the render. Set here rather than
+             on the class because the mockup wells still want the long
+             fade. */
+          maskImage: 'linear-gradient(to bottom, transparent 0%, #000 15%, #000 94%, transparent 100%)',
+          WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, #000 15%, #000 94%, transparent 100%)',
+        }}
         aria-hidden="true"
       >
         {/* Almost certainly the LCP element, so it is eager and
@@ -119,10 +132,10 @@ export default function CinematicHero() {
           className="animate-fade-rise max-w-7xl text-5xl font-normal sm:text-7xl md:text-8xl"
           style={{ color: INK, lineHeight: 0.95, letterSpacing: '-2.46px' }}
         >
-          Every site&rsquo;s money on{' '}
+          Every site. Every rupee.{' '}
           {/* Emphasis by colour alone — the reference sets these in serif
               italic, which is the letterform change you asked to drop. */}
-          <span style={{ color: GREY }}>one set of books.</span>
+          <span style={{ color: GREY }}>One source of truth.</span>
         </h1>
 
         <p

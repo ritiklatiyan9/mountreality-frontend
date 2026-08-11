@@ -29,9 +29,14 @@ const PROOF = [
 export default function AuthShell({ title, subtitle, children, footer }) {
   return (
     <div className="w-full">
-      <div className="mx-auto grid w-full max-w-[1120px] gap-12 px-5 pb-16 pt-10 sm:px-8 sm:pt-14 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)] lg:gap-16 lg:pb-24">
-        {/* ── Form ── */}
-        <div className="mx-auto w-full max-w-[420px] lg:mx-0">
+      {/* Proof reads left, action sits right — the reading order lands the
+          eye on the form last, which is where it should stop. The form
+          STAYS FIRST IN THE DOM: the aside is decorative and hidden below
+          lg, so keyboard and screen-reader users must reach the fields
+          first, not the ink panel's link. `order` swaps only the visual. */}
+      <div className="mx-auto grid w-full max-w-[1120px] items-start gap-12 px-5 pb-16 pt-10 sm:px-8 sm:pt-14 lg:grid-cols-[minmax(0,0.94fr)_minmax(0,1fr)] lg:gap-16 lg:pb-24">
+        {/* ── Form — a card, not fields floating on the page wash ── */}
+        <div className="mx-auto w-full max-w-[440px] rounded-panel border border-mr-line bg-mr-paper p-6 shadow-[0_10px_32px_-18px_rgba(16,17,20,0.14)] sm:p-8 lg:order-2 lg:mx-0 lg:justify-self-end">
           <h1 className="text-[clamp(1.75rem,3vw,2.25rem)] font-semibold leading-[1.05] tracking-[-0.04em] text-mr-text">
             {title}
           </h1>
@@ -39,12 +44,12 @@ export default function AuthShell({ title, subtitle, children, footer }) {
 
           <div className="mt-8">{children}</div>
 
-          {footer && <div className={`mt-8 ${META}`}>{footer}</div>}
+          {footer && <div className={`mt-8 border-t border-mr-line pt-5 ${META}`}>{footer}</div>}
         </div>
 
         {/* ── Proof panel — hidden on small screens, where the form is
              the only thing that matters ── */}
-        <aside className="relative hidden overflow-hidden rounded-panel bg-mr-ink p-8 lg:flex lg:flex-col lg:justify-between">
+        <aside className="relative hidden self-stretch overflow-hidden rounded-panel bg-mr-ink p-8 lg:order-1 lg:flex lg:flex-col lg:justify-between">
           <div
             className="pointer-events-none absolute inset-0"
             aria-hidden="true"

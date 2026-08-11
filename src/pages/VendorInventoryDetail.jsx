@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useDocViewer } from '../components/DocViewer';
+import BankAccountSelect from '../components/BankAccountSelect';
 import api from '../api/api';
 import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -82,7 +83,7 @@ const MODE_CHIP_COLORS = {
   other: 'bg-slate-50 text-slate-600 border-slate-200',
 };
 
-const emptyPaymentForm = { payment_date: todayLocal(), amount: '', payment_mode: 'cash', reference_no: '', note: '', voucher_url: '' };
+const emptyPaymentForm = { payment_date: todayLocal(), amount: '', payment_mode: 'cash', bank_account_id: '', reference_no: '', note: '', voucher_url: '' };
 const emptyEditForm = {
   item_name: '', item_category: '', unit: '', qty_ordered: '', rate: '',
   discount_pct: '', discount_amount: '', order_date: '', expected_date: '', note: '',
@@ -231,6 +232,9 @@ const VendorInventoryDetail = () => {
     if (!siteId) return;
     const amount = parseFloat(paymentForm.amount);
     if (!(amount > 0)) return setMessage({ type: 'error', text: 'Amount must be > 0' });
+    if (!CASH_MODES.includes(paymentForm.payment_mode) && !paymentForm.bank_account_id) {
+      return setMessage({ type: 'error', text: 'Select the bank account used for this transaction' });
+    }
     setSubmitting(true);
     try {
       const { data } = await api.post(`/vendors/inventory/${id}/payments`, { site_id: siteId, ...paymentForm });
@@ -680,6 +684,12 @@ const VendorInventoryDetail = () => {
                 ))}
               </div>
             </div>
+
+            <BankAccountSelect
+              value={paymentForm.bank_account_id}
+              onChange={(bankAccountId) => setPaymentForm((form) => ({ ...form, bank_account_id: bankAccountId }))}
+              paymentMode={paymentForm.payment_mode}
+            />
 
             {!CASH_MODES.includes(paymentForm.payment_mode) && (
               <div className="space-y-1.5">

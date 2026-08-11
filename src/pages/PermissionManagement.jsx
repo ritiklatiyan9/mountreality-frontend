@@ -13,6 +13,7 @@ import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Input } from '../components/ui/input';
 import { Skeleton } from '../components/ui/skeleton';
+import { useSitePolicy } from '../hooks/useSitePolicy';
 import {
   AlertCircle,
   Banknote,
@@ -50,8 +51,8 @@ import {
 const MODULE_CONFIG = [
   { key: 'dashboard', label: 'Dashboard', description: 'Business overview and KPI workspace', icon: Home, accessOnly: true },
   { key: 'clients', label: 'Member Management', description: 'Member profiles, KYC, and account records', icon: Users },
-  { key: 'vendors', label: 'Vendor Management', description: 'Vendors, inventory, and commitments', icon: Store },
-  { key: 'farmers', label: 'Farmer Payments', description: 'Farmer ledgers and payment records', icon: Tractor },
+  { key: 'vendors', label: 'Inventory and Management', description: 'Vendors, inventory, and commitments', icon: Store },
+  { key: 'farmers', label: 'Land Acquisition', description: 'Landowner acquisitions, agreements, terms and transactions', icon: Tractor },
   { key: 'commissions', label: 'Plot Commission', description: 'Commission records and settlements', icon: Landmark },
   { key: 'daybook', label: 'Day Book', description: 'Daily cash and bank entries', icon: BookOpen },
   { key: 'balance_sheet', label: 'Balance Sheet', description: 'Consolidated financial statements', icon: CircleDollarSign, accessOnly: true },
@@ -64,7 +65,7 @@ const MODULE_CONFIG = [
   { key: 'expense_approval', label: 'Expense Approval', description: 'Review, approve, and reject expenses', icon: ShieldCheck, restricted: true },
   { key: 'imprest', label: 'Imprest', description: 'Personal imprest activity and balances', icon: Wallet },
   { key: 'document_imprest', label: 'Document Imprest', description: 'Physical document handover tracking', icon: FileBox, restricted: true },
-  { key: 'upi_collect', label: 'Receive Payment', description: 'UPI collection and bank configuration', icon: QrCode, restricted: true },
+  { key: 'upi_collect', label: 'QR Payments', description: 'Generate and track UPI payment QR codes', icon: QrCode, restricted: true },
   { key: 'chat', label: 'Internal Chat', description: 'Team messages and conversations', icon: MessageSquare },
   { key: 'excel', label: 'Native Documents', description: 'Spreadsheet files and editor', icon: Sheet },
   { key: 'reports', label: 'Reports', description: 'Read-only reporting workspace', icon: FileText, accessOnly: true },
@@ -72,6 +73,11 @@ const MODULE_CONFIG = [
   { key: 'legal', label: 'Legal Matters', description: 'Sensitive legal cases, notices, hearings, replies, and exposure', icon: Gavel, restricted: true },
   { key: 'compliance_templates', label: 'Compliance Templates', description: 'Configure recurring obligations and reusable checklists', icon: ClipboardList, restricted: true },
   { key: 'compliance_settings', label: 'Compliance Administration', description: 'Authorities, approvals, audit trail, reminders, and workflow settings', icon: ShieldCheck, restricted: true },
+  { key: 'operating_profile', label: 'Site Operating Profile', description: 'View, draft, review, and publish site operating behavior', icon: Settings, restricted: true },
+  { key: 'rera_projects', label: 'RERA Project Workspace', description: 'Regulatory projects, phases, stakeholders, and control centre', icon: ShieldCheck, restricted: true },
+  { key: 'rera_approvals', label: 'RERA Approval Register', description: 'Project approval records, owners, review, and expiry', icon: ClipboardList, restricted: true },
+  { key: 'rera_evidence', label: 'RERA Evidence', description: 'Private project evidence, metadata, review, and version history', icon: FileSearch, restricted: true },
+  { key: 'rera_rulesets', label: 'RERA Rulesets', description: 'Versioned and source-aware configuration catalogue', icon: Shield, restricted: true },
   { key: 'finance_forecast', label: 'Finance Forecast', description: 'Predictive cash-flow forecast and diagnostics', icon: TrendingUp, accessOnly: true },
   { key: 'settings', label: 'Settings', description: 'Personal and workspace preferences', icon: Settings, accessOnly: true },
 ];
@@ -82,6 +88,12 @@ const ACTIONS = [
   { key: 'update', label: 'Edit' },
   { key: 'delete', label: 'Delete' },
 ];
+
+const REGULATORY_MODULE_KEYS = new Set([
+  'rera_approvals',
+  'rera_evidence',
+  'rera_rulesets',
+]);
 
 const permissionsForModule = (module) => {
   if (module?.restricted) {
@@ -96,6 +108,7 @@ const permissionsForModule = (module) => {
 const availableActions = (module) => (module.accessOnly ? ACTIONS.slice(0, 1) : ACTIONS);
 
 const PermissionManagement = () => {
+  const { canUseCapability, getTerm } = useSitePolicy();
   const [subAdmins, setSubAdmins] = useState([]);
   const [subAdminsLoading, setSubAdminsLoading] = useState(true);
   const [selectedUserId, setSelectedUserId] = useState('');
@@ -107,6 +120,23 @@ const PermissionManagement = () => {
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [moduleQuery, setModuleQuery] = useState('');
+  const isReraWorkspace = canUseCapability('rera_workspace');
+
+  const profileModuleConfig = useMemo(() => MODULE_CONFIG
+    .filter((module) => isReraWorkspace || !REGULATORY_MODULE_KEYS.has(module.key))
+    .map((module) => {
+      if (module.key !== 'rera_projects') return module;
+      return {
+        ...module,
+        label: getTerm(
+          'compliance_workspace',
+          isReraWorkspace ? 'RERA Project Workspace' : 'Development Project Workspace',
+        ),
+        description: isReraWorkspace
+          ? 'Regulatory projects, phases, stakeholders, and control centre'
+          : 'Development projects, phases, planning, and finance context',
+      };
+    }), [getTerm, isReraWorkspace]);
 
   useEffect(() => {
     const fetchSubAdmins = async () => {
@@ -126,17 +156,17 @@ const PermissionManagement = () => {
   }, []);
 
   const modules = useMemo(() => {
-    const knownKeys = new Set(MODULE_CONFIG.map(module => module.key));
+    const knownKeys = new Set(profileModuleConfig.map(module => module.key));
     const unknown = serverModuleKeys
-      .filter(key => !knownKeys.has(key))
+      .filter(key => !knownKeys.has(key) && (isReraWorkspace || !REGULATORY_MODULE_KEYS.has(key)))
       .map(key => ({
         key,
         label: key.replaceAll('_', ' ').replace(/\b\w/g, letter => letter.toUpperCase()),
         description: 'Module access',
         icon: Shield,
       }));
-    return [...MODULE_CONFIG, ...unknown];
-  }, [serverModuleKeys]);
+    return [...profileModuleConfig, ...unknown];
+  }, [isReraWorkspace, profileModuleConfig, serverModuleKeys]);
 
   useEffect(() => {
     if (!selectedUserId) {
@@ -158,8 +188,8 @@ const PermissionManagement = () => {
         const response = await api.get(`/permissions/${selectedUserId}`);
         if (!active) return;
 
-        const keys = response.data.modules || MODULE_CONFIG.map(module => module.key);
-        setServerModuleKeys(keys);
+        const keys = response.data.modules || profileModuleConfig.map(module => module.key);
+        setServerModuleKeys(keys.filter((key) => isReraWorkspace || !REGULATORY_MODULE_KEYS.has(key)));
         const permissionsMap = {};
         (response.data.permissions || []).forEach(permission => {
           permissionsMap[permission.module] = {
@@ -169,7 +199,7 @@ const PermissionManagement = () => {
             can_delete: permission.can_delete === true,
           };
         });
-        MODULE_CONFIG.forEach(module => {
+        profileModuleConfig.forEach(module => {
           if (!permissionsMap[module.key]) permissionsMap[module.key] = permissionsForModule(module);
           if (module.accessOnly) {
             permissionsMap[module.key] = {
@@ -197,7 +227,7 @@ const PermissionManagement = () => {
     };
     fetchPermissions();
     return () => { active = false; };
-  }, [selectedUserId]);
+  }, [isReraWorkspace, profileModuleConfig, selectedUserId]);
 
   const handleUserChange = (nextUserId) => {
     if (saving) return;
@@ -307,41 +337,41 @@ const PermissionManagement = () => {
 
   return (
     <div className="mx-auto w-full max-w-7xl space-y-6 pb-10">
-      <header className="relative overflow-hidden rounded-[28px] border border-blue-200/70 bg-linear-to-br from-blue-950 via-blue-900 to-indigo-900 px-5 py-6 text-white shadow-xl shadow-blue-950/15 sm:px-7 sm:py-7">
-        <div className="absolute -right-16 -top-20 h-52 w-52 rounded-full bg-cyan-400/15 blur-3xl" />
+      <header className="relative overflow-hidden rounded-panel border border-zinc-800 bg-mr-ink px-5 py-6 text-white shadow-none sm:px-7 sm:py-7">
+        <div className="absolute -right-16 -top-20 h-52 w-52 rounded-full bg-mr-lime/10 blur-3xl" />
         <div className="relative flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
           <div className="flex items-start gap-4">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/12 ring-1 ring-white/20">
-              <Shield className="h-6 w-6 text-blue-100" />
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-mr-lime text-mr-ink">
+              <Shield className="h-6 w-6" />
             </div>
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-blue-200">Access control</p>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-mr-lime">Access control</p>
               <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">Module Permissions</h1>
-              <p className="mt-1.5 max-w-2xl text-sm font-medium text-blue-100/75">Give each sub-admin exactly the access they need across every operational module.</p>
+              <p className="mt-1.5 max-w-2xl text-sm font-medium text-zinc-300">Give each sub-admin exactly the access they need across every operational module.</p>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2 sm:flex">
-            <div className="rounded-xl bg-white/8 px-3.5 py-2 ring-1 ring-white/10">
-              <p className="text-[10px] uppercase tracking-wider text-blue-200/70">Modules</p>
+            <div className="rounded-control border border-white/10 bg-white/5 px-3.5 py-2">
+              <p className="text-[10px] uppercase tracking-wider text-zinc-400">Modules</p>
               <p className="mt-0.5 text-lg font-bold tabular-nums">{modules.length}</p>
             </div>
-            <div className="rounded-xl bg-white/8 px-3.5 py-2 ring-1 ring-white/10">
-              <p className="text-[10px] uppercase tracking-wider text-blue-200/70">Coverage</p>
+            <div className="rounded-control border border-white/10 bg-white/5 px-3.5 py-2">
+              <p className="text-[10px] uppercase tracking-wider text-zinc-400">Coverage</p>
               <p className="mt-0.5 text-lg font-bold tabular-nums">{selectedUserId ? `${progress}%` : '—'}</p>
             </div>
           </div>
         </div>
       </header>
 
-      <section className="rounded-[24px] border border-slate-200/80 bg-white p-4 shadow-[0_16px_45px_-32px_rgba(15,23,42,.45)] sm:p-5">
+      <section className="rounded-panel border border-mr-line bg-mr-surface p-4 shadow-none sm:p-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0 flex-1">
             <label className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-              <UserCog className="h-3.5 w-3.5 text-blue-600" /> Sub-admin account
+              <UserCog className="h-3.5 w-3.5 text-mr-muted" /> Sub-admin account
             </label>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
               <Select value={selectedUserId} onValueChange={handleUserChange} disabled={saving}>
-                <SelectTrigger className="h-11 w-full rounded-xl border-slate-200 bg-slate-50 text-sm sm:max-w-md">
+                <SelectTrigger className="h-11 w-full rounded-control border-mr-line bg-mr-surface-2 text-sm sm:max-w-md">
                   <SelectValue placeholder="Choose a sub-admin" />
                 </SelectTrigger>
                 <SelectContent>
@@ -354,7 +384,7 @@ const PermissionManagement = () => {
                   ) : subAdmins.map(user => (
                     <SelectItem key={user.id} value={String(user.id)} className="text-sm">
                       <div className="flex min-w-0 items-center gap-2">
-                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-[10px] font-bold text-blue-700">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-mr-surface-2 text-[10px] font-bold text-mr-muted">
                           {user.name?.charAt(0)?.toUpperCase() || 'U'}
                         </span>
                         <span className="truncate">{user.name}</span>
@@ -374,13 +404,13 @@ const PermissionManagement = () => {
             </div>
           </div>
           {permissionsLoaded && !loading && (
-            <div className="min-w-52 rounded-2xl border border-blue-100 bg-blue-50/70 px-4 py-3">
+            <div className="min-w-52 rounded-panel-sm border border-mr-line bg-mr-surface-2 px-4 py-3">
               <div className="flex items-center justify-between gap-4 text-xs">
                 <span className="text-slate-600">Granted actions</span>
-                <span className="font-bold tabular-nums text-blue-800">{totals.granted} / {totals.available}</span>
+                <span className="font-bold tabular-nums text-mr-text">{totals.granted} / {totals.available}</span>
               </div>
-              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-blue-100">
-                <div className="h-full rounded-full bg-blue-600 transition-all" style={{ width: `${progress}%` }} />
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-mr-line">
+                <div className="h-full rounded-full bg-mr-lime-ink transition-all" style={{ width: `${progress}%` }} />
               </div>
             </div>
           )}
@@ -388,17 +418,17 @@ const PermissionManagement = () => {
       </section>
 
       {selectedUserId ? (
-        <section className="overflow-hidden rounded-[24px] border border-slate-200/80 bg-white shadow-[0_16px_45px_-32px_rgba(15,23,42,.45)]">
-          <div className="flex flex-col gap-3 border-b border-slate-200 bg-slate-50/80 p-4 lg:flex-row lg:items-center lg:justify-between sm:p-5">
+        <section className="overflow-hidden rounded-panel border border-mr-line bg-mr-surface shadow-none">
+          <div className="flex flex-col gap-3 border-b border-mr-line bg-mr-surface-2/60 p-4 lg:flex-row lg:items-center lg:justify-between sm:p-5">
             <div>
-              <h2 className="text-base font-bold tracking-tight text-slate-900">Permission matrix</h2>
-              <p className="mt-1 text-xs text-slate-500">View access is required before create, edit, or delete access can be used.</p>
+              <h2 className="text-base font-bold tracking-tight text-mr-text">Permission matrix</h2>
+              <p className="mt-1 text-xs text-mr-muted">View access is required before create, edit, or delete access can be used.</p>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                 <Input
-                  className="h-10 w-full rounded-xl border-slate-200 bg-white pl-9 text-xs sm:w-56"
+                  className="h-10 w-full rounded-control border-mr-line bg-mr-surface pl-9 text-xs sm:w-56"
                   placeholder="Search modules"
                   value={moduleQuery}
                   disabled={saving || !permissionsLoaded}
@@ -406,10 +436,10 @@ const PermissionManagement = () => {
                 />
               </div>
               <div className="flex gap-2">
-                <Button variant="outline" size="sm" disabled={saving || !permissionsLoaded} onClick={() => setVisibleModules(false)} className="h-10 flex-1 rounded-xl border-slate-200 text-xs sm:flex-none">
+                <Button variant="outline" size="sm" disabled={saving || !permissionsLoaded} onClick={() => setVisibleModules(false)} className="h-10 flex-1 rounded-full border-mr-line text-xs sm:flex-none">
                   Revoke visible
                 </Button>
-                <Button variant="outline" size="sm" disabled={saving || !permissionsLoaded} onClick={() => setVisibleModules(true)} className="h-10 flex-1 rounded-xl border-blue-200 bg-blue-50 text-xs text-blue-700 hover:bg-blue-100 sm:flex-none">
+                <Button variant="outline" size="sm" disabled={saving || !permissionsLoaded} onClick={() => setVisibleModules(true)} className="h-10 flex-1 rounded-full border-mr-lime-ink/20 bg-mr-lime-soft text-xs text-mr-lime-ink hover:bg-mr-lime-soft sm:flex-none">
                   Grant visible
                 </Button>
               </div>
@@ -429,7 +459,7 @@ const PermissionManagement = () => {
           ) : (
             <div className="overflow-x-auto">
               <div className="min-w-[710px]">
-                <div className="grid grid-cols-[minmax(260px,1fr)_72px_repeat(4,76px)] items-center border-b border-slate-200 bg-white px-4 py-3 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                <div className="mr-dark-table grid grid-cols-[minmax(260px,1fr)_72px_repeat(4,76px)] items-center border-b border-zinc-700 bg-mr-ink px-4 py-3 text-[10px] font-bold uppercase tracking-[0.12em] text-white">
                   <div>Module</div>
                   <div className="text-center">All</div>
                   {ACTIONS.map(action => (
@@ -447,16 +477,16 @@ const PermissionManagement = () => {
                     const allEnabled = actions.every(action => values[`can_${action.key}`]);
                     const anyEnabled = actions.some(action => values[`can_${action.key}`]);
                     return (
-                      <div key={module.key} className="grid grid-cols-[minmax(260px,1fr)_72px_repeat(4,76px)] items-center px-4 py-3 transition-colors hover:bg-blue-50/40">
+                    <div key={module.key} className="grid grid-cols-[minmax(260px,1fr)_72px_repeat(4,76px)] items-center px-4 py-3 transition-colors hover:bg-mr-surface-2">
                         <div className="flex min-w-0 items-center gap-3">
                           <div className={anyEnabled
-                            ? 'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-blue-200 bg-blue-50 text-blue-700'
-                            : 'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-400'}>
+                            ? 'flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-mr-lime-ink/20 bg-mr-lime-soft text-mr-lime-ink'
+                            : 'flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-mr-line bg-mr-surface-2 text-mr-faint'}>
                             <Icon className="h-4 w-4" />
                           </div>
                           <div className="min-w-0">
                             <div className="flex items-center gap-2">
-                              <p className="truncate text-sm font-semibold text-slate-800">{module.label}</p>
+                              <p className="truncate text-sm font-semibold text-mr-text">{module.label}</p>
                               {module.accessOnly && <Badge variant="outline" className="h-4 shrink-0 border-blue-100 bg-blue-50 px-1.5 text-[8px] uppercase text-blue-600">view only</Badge>}
                               {module.restricted && <Badge variant="outline" className="h-4 shrink-0 border-amber-200 bg-amber-50 px-1.5 text-[8px] uppercase text-amber-700">sensitive</Badge>}
                             </div>
@@ -469,9 +499,9 @@ const PermissionManagement = () => {
                             disabled={saving}
                             title={allEnabled ? `Revoke ${module.label}` : `Grant ${module.label}`}
                             onClick={() => setModuleAll(module, !allEnabled)}
-                            className={allEnabled
-                              ? 'flex h-8 w-8 items-center justify-center rounded-xl border border-blue-200 bg-blue-600 text-white shadow-sm shadow-blue-200 transition-colors hover:bg-blue-700'
-                              : 'flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-400 transition-colors hover:border-blue-300 hover:text-blue-600'}>
+                              className={allEnabled
+                              ? 'flex h-8 w-8 items-center justify-center rounded-full border border-mr-lime-ink bg-mr-lime-ink text-white transition-colors hover:brightness-110'
+                              : 'flex h-8 w-8 items-center justify-center rounded-full border border-mr-line bg-mr-surface text-mr-faint transition-colors hover:border-mr-lime-ink hover:text-mr-lime-ink'}>
                             {allEnabled ? <ShieldCheck className="h-4 w-4" /> : <ShieldOff className="h-4 w-4" />}
                           </button>
                         </div>
@@ -487,7 +517,7 @@ const PermissionManagement = () => {
                                   checked={values[`can_${action.key}`] === true}
                                   disabled={saving}
                                   onCheckedChange={() => togglePermission(module, action.key)}
-                                  className="data-[state=checked]:bg-blue-600"
+                                  className="data-[state=checked]:bg-mr-lime-ink"
                                 />
                               )}
                             </div>
@@ -506,10 +536,10 @@ const PermissionManagement = () => {
               {dirty ? <AlertCircle className="h-4 w-4" /> : <Check className="h-4 w-4" />}
               {dirty ? 'Unsaved permission changes' : 'Permissions are up to date'}
             </p>
-            <Button
+              <Button
               onClick={handleSave}
               disabled={saving || loading || !dirty}
-              className="h-10 rounded-xl bg-blue-600 px-5 text-xs text-white shadow-lg shadow-blue-200 hover:bg-blue-700 disabled:shadow-none"
+              className="h-10 rounded-full bg-mr-ink px-5 text-xs text-white hover:bg-zinc-800 disabled:opacity-50"
             >
               {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
               {saving ? 'Saving permissions...' : dirty ? 'Save changes' : 'Saved'}
@@ -517,12 +547,12 @@ const PermissionManagement = () => {
           </div>}
         </section>
       ) : (
-        <section className="flex min-h-72 flex-col items-center justify-center rounded-[24px] border border-dashed border-blue-200 bg-blue-50/35 px-5 py-14 text-center">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-blue-200 bg-white text-blue-600 shadow-sm">
+        <section className="flex min-h-72 flex-col items-center justify-center rounded-panel border border-dashed border-mr-line bg-mr-surface-2/40 px-5 py-14 text-center">
+          <div className="flex h-14 w-14 items-center justify-center rounded-full border border-mr-line bg-mr-surface text-mr-muted">
             <Shield className="h-6 w-6" />
           </div>
-          <h2 className="mt-4 text-base font-bold text-slate-900">Choose a sub-admin</h2>
-          <p className="mt-1 max-w-sm text-sm font-medium text-slate-500">Select an account above to review and configure access across all {modules.length} modules.</p>
+          <h2 className="mt-4 text-base font-bold text-mr-text">Choose a sub-admin</h2>
+          <p className="mt-1 max-w-sm text-sm font-medium text-mr-muted">Select an account above to review and configure access across all {modules.length} modules.</p>
         </section>
       )}
     </div>

@@ -1,3 +1,4 @@
+import { writePrintDocument } from '../lib/safePrint';
 import React, { useRef } from 'react';
 import { Button } from './ui/button';
 import { Card, CardContent } from './ui/card';
@@ -43,7 +44,7 @@ const PrintableVoucher = ({ data, onClose }) => {
     
     const pri = iframe.contentWindow;
     pri.document.open();
-    pri.document.write(`
+    writePrintDocument(pri, `
       <html>
         <head>
           <title>Print Voucher</title>
