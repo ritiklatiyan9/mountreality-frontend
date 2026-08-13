@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/api';
@@ -17,7 +17,7 @@ import {
 } from '../components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import {
-  AlertTriangle, ArrowLeft, CalendarClock, Check, CheckCircle2, ClipboardCheck,
+  AlertTriangle, CalendarClock, Check, CheckCircle2, ClipboardCheck,
   Download, ExternalLink, FilePlus2, FileText, History, IndianRupee, ListChecks,
   Loader2, Paperclip, PencilLine, Plus, RefreshCw, RotateCcw, ShieldCheck, Upload,
   UserRound, X,
@@ -25,10 +25,11 @@ import {
 import {
   fmtDate, labelize, money, RISK_STYLE, STATUS_OPTIONS, STATUS_STYLE,
 } from '../components/compliance/complianceUi';
+import {
+  ComplianceDetailHeader, ComplianceField as Field, ComplianceSurface as Panel,
+} from '../components/compliance/ComplianceWorkspace';
 
 const Pill = ({ value, styles }) => <Badge variant="outline" className={cn('rounded-full px-2.5 text-[10px] font-semibold', styles[value] || 'border-slate-200 bg-slate-50 text-slate-600')}>{labelize(value)}</Badge>;
-const Panel = ({ children, className }) => <section className={cn('rounded-[22px] border border-slate-200 bg-white shadow-[0_18px_45px_-36px_rgba(15,23,42,.45)]', className)}>{children}</section>;
-const Field = ({ label, value, children }) => <div><p className="text-[10px] font-bold uppercase tracking-[.12em] text-slate-400">{label}</p><div className="mt-1.5 text-sm font-medium text-slate-800">{children || value || '—'}</div></div>;
 
 export default function ComplianceItemDetail() {
   const { id } = useParams();
@@ -37,6 +38,7 @@ export default function ComplianceItemDetail() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [savingChecklistIds, setSavingChecklistIds] = useState(() => new Set());
   const [statusOpen, setStatusOpen] = useState(false);
   const [statusForm, setStatusForm] = useState({ status: '', comment: '', override_reason: '' });
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
@@ -84,9 +86,51 @@ export default function ComplianceItemDetail() {
     catch (error) { toast.error(error.response?.data?.message || 'Checklist item could not be added'); }
     finally { setBusy(false); }
   };
-  const toggleChecklist = async (row) => {
-    try { await api.patch(`/compliance/items/${id}/checklist/${row.id}`, { status: row.status === 'COMPLETED' ? 'PENDING' : 'COMPLETED' }); load(); }
-    catch (error) { toast.error(error.response?.data?.message || 'Checklist could not be updated'); }
+  const updateChecklistProgress = (checklist) => checklist.length
+    ? Math.round(checklist.filter((entry) => entry.status === 'COMPLETED').length / checklist.length * 100)
+    : 0;
+  const toggleChecklist = async (row, checked) => {
+    if (savingChecklistIds.has(row.id)) return;
+    const nextStatus = checked ? 'COMPLETED' : 'PENDING';
+    if (row.status === nextStatus) return;
+    const optimisticRow = {
+      ...row,
+      status: nextStatus,
+      completed_by: nextStatus === 'COMPLETED' ? user?.id || row.completed_by : null,
+      completed_by_name: nextStatus === 'COMPLETED' ? user?.name || 'You' : null,
+      completed_at: nextStatus === 'COMPLETED' ? new Date().toISOString() : null,
+    };
+    setData((current) => {
+      if (!current) return current;
+      const checklist = current.checklist.map((entry) => entry.id === row.id ? optimisticRow : entry);
+      return { ...current, checklist, item: { ...current.item, completion_percentage: updateChecklistProgress(checklist) } };
+    });
+    setSavingChecklistIds((current) => new Set(current).add(row.id));
+    try {
+      const { data: result } = await api.patch(`/compliance/items/${id}/checklist/${row.id}`, { status: nextStatus });
+      setData((current) => {
+        if (!current) return current;
+        const checklist = current.checklist.map((entry) => entry.id === row.id ? {
+          ...entry,
+          ...result.checklist_item,
+          completed_by_name: result.checklist_item.status === 'COMPLETED' ? entry.completed_by_name || user?.name || 'You' : null,
+        } : entry);
+        return { ...current, checklist, item: { ...current.item, completion_percentage: result.completion_percentage ?? updateChecklistProgress(checklist) } };
+      });
+    } catch (error) {
+      setData((current) => {
+        if (!current) return current;
+        const checklist = current.checklist.map((entry) => entry.id === row.id ? row : entry);
+        return { ...current, checklist, item: { ...current.item, completion_percentage: updateChecklistProgress(checklist) } };
+      });
+      toast.error(error.response?.data?.message || 'Checklist could not be updated');
+    } finally {
+      setSavingChecklistIds((current) => {
+        const next = new Set(current);
+        next.delete(row.id);
+        return next;
+      });
+    }
   };
   const uploadDocument = async (event) => {
     event.preventDefault();
@@ -102,7 +146,7 @@ export default function ComplianceItemDetail() {
     finally { setBusy(false); }
   };
   const openDocument = async (documentId) => {
-    try { const { data: result } = await api.get(`/compliance-documents/file/${documentId}`); if (result.document.file_url) window.open(result.document.file_url, '_blank', 'noopener,noreferrer'); else toast.error('Preview URL is unavailable'); }
+    try { const { data: result } = await api.get(`/compliance-documents/file/${documentId}`); const previewUrl = result.document.file_url || result.document.content_url; if (previewUrl) window.open(previewUrl, '_blank', 'noopener,noreferrer'); else toast.error('Preview URL is unavailable'); }
     catch (error) { toast.error(error.response?.data?.message || 'Document access denied'); }
   };
   const reviewDate = async (changeId, decision) => {
@@ -126,20 +170,17 @@ export default function ComplianceItemDetail() {
   if (loading || !item) return <div className="mx-auto max-w-7xl space-y-4"><Skeleton className="h-44 rounded-[24px]"/><div className="grid gap-4 lg:grid-cols-3"><Skeleton className="h-96 rounded-[22px] lg:col-span-2"/><Skeleton className="h-96 rounded-[22px]"/></div></div>;
   const overdue = item.current_due_date && new Date(item.current_due_date) < new Date() && !['COMPLETED','CANCELLED','NOT_APPLICABLE'].includes(item.status);
   return <div className="mx-auto w-full max-w-7xl space-y-5 pb-10">
-    <header className="relative overflow-hidden rounded-[26px] border border-slate-200 bg-slate-950 px-5 py-6 text-white sm:px-7">
-      <div className="absolute -right-12 -top-20 h-56 w-56 rounded-full bg-blue-500/20 blur-3xl" />
-      <div className="relative"><Link to="/compliance/register" className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-300 hover:text-white"><ArrowLeft className="h-3.5 w-3.5"/>Back to register</Link><div className="mt-5 flex flex-col justify-between gap-5 lg:flex-row lg:items-end"><div><div className="flex flex-wrap items-center gap-2">{Pill({ value: item.status, styles: STATUS_STYLE })}{Pill({ value: item.risk_level, styles: RISK_STYLE })}<span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">{item.compliance_code}</span></div><h1 className="mt-3 max-w-3xl text-2xl font-bold tracking-tight sm:text-3xl">{item.title}</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">{item.description || labelize(item.compliance_type)}</p></div><div className="flex flex-wrap gap-2">{canUpdate && <><Button variant="outline" className="border-white/15 bg-white/10 text-white hover:bg-white/20 hover:text-white" onClick={() => { setReschedule({ new_due_date: item.current_due_date?.slice(0,10) || '', reason: '' }); setRescheduleOpen(true); }}><CalendarClock className="mr-2 h-4 w-4"/>Reschedule</Button><Button className="bg-white text-slate-950 hover:bg-slate-100" onClick={() => { setStatusForm({ status: '', comment: '', override_reason: '' }); setStatusOpen(true); }}><RefreshCw className="mr-2 h-4 w-4"/>Change status</Button></>}</div></div></div>
-    </header>
-    {overdue && <div className="flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-red-800"><AlertTriangle className="mt-0.5 h-5 w-5 shrink-0"/><div><p className="text-sm font-bold">This obligation is overdue</p><p className="mt-1 text-xs">The original deadline remains in the audit trail. Use the controlled reschedule workflow if the authority granted more time.</p></div></div>}
+    <ComplianceDetailHeader backTo="/compliance/register" backLabel="Back to register" eyebrow={item.compliance_code} title={item.title} description={item.description || labelize(item.compliance_type)} icon={ClipboardCheck} badges={<><Pill value={item.status} styles={STATUS_STYLE} /><Pill value={item.risk_level} styles={RISK_STYLE} /></>} actions={canUpdate && <><Button variant="outline" onClick={() => { setReschedule({ new_due_date: item.current_due_date?.slice(0,10) || '', reason: '' }); setRescheduleOpen(true); }}><CalendarClock className="mr-2 h-4 w-4"/>Reschedule</Button><Button className="bg-slate-950 text-white hover:bg-slate-800" onClick={() => { setStatusForm({ status: '', comment: '', override_reason: '' }); setStatusOpen(true); }}><RefreshCw className="mr-2 h-4 w-4"/>Change status</Button></>} />
+    {overdue && <div className="flex items-start gap-3 border-y border-red-200 bg-red-50 px-4 py-3 text-red-800"><AlertTriangle className="mt-0.5 h-5 w-5 shrink-0"/><div><p className="text-sm font-bold">This obligation is overdue</p><p className="mt-1 text-xs">The original deadline remains in the audit trail. Use the controlled reschedule workflow if the authority granted more time.</p></div></div>}
     <div className="grid gap-5 xl:grid-cols-[1fr_320px]">
       <Panel className="overflow-hidden">
         <Tabs defaultValue="overview">
           <div className="overflow-x-auto border-b border-slate-100 px-4 pt-3"><TabsList className="h-11 bg-transparent"><TabsTrigger value="overview">Overview</TabsTrigger><TabsTrigger value="checklist">Checklist ({data.checklist.length})</TabsTrigger><TabsTrigger value="evidence">Evidence ({data.documents.length})</TabsTrigger><TabsTrigger value="finance">Finance ({data.finance_links?.length || 0})</TabsTrigger><TabsTrigger value="history">Timeline ({data.history.length})</TabsTrigger><TabsTrigger value="approvals">Approvals</TabsTrigger></TabsList></div>
-          <TabsContent value="overview" className="m-0 p-5"><div className="grid gap-x-8 gap-y-6 sm:grid-cols-2 lg:grid-cols-3"><Field label="Compliance type" value={labelize(item.compliance_type)}/><Field label="Category" value={labelize(item.category)}/><Field label="Frequency" value={labelize(item.frequency)}/><Field label="Original due date" value={fmtDate(item.original_due_date)}/><Field label="Current due date"><span className={overdue ? 'text-red-600' : ''}>{fmtDate(item.current_due_date)}</span></Field><Field label="Grace period" value={`${item.grace_period_days || 0} days`}/><Field label="Responsible employee" value={item.assigned_to || 'Unassigned'}/><Field label="Relevant law" value={item.applicable_law}/><Field label="Section / reference" value={item.section_reference}/><Field label="Financial impact" value={money(item.financial_impact)}/><Field label="Priority" value={labelize(item.priority)}/><Field label="Approval required" value={item.approval_required ? 'Yes' : 'No'}/></div>{item.notes && <div className="mt-7 rounded-2xl bg-slate-50 p-4"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Internal notes</p><p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-slate-700">{item.notes}</p></div>}<div className="mt-6 flex flex-wrap gap-2"><Button variant="outline" onClick={() => navigate('/expenses')}><IndianRupee className="mr-2 h-4 w-4"/>Record fee or penalty</Button></div></TabsContent>
-          <TabsContent value="checklist" className="m-0"><div className="flex items-center justify-between border-b border-slate-100 p-5"><div><h2 className="text-sm font-bold">Completion checklist</h2><p className="mt-1 text-xs text-slate-500">Mandatory items block final completion unless an administrator records an override.</p></div>{canWrite && <Button size="sm" className="rounded-xl" onClick={() => setCheckOpen(true)}><Plus className="mr-1.5 h-4 w-4"/>Add task</Button>}</div>{data.checklist.length ? <div className="divide-y">{data.checklist.map((row) => <div key={row.id} className="flex items-start gap-3 p-4"><Checkbox checked={row.status === 'COMPLETED'} disabled={!canUpdate} onCheckedChange={() => toggleChecklist(row)} className="mt-0.5"/><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><p className={cn('text-xs font-semibold', row.status === 'COMPLETED' && 'text-slate-400 line-through')}>{row.title}</p>{row.is_mandatory && <Badge variant="outline" className="border-red-200 bg-red-50 text-[9px] text-red-600">Required</Badge>}</div><p className="mt-1 text-[10px] text-slate-400">{row.description || 'No description'} {row.due_date ? `· due ${fmtDate(row.due_date)}` : ''}</p></div>{row.completed_by_name && <span className="text-[10px] text-emerald-600">Completed by {row.completed_by_name}</span>}</div>)}</div> : <div className="p-10 text-center text-xs text-slate-500">No checklist items have been added.</div>}</TabsContent>
-          <TabsContent value="evidence" className="m-0"><div className="flex items-center justify-between border-b border-slate-100 p-5"><div><h2 className="text-sm font-bold">Documents & evidence</h2><p className="mt-1 text-xs text-slate-500">Private signed URLs, version history and OCR indexing.</p></div>{canWrite && <Button size="sm" className="rounded-xl" onClick={() => setUploadOpen(true)}><Upload className="mr-1.5 h-4 w-4"/>Upload evidence</Button>}</div>{data.documents.length ? <div className="grid gap-3 p-5 sm:grid-cols-2">{data.documents.map((row) => <button type="button" key={row.id} onClick={() => openDocument(row.id)} className="flex items-start gap-3 rounded-2xl border border-slate-200 p-4 text-left transition hover:border-blue-200 hover:bg-blue-50/30"><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-700"><FileText className="h-4 w-4"/></span><div className="min-w-0 flex-1"><p className="truncate text-xs font-semibold text-slate-800">{row.title}</p><p className="mt-1 text-[10px] text-slate-400">v{row.version_no} · {labelize(row.category)} · {labelize(row.confidentiality)}</p><p className="mt-1 text-[10px] text-slate-400">{row.expiry_date ? `Expires ${fmtDate(row.expiry_date)}` : fmtDate(row.created_at)}</p></div><ExternalLink className="h-3.5 w-3.5 text-slate-400"/></button>)}</div> : <div className="p-10 text-center text-xs text-slate-500">No supporting evidence uploaded.</div>}</TabsContent>
+          <TabsContent value="overview" className="m-0 p-5"><div className="grid gap-x-8 gap-y-6 sm:grid-cols-2 lg:grid-cols-3"><Field label="Compliance type" value={labelize(item.compliance_type)}/><Field label="Category" value={labelize(item.category)}/><Field label="Frequency" value={labelize(item.frequency)}/><Field label="Original due date" value={fmtDate(item.original_due_date)}/><Field label="Current due date"><span className={overdue ? 'text-red-600' : ''}>{fmtDate(item.current_due_date)}</span></Field><Field label="Grace period" value={`${item.grace_period_days || 0} days`}/><Field label="Responsible employee" value={item.assigned_to_name || 'Unassigned'}/><Field label="Relevant law" value={item.applicable_law}/><Field label="Section / reference" value={item.section_reference}/><Field label="Financial impact" value={money(item.financial_impact)}/><Field label="Priority" value={labelize(item.priority)}/><Field label="Approval required" value={item.approval_required ? 'Yes' : 'No'}/></div>{item.notes && <div className="mt-7 border-l-2 border-slate-300 bg-slate-50 px-4 py-3"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Internal notes</p><p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-slate-700">{item.notes}</p></div>}<div className="mt-6 flex flex-wrap gap-2"><Button variant="outline" onClick={() => navigate('/expenses')}><IndianRupee className="mr-2 h-4 w-4"/>Record fee or penalty</Button></div></TabsContent>
+          <TabsContent value="checklist" className="m-0"><div className="flex items-center justify-between border-b border-slate-100 p-5"><div><h2 className="text-sm font-bold">Completion checklist</h2><p className="mt-1 text-xs text-slate-500">Mandatory items block final completion unless an administrator records an override.</p></div>{canWrite && <Button size="sm" className="rounded-xl" onClick={() => setCheckOpen(true)}><Plus className="mr-1.5 h-4 w-4"/>Add task</Button>}</div>{data.checklist.length ? <div className="divide-y">{data.checklist.map((row) => { const isSaving = savingChecklistIds.has(row.id); return <div key={row.id} className={cn('flex items-start gap-3 p-4 transition-opacity', isSaving && 'opacity-70')}><Checkbox checked={row.status === 'COMPLETED'} disabled={!canUpdate || isSaving} onCheckedChange={(checked) => toggleChecklist(row, checked === true)} className="mt-0.5"/><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><p className={cn('text-xs font-semibold', row.status === 'COMPLETED' && 'text-slate-400 line-through')}>{row.title}</p>{row.is_mandatory && <Badge variant="outline" className="border-red-200 bg-red-50 text-[9px] text-red-600">Required</Badge>}{isSaving && <span className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-400"><Loader2 className="h-3 w-3 animate-spin"/>Saving</span>}</div><p className="mt-1 text-[10px] text-slate-400">{row.description || 'No description'} {row.due_date ? `· due ${fmtDate(row.due_date)}` : ''}</p></div>{row.completed_by_name && <span className="text-[10px] text-emerald-600">Completed by {row.completed_by_name}</span>}</div>; })}</div> : <div className="p-10 text-center text-xs text-slate-500">No checklist items have been added.</div>}</TabsContent>
+          <TabsContent value="evidence" className="m-0"><div className="flex items-center justify-between border-b border-slate-100 p-5"><div><h2 className="text-sm font-bold">Documents & evidence</h2><p className="mt-1 text-xs text-slate-500">Private signed URLs, version history and OCR indexing.</p></div>{canWrite && <Button size="sm" onClick={() => setUploadOpen(true)}><Upload className="mr-1.5 h-4 w-4"/>Upload evidence</Button>}</div>{data.documents.length ? <div className="divide-y divide-slate-100">{data.documents.map((row) => <button type="button" key={row.id} onClick={() => openDocument(row.id)} className="flex w-full items-start gap-3 px-5 py-4 text-left transition hover:bg-blue-50/40"><span className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50 text-blue-700"><FileText className="h-4 w-4"/></span><div className="min-w-0 flex-1"><p className="truncate text-xs font-semibold text-slate-800">{row.title}</p><p className="mt-1 text-[10px] text-slate-400">v{row.version_no} · {labelize(row.category)} · {labelize(row.confidentiality)}</p><p className="mt-1 text-[10px] text-slate-400">{row.expiry_date ? `Expires ${fmtDate(row.expiry_date)}` : fmtDate(row.created_at)}</p></div><ExternalLink className="h-3.5 w-3.5 text-slate-400"/></button>)}</div> : <div className="p-10 text-center text-xs text-slate-500">No supporting evidence uploaded.</div>}</TabsContent>
           <TabsContent value="finance" className="m-0"><div className="flex items-center justify-between border-b border-slate-100 p-5"><div><h2 className="text-sm font-bold">Linked accounting expenses</h2><p className="mt-1 text-xs text-slate-500">References existing expense records; no financial entry is duplicated.</p></div>{canUpdate && <Button size="sm" onClick={() => setFinanceOpen(true)}><Plus className="mr-1.5 h-4 w-4"/>Link expense</Button>}</div>{data.finance_links?.length ? <div className="divide-y">{data.finance_links.map((row) => <div key={row.id} className="grid gap-3 p-4 sm:grid-cols-[1fr_auto] sm:items-center"><div><p className="text-xs font-semibold">{labelize(row.cost_type)} · Expense #{row.expense_id}</p><p className="mt-1 text-[10px] text-slate-400">{row.category || 'Uncategorised'} · {fmtDate(row.date)} · {row.remark || row.notes || 'No notes'}</p></div><p className="text-sm font-bold">{money(Number(row.debit || 0) || Number(row.credit || 0))}</p></div>)}</div> : <div className="p-10 text-center text-xs text-slate-500">No finance records linked.</div>}</TabsContent>
-          <TabsContent value="history" className="m-0 p-5">{data.history.length ? <div className="relative space-y-5 before:absolute before:bottom-2 before:left-[9px] before:top-2 before:w-px before:bg-slate-200">{data.history.map((row) => <div key={row.id} className="relative flex gap-4"><span className="relative z-10 mt-1 h-[19px] w-[19px] shrink-0 rounded-full border-4 border-white bg-blue-500 shadow-sm"/><div className="min-w-0 flex-1 rounded-2xl bg-slate-50 p-3"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-semibold">{labelize(row.previous_status)} → {labelize(row.new_status)}</p><p className="text-[10px] text-slate-400">{fmtDate(row.changed_at, true)}</p></div><p className="mt-1 text-[10px] text-slate-500">{row.changed_by_name || 'System'}{row.comment ? ` · ${row.comment}` : ''}</p></div></div>)}</div> : <p className="text-xs text-slate-500">No status history.</p>}</TabsContent>
+          <TabsContent value="history" className="m-0 p-5">{data.history.length ? <div className="relative space-y-1 before:absolute before:bottom-2 before:left-[9px] before:top-2 before:w-px before:bg-slate-200">{data.history.map((row) => <div key={row.id} className="relative flex gap-4 py-3"><span className="relative z-10 mt-1 h-[19px] w-[19px] shrink-0 rounded-full border-4 border-white bg-blue-500 shadow-sm"/><div className="min-w-0 flex-1 border-b border-slate-100 pb-3"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-semibold">{labelize(row.previous_status)} → {labelize(row.new_status)}</p><p className="text-[10px] text-slate-400">{fmtDate(row.changed_at, true)}</p></div><p className="mt-1 text-[10px] text-slate-500">{row.changed_by_name || 'System'}{row.comment ? ` · ${row.comment}` : ''}</p></div></div>)}</div> : <p className="text-xs text-slate-500">No status history.</p>}</TabsContent>
           <TabsContent value="approvals" className="m-0 p-5"><div className="space-y-5">{data.due_date_changes.filter((row) => row.status === 'PENDING').map((row) => <div key={`date-${row.id}`} className="rounded-2xl border border-amber-200 bg-amber-50 p-4"><div className="flex flex-col justify-between gap-3 sm:flex-row"><div><p className="text-xs font-bold text-amber-900">Due-date change awaiting review</p><p className="mt-1 text-xs text-amber-800">{fmtDate(row.old_due_date)} → {fmtDate(row.new_due_date)}</p><p className="mt-1 text-[10px] text-amber-700">{row.reason} · requested by {row.requested_by_name}</p></div>{canAdmin && <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => reviewDate(row.id, 'REJECTED')}><X className="mr-1 h-3.5 w-3.5"/>Reject</Button><Button size="sm" onClick={() => reviewDate(row.id, 'APPROVED')}><Check className="mr-1 h-3.5 w-3.5"/>Approve</Button></div>}</div></div>)}{data.approvals.filter((row) => row.status === 'PENDING').map((row) => <div key={`approval-${row.id}`} className="rounded-2xl border border-blue-200 bg-blue-50 p-4"><div className="flex flex-col justify-between gap-3 sm:flex-row"><div><p className="text-xs font-bold text-blue-900">{labelize(row.action_type)} awaiting approval</p><p className="mt-1 text-[10px] text-blue-700">{row.request_comment || 'No comment'} · requested by {row.requested_by_name}</p></div>{canAdmin && <div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => reviewApproval(row.id, 'RETURN')}>Return</Button><Button size="sm" variant="outline" onClick={() => reviewApproval(row.id, 'REJECT')}>Reject</Button><Button size="sm" onClick={() => reviewApproval(row.id, 'APPROVE')}>Approve</Button></div>}</div></div>)}{!data.due_date_changes.some((row) => row.status === 'PENDING') && !data.approvals.some((row) => row.status === 'PENDING') && <div className="p-10 text-center text-xs text-slate-500">No approvals are awaiting action.</div>}</div></TabsContent>
         </Tabs>
       </Panel>

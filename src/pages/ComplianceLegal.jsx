@@ -2,7 +2,7 @@ import { createElement, useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   addDays, addMonths, eachDayOfInterval, endOfMonth, endOfWeek, format,
-  isSameDay, isSameMonth, startOfMonth, startOfWeek, subMonths,
+  isSameDay, startOfMonth, startOfWeek, subMonths,
 } from 'date-fns';
 import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Pie, PieChart,
@@ -30,7 +30,7 @@ import {
 import {
   AlertOctagon, AlertTriangle, ArrowLeft, ArrowRight, Building2, CalendarDays,
   CalendarRange, CheckCircle2, ChevronLeft, ChevronRight, ClipboardCheck,
-  Clock3, Download, FileClock, FileSpreadsheet, Filter, Gavel, Inbox, Landmark,
+  Clock3, Download, FileClock, FileSpreadsheet, Files, Filter, Gavel, Inbox, Landmark,
   LayoutDashboard, ListChecks, Loader2, Plus, RefreshCw, Scale, Search, Settings2,
   ShieldAlert, ShieldCheck, Sparkles, Upload, UserRound, XCircle,
 } from 'lucide-react';
@@ -38,6 +38,10 @@ import {
   COMPLIANCE_TYPES, fmtDate, isoDate, labelize, money, RISK_OPTIONS, RISK_STYLE,
   STATUS_OPTIONS, STATUS_STYLE,
 } from '../components/compliance/complianceUi';
+import ComplianceMonthCalendar, { CalendarEventPreview } from '../components/compliance/ComplianceMonthCalendar';
+import {
+  calendarEventTime, COMPLIANCE_EVENT_META, complianceEventDate, complianceEventRoute,
+} from '../components/compliance/complianceCalendarMeta';
 
 const COLORS = ['#2563eb', '#14b8a6', '#f59e0b', '#ef4444', '#8b5cf6', '#0ea5e9', '#84cc16'];
 const FREQUENCIES = ['ONE_TIME', 'MONTHLY', 'QUARTERLY', 'HALF_YEARLY', 'YEARLY', 'EVENT_BASED', 'CUSTOM'];
@@ -54,7 +58,7 @@ const REPORT_TYPES = [
 ];
 
 const pill = (value, map) => (
-  <Badge variant="outline" className={cn('whitespace-nowrap rounded-full px-2.5 py-0.5 text-[10px] font-semibold', map[value] || 'border-slate-200 bg-slate-50 text-slate-600')}>
+  <Badge variant="outline" className={cn('whitespace-nowrap rounded-full px-2.5 py-0.5 text-[10px] font-semibold', map[value] || 'border-mr-line bg-mr-surface-2 text-mr-muted')}>
     {labelize(value)}
   </Badge>
 );
@@ -68,21 +72,20 @@ const Empty = ({ title = 'Nothing here yet', copy = 'Create the first record to 
 );
 
 const Panel = ({ children, className }) => (
-  <section className={cn('overflow-hidden rounded-[22px] border border-slate-200/80 bg-white shadow-[0_18px_45px_-36px_rgba(15,23,42,.45)]', className)}>
+  <section className={cn('overflow-hidden border-y border-mr-line bg-mr-surface sm:border-x', className)}>
     {children}
   </section>
 );
 
 const Head = ({ eyebrow, title, copy, icon, actions }) => (
-  <header className="relative overflow-hidden rounded-[26px] border border-slate-200 bg-slate-950 px-5 py-6 text-white shadow-xl shadow-slate-950/10 sm:px-7">
-    <div className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full bg-blue-500/20 blur-3xl" />
-    <div className="relative flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
+  <header className="relative pb-5 pt-1">
+    <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
       <div className="flex items-start gap-4">
-        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/10 ring-1 ring-white/15">{createElement(icon, { className: 'h-6 w-6 text-blue-200' })}</span>
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-950 text-white shadow-sm">{createElement(icon, { className: 'h-5 w-5' })}</span>
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[.18em] text-blue-200">{eyebrow}</p>
-          <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">{title}</h1>
-          <p className="mt-1.5 max-w-2xl text-sm leading-5 text-slate-300">{copy}</p>
+          <p className="text-[10px] font-bold uppercase tracking-[.18em] text-blue-600">{eyebrow}</p>
+          <h1 className="mt-1 text-2xl font-bold tracking-tight text-mr-text sm:text-3xl">{title}</h1>
+          <p className="mt-1.5 max-w-2xl text-sm leading-6 text-mr-muted">{copy}</p>
         </div>
       </div>
       {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
@@ -109,8 +112,40 @@ const NativeSelect = ({ value, onChange, children, className }) => (
 
 const DistributionPanel = ({ title, copy, rows = [], color = 'bg-blue-500' }) => {
   const max = Math.max(...rows.map((row) => Number(row.value) || 0), 1);
-  return <Panel className="p-5"><h2 className="text-sm font-bold text-slate-900">{title}</h2><p className="mt-1 text-xs text-slate-500">{copy}</p><div className="mt-5 space-y-3">{rows.length ? rows.slice(0, 8).map((row) => <div key={row.label || row.month}><div className="mb-1 flex items-center justify-between gap-3 text-[10px]"><span className="truncate font-semibold text-slate-600">{labelize(row.label || row.month)}</span><span className="font-bold tabular-nums text-slate-700">{row.value}</span></div><div className="h-1.5 overflow-hidden rounded-full bg-slate-100"><div className={cn('h-full rounded-full', color)} style={{ width: `${Math.max(Number(row.value) / max * 100, 4)}%` }} /></div></div>) : <p className="py-8 text-center text-xs text-slate-400">No data</p>}</div></Panel>;
+  return <section className="min-w-0 p-5"><h2 className="text-sm font-bold text-slate-900">{title}</h2><p className="mt-1 text-xs text-slate-500">{copy}</p><div className="mt-5 space-y-3">{rows.length ? rows.slice(0, 8).map((row) => <div key={row.label || row.month}><div className="mb-1 flex items-center justify-between gap-3 text-[10px]"><span className="truncate font-semibold text-slate-600">{labelize(row.label || row.month)}</span><span className="font-bold tabular-nums text-slate-700">{row.value}</span></div><div className="h-1.5 overflow-hidden rounded-full bg-slate-100"><div className={cn('h-full rounded-full', color)} style={{ width: `${Math.max(Number(row.value) / max * 100, 4)}%` }} /></div></div>) : <p className="py-8 text-center text-xs text-slate-400">No data</p>}</div></section>;
 };
+
+const MODULE_NAV = [
+  ['dashboard', '/compliance/dashboard', 'Overview', LayoutDashboard, 'compliance'],
+  ['tasks', '/compliance/my-tasks', 'My work', ListChecks, 'compliance'],
+  ['calendar', '/compliance/calendar', 'Calendar', CalendarDays, 'compliance'],
+  ['register', '/compliance/register', 'Register', ClipboardCheck, 'compliance'],
+  ['licences', '/compliance/licences', 'Licences', ShieldCheck, 'compliance'],
+  ['documents', '/compliance/documents', 'Documents', FileClock, 'compliance'],
+  ['cases', '/legal/cases', 'Cases', Gavel, 'legal'],
+  ['notices', '/legal/notices', 'Notices', ShieldAlert, 'legal'],
+  ['inspections', '/legal/inspections', 'Inspections', CalendarRange, 'compliance'],
+  ['templates', '/compliance/templates', 'Templates', Files, 'compliance_templates'],
+  ['reports', '/compliance/reports', 'Reports', FileSpreadsheet, 'compliance'],
+  ['authorities', '/compliance/authorities', 'Authorities', Landmark, 'compliance_settings'],
+  ['settings', '/compliance/settings', 'Settings', Settings2, 'compliance_settings'],
+];
+
+function ModuleNav({ active }) {
+  const { hasPermission } = useAuth();
+  const visible = MODULE_NAV.filter(([, , , , module]) => hasPermission(module, 'read'));
+  return (
+    <nav aria-label="Compliance workspace" className="-mx-1 overflow-x-auto border-b border-mr-line">
+      <div className="flex min-w-max items-center gap-1 px-1">
+        {visible.map(([key, href, label, navIcon]) => (
+          <Link key={key} to={href} className={cn('relative inline-flex h-11 items-center gap-1.5 px-3 text-[11px] font-semibold text-mr-muted transition hover:text-mr-text', active === key && 'text-mr-blue after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:rounded-full after:bg-mr-blue')}>
+            {createElement(navIcon, { className: 'h-3.5 w-3.5' })}{label}
+          </Link>
+        ))}
+      </div>
+    </nav>
+  );
+}
 
 function DashboardView({ siteId }) {
   const navigate = useNavigate();
@@ -172,15 +207,14 @@ function DashboardView({ siteId }) {
           <div className="flex gap-2"><Input aria-label="Due to" type="date" value={filters.to} onChange={(event) => setFilters({ ...filters, to: event.target.value })} /><Button type="button" variant="outline" size="icon" title="Clear dashboard filters" onClick={() => setFilters({ state: '', category: '', authority_id: '', responsible_user_id: '', risk: '', status: '', from: '', to: '' })}><Filter className="h-4 w-4" /></Button></div>
         </div>
       </Panel>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <Panel className="grid divide-y divide-slate-100 sm:grid-cols-2 sm:[&>*:nth-child(odd)]:border-r lg:grid-cols-5 lg:[&>*]:border-r lg:[&>*:nth-child(5n)]:border-r-0">
         {cards.map(([label, value, icon, tone, target]) => (
-          <button key={label} type="button" onClick={() => navigate(target.startsWith('/') ? target : `/compliance/register${target}`)} className="rounded-[20px] border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md">
-            <span className={cn('flex h-9 w-9 items-center justify-center rounded-xl', tone)}>{createElement(icon, { className: 'h-4 w-4' })}</span>
-            <p className="mt-4 text-2xl font-bold tabular-nums text-slate-900">{Number(value || 0).toLocaleString('en-IN')}</p>
-            <p className="mt-1 text-[11px] font-semibold text-slate-500">{label}</p>
+          <button key={label} type="button" onClick={() => navigate(target.startsWith('/') ? target : `/compliance/register${target}`)} className="group flex min-h-28 items-start gap-3 p-4 text-left transition hover:bg-slate-50">
+            <span className={cn('mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg', tone)}>{createElement(icon, { className: 'h-4 w-4' })}</span>
+            <span><span className="block text-2xl font-bold tabular-nums text-slate-950">{Number(value || 0).toLocaleString('en-IN')}</span><span className="mt-1 block text-[11px] font-semibold leading-4 text-slate-500 group-hover:text-slate-700">{label}</span></span>
           </button>
         ))}
-      </div>
+      </Panel>
       <div className="grid gap-5 xl:grid-cols-2">
         <Panel>
           <div className="border-b border-slate-100 p-5"><h2 className="text-sm font-bold text-slate-900">Due versus completed</h2><p className="mt-1 text-xs text-slate-500">Twelve-month compliance movement</p></div>
@@ -210,13 +244,13 @@ function DashboardView({ siteId }) {
           <div className="h-72 p-4"><ResponsiveContainer width="100%" height="100%"><BarChart data={data?.charts?.authorities || []} layout="vertical" margin={{ left: 14, right: 20 }}><CartesianGrid strokeDasharray="3 3" horizontal={false}/><XAxis type="number" hide/><YAxis type="category" dataKey="label" tick={{ fontSize: 10 }} width={100}/><ChartTooltip/><Bar dataKey="value" fill="#2563eb" radius={[0, 6, 6, 0]}/></BarChart></ResponsiveContainer></div>
         </Panel>
       </div>
-      <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-5">
+      <Panel className="grid divide-y divide-slate-100 md:grid-cols-2 md:[&>*:nth-child(odd)]:border-r xl:grid-cols-5 xl:divide-y-0 xl:[&>*]:border-r xl:[&>*:last-child]:border-r-0">
         <DistributionPanel title="Status" copy="Portfolio workflow distribution" rows={data?.charts?.status} color="bg-cyan-500" />
         <DistributionPanel title="By project" copy="Obligations by site" rows={data?.charts?.sites} color="bg-blue-500" />
         <DistributionPanel title="By employee" copy="Responsible workload" rows={data?.charts?.employees} color="bg-emerald-500" />
         {canViewLegal && <DistributionPanel title="Legal stage" copy="Open matters by stage" rows={data?.charts?.legal_stages} color="bg-violet-500" />}
         <DistributionPanel title="Expiry timeline" copy="Licences and documents, 12 months" rows={data?.charts?.expiry_timeline} color="bg-orange-500" />
-      </div>
+      </Panel>
     </div>
   );
 }
@@ -325,8 +359,13 @@ function RegisterView({ siteId }) {
 
 function CalendarView({ siteId }) {
   const navigate = useNavigate();
-  const [cursor, setCursor] = useState(startOfMonth(new Date()));
-  const [mode, setMode] = useState('month');
+  const location = useLocation();
+  const requestedDate = new URLSearchParams(location.search).get('date');
+  const initialDate = requestedDate ? new Date(`${requestedDate}T00:00:00`) : new Date();
+  const validInitialDate = Number.isNaN(initialDate.getTime()) ? new Date() : initialDate;
+  const [cursor, setCursor] = useState(() => (requestedDate ? validInitialDate : startOfMonth(validInitialDate)));
+  const [mode, setMode] = useState(requestedDate ? 'day' : 'month');
+  const [eventFilter, setEventFilter] = useState('ALL');
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const range = useMemo(() => {
@@ -343,35 +382,76 @@ function CalendarView({ siteId }) {
     finally { setLoading(false); }
   }, [siteId, range]);
   useEffect(() => { load(); }, [load]);
-  const days = eachDayOfInterval(range);
-  const byDay = (day) => events.filter((event) => isSameDay(new Date(event.event_date), day));
-  const openEvent = (event) => {
-    if (event.event_type === 'COMPLIANCE') navigate(`/compliance/register/${event.id}`);
-    else if (event.event_type === 'LEGAL_HEARING') navigate(`/legal/cases/${event.id}`);
-    else if (event.event_type === 'LICENCE_EXPIRY') navigate('/compliance/licences');
-    else if (event.event_type === 'NOTICE_REPLY') navigate('/legal/notices');
-    else navigate('/legal/inspections');
-  };
+  // date-fns expects `start` and `end`; our API range deliberately uses `from` and `to`.
+  // Passing the API shape here produced an empty array, leaving the month view blank.
+  const days = eachDayOfInterval({ start: range.from, end: range.to });
+  const filterOptions = [
+    ['ALL', 'All activity', CalendarDays, 'bg-slate-700 text-white'],
+    ['COMPLIANCE', 'Compliance', COMPLIANCE_EVENT_META.COMPLIANCE.Icon, COMPLIANCE_EVENT_META.COMPLIANCE.icon],
+    ['LEGAL_HEARING', 'Hearings', COMPLIANCE_EVENT_META.LEGAL_HEARING.Icon, COMPLIANCE_EVENT_META.LEGAL_HEARING.icon],
+    ['NOTICE_REPLY', 'Notices', COMPLIANCE_EVENT_META.NOTICE_REPLY.Icon, COMPLIANCE_EVENT_META.NOTICE_REPLY.icon],
+    ['INSPECTION', 'Inspections', COMPLIANCE_EVENT_META.INSPECTION.Icon, COMPLIANCE_EVENT_META.INSPECTION.icon],
+    ['LICENCE_EXPIRY', 'Licences', COMPLIANCE_EVENT_META.LICENCE_EXPIRY.Icon, COMPLIANCE_EVENT_META.LICENCE_EXPIRY.icon],
+  ];
+  const visibleEvents = useMemo(() => eventFilter === 'ALL' ? events : events.filter((event) => event.event_type === eventFilter), [eventFilter, events]);
+  const countFor = (filter) => filter === 'ALL' ? events.length : events.filter((event) => event.event_type === filter).length;
+  const byDay = (day) => visibleEvents.filter((event) => isSameDay(complianceEventDate(event.event_date), day));
+  const attentionCount = events.filter((event) => event.risk_level === 'CRITICAL' || event.status === 'OVERDUE').length;
+  const nextSevenDays = events.filter((event) => {
+    const eventDate = new Date(event.event_date);
+    return eventDate >= new Date() && eventDate <= addDays(new Date(), 7);
+  }).length;
+  const openEvent = (event) => navigate(complianceEventRoute(event));
   const exportIcs = () => {
     const body = events.map((event) => `BEGIN:VEVENT\nUID:${event.event_type}-${event.id}@mountreality\nDTSTART;VALUE=DATE:${isoDate(event.event_date).replaceAll('-', '')}\nSUMMARY:${String(event.title).replaceAll('\n', ' ')}\nDESCRIPTION:${event.event_type}\nEND:VEVENT`).join('\n');
     const blob = new Blob([`BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//MountReality//Compliance//EN\n${body}\nEND:VCALENDAR`], { type: 'text/calendar' });
     const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `mountreality-compliance-${isoDate()}.ics`; link.click(); URL.revokeObjectURL(link.href);
   };
+  const CalendarTable = ({ compact = false }) => visibleEvents.length ? (
+    <section className={cn(!compact && 'border-t border-mr-line')}>
+      {!compact && <div className="flex flex-col gap-3 border-b border-mr-line px-5 py-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-bold text-mr-text">Scheduled activity</p><p className="mt-0.5 text-xs text-mr-muted">Open an entry to continue the related compliance or legal workflow.</p></div><span className="text-xs font-semibold tabular-nums text-mr-muted">{visibleEvents.length} {visibleEvents.length === 1 ? 'record' : 'records'}</span></div>}
+      <div className="overflow-x-auto"><Table><TableHeader><TableRow className="border-mr-line bg-mr-surface-2/70 hover:bg-mr-surface-2/70"><TableHead className="w-36 pl-5">When</TableHead><TableHead>Activity</TableHead><TableHead className="hidden md:table-cell">Workspace</TableHead><TableHead className="hidden lg:table-cell">Stage</TableHead><TableHead className="w-12 pr-5" /></TableRow></TableHeader><TableBody>{visibleEvents.map((event) => {
+        const meta = COMPLIANCE_EVENT_META[event.event_type] || COMPLIANCE_EVENT_META.COMPLIANCE;
+        const EventIcon = meta.Icon;
+        const eventTime = calendarEventTime(event);
+        return <TableRow key={`${event.event_type}-${event.id}`} onClick={() => openEvent(event)} className="group cursor-pointer border-mr-line transition-colors hover:bg-mr-blue-soft/35"><TableCell className="pl-5"><div className="flex items-center gap-2.5"><span className="flex h-9 w-9 shrink-0 flex-col items-center justify-center border border-mr-line bg-mr-surface text-mr-text"><span className="text-[9px] font-bold uppercase text-mr-faint">{format(new Date(event.event_date), 'MMM')}</span><span className="-mt-0.5 text-sm font-bold tabular-nums">{format(new Date(event.event_date), 'd')}</span></span><div><p className="text-xs font-semibold text-mr-text">{format(new Date(event.event_date), 'EEE')}</p><p className="text-[10px] text-mr-faint">{format(new Date(event.event_date), 'yyyy')}</p>{eventTime && <p className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-semibold tabular-nums text-mr-blue"><Clock3 className="h-3 w-3" />{eventTime}</p>}</div></div></TableCell><TableCell><div className="flex min-w-[245px] items-start gap-2.5"><span className={cn('mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg', meta.icon)}><EventIcon className="h-3.5 w-3.5" /></span><div className="min-w-0"><p className="max-w-md truncate text-xs font-bold text-mr-text group-hover:text-mr-blue">{event.title}</p><p className="mt-0.5 text-[10px] font-medium text-mr-faint">{meta.label} · {event.site_name || 'Organisation-wide'}</p></div></div></TableCell><TableCell className="hidden md:table-cell"><span className="text-xs font-medium text-mr-muted">{event.site_name || 'Organisation-wide'}</span></TableCell><TableCell className="hidden lg:table-cell"><div className="flex items-center gap-2">{pill(event.status, STATUS_STYLE)}{pill(event.risk_level, RISK_STYLE)}</div></TableCell><TableCell className="pr-5 text-right"><ArrowRight className="ml-auto h-4 w-4 text-mr-faint transition group-hover:translate-x-0.5 group-hover:text-mr-blue" /></TableCell></TableRow>;
+      })}</TableBody></Table></div>
+    </section>
+  ) : <Empty title="No scheduled activity matches this filter" copy="Choose another activity filter or move to a different date range." />;
+  const Timeline = () => visibleEvents.length ? <div className="relative divide-y divide-mr-line">{visibleEvents.map((event) => {
+    const meta = COMPLIANCE_EVENT_META[event.event_type] || COMPLIANCE_EVENT_META.COMPLIANCE;
+    const EventIcon = meta.Icon;
+    const eventTime = calendarEventTime(event);
+    return <button type="button" key={`${event.event_type}-${event.id}`} onClick={() => openEvent(event)} className="grid w-full gap-3 px-5 py-4 text-left transition hover:bg-mr-surface-2/65 sm:grid-cols-[92px_28px_minmax(0,1fr)_auto] sm:items-center"><div><p className="text-xs font-bold text-mr-text">{format(new Date(event.event_date), 'dd MMM')}</p><p className="mt-0.5 text-[10px] text-mr-faint">{format(new Date(event.event_date), 'EEEE')}</p>{eventTime && <p className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold tabular-nums text-mr-blue"><Clock3 className="h-3 w-3" />{eventTime}</p>}</div><span className={cn('flex h-7 w-7 items-center justify-center rounded-full', meta.icon)}><EventIcon className="h-3.5 w-3.5" /></span><div className="min-w-0"><p className="truncate text-sm font-bold text-mr-text">{event.title}</p><p className="mt-0.5 text-[10px] text-mr-faint">{meta.label} · {event.site_name || 'Organisation-wide'} · {labelize(event.status)}</p></div>{pill(event.risk_level, RISK_STYLE)}</button>;
+  })}</div> : <Empty title="No events in this period" />;
   return (
     <Panel>
-      <div className="flex flex-col gap-3 border-b border-slate-100 p-4 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex items-center gap-2"><Button size="icon" variant="outline" onClick={() => setCursor(mode === 'month' ? subMonths(cursor, 1) : addDays(cursor, mode === 'week' ? -7 : -1))}><ChevronLeft className="h-4 w-4" /></Button><Button variant="outline" className="min-w-44" onClick={() => setCursor(new Date())}>{format(cursor, mode === 'month' ? 'MMMM yyyy' : 'dd MMMM yyyy')}</Button><Button size="icon" variant="outline" onClick={() => setCursor(mode === 'month' ? addMonths(cursor, 1) : addDays(cursor, mode === 'week' ? 7 : 1))}><ChevronRight className="h-4 w-4" /></Button></div>
-        <div className="flex flex-wrap gap-2"><div className="flex rounded-xl border border-slate-200 bg-slate-50 p-1">{['month','week','day','agenda','timeline'].map((value) => <button key={value} className={cn('rounded-lg px-3 py-1.5 text-[11px] font-semibold', mode === value ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500')} onClick={() => setMode(value)}>{labelize(value)}</button>)}</div><Button variant="outline" className="h-10 rounded-xl text-xs" onClick={exportIcs}><Download className="mr-1.5 h-4 w-4" />iCal</Button></div>
+      <div className="flex flex-col gap-3 border-b border-mr-line p-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex items-center gap-2"><Button size="icon" variant="outline" className="rounded-xl" onClick={() => setCursor(mode === 'month' ? subMonths(cursor, 1) : addDays(cursor, mode === 'week' ? -7 : -1))} aria-label="Previous period"><ChevronLeft className="h-4 w-4" /></Button><Button variant="outline" className="min-w-48 rounded-xl font-semibold" onClick={() => setCursor(new Date())}>{format(cursor, mode === 'month' ? 'MMMM yyyy' : 'dd MMMM yyyy')}</Button><Button size="icon" variant="outline" className="rounded-xl" onClick={() => setCursor(mode === 'month' ? addMonths(cursor, 1) : addDays(cursor, mode === 'week' ? 7 : 1))} aria-label="Next period"><ChevronRight className="h-4 w-4" /></Button></div>
+        <div className="flex flex-wrap items-center gap-2"><div className="flex rounded-xl border border-mr-line bg-mr-surface-2 p-1">{['month','week','day','agenda','timeline'].map((value) => <button key={value} className={cn('rounded-lg px-3 py-1.5 text-[11px] font-semibold transition', mode === value ? 'bg-mr-surface text-mr-blue shadow-sm' : 'text-mr-muted hover:text-mr-text')} onClick={() => setMode(value)}>{labelize(value)}</button>)}</div><Button variant="outline" className="h-10 rounded-xl border-mr-line bg-mr-surface text-xs text-mr-text hover:bg-mr-surface-2" onClick={exportIcs} disabled={!events.length}><Download className="mr-1.5 h-4 w-4" />iCal</Button></div>
       </div>
-      {loading ? <div className="grid grid-cols-7 gap-px bg-slate-100 p-px">{Array.from({ length: 35 }).map((_, i) => <Skeleton key={i} className="h-28 rounded-none" />)}</div> : ['agenda','timeline'].includes(mode) ? (
-        events.length ? <div className="relative divide-y divide-slate-100">{events.map((event) => <button type="button" key={`${event.event_type}-${event.id}`} onClick={() => openEvent(event)} className="grid w-full gap-2 px-5 py-4 text-left hover:bg-slate-50 sm:grid-cols-[120px_1fr_auto] sm:items-center"><p className="text-xs font-semibold text-slate-500">{fmtDate(event.event_date, true)}</p><div><p className="text-sm font-semibold text-slate-800">{event.title}</p><p className="mt-0.5 text-[10px] text-slate-400">{labelize(event.event_type)} · {event.site_name || 'Organisation-wide'}</p></div>{pill(event.risk_level, RISK_STYLE)}</button>)}</div> : <Empty title="No events in this period" />
+      <div className="grid divide-y divide-mr-line border-b border-mr-line sm:grid-cols-3 sm:divide-x sm:divide-y-0"><div className="px-5 py-3.5"><p className="text-[10px] font-bold uppercase tracking-[.13em] text-mr-faint">Scheduled in view</p><p className="mt-1 text-xl font-bold tabular-nums text-mr-text">{events.length}</p></div><div className="px-5 py-3.5"><p className="text-[10px] font-bold uppercase tracking-[.13em] text-mr-faint">Next 7 days</p><p className="mt-1 text-xl font-bold tabular-nums text-mr-blue">{nextSevenDays}</p></div><div className="px-5 py-3.5"><p className="text-[10px] font-bold uppercase tracking-[.13em] text-mr-faint">Needs attention</p><p className="mt-1 text-xl font-bold tabular-nums text-rose-600 dark:text-rose-400">{attentionCount}</p></div></div>
+      <div className="flex gap-2 overflow-x-auto border-b border-mr-line bg-mr-surface-2/40 px-4 py-3">{filterOptions.map(([value, label, FilterIcon, iconTone]) => <button type="button" key={value} onClick={() => setEventFilter(value)} className={cn('inline-flex shrink-0 items-center gap-2 rounded-full border px-2.5 py-1.5 text-[11px] font-semibold transition', eventFilter === value ? 'border-mr-ink bg-mr-ink text-white shadow-sm' : 'border-mr-line bg-mr-surface text-mr-muted hover:border-mr-line-strong hover:text-mr-text')}><span className={cn('flex h-5 w-5 items-center justify-center rounded-full', iconTone)}>{createElement(FilterIcon, { className: 'h-3 w-3' })}</span><span>{label}</span><span className={cn('rounded-full px-1.5 py-0.5 text-[9px] tabular-nums', eventFilter === value ? 'bg-white/15 text-white' : 'bg-mr-surface-2 text-mr-muted')}>{countFor(value)}</span></button>)}</div>
+      {loading ? <div className="grid grid-cols-7 gap-px bg-mr-line p-px">{Array.from({ length: 42 }).map((_, i) => <Skeleton key={i} className="h-36 rounded-none" />)}</div> : mode === 'agenda' ? <CalendarTable compact /> : mode === 'timeline' ? <Timeline /> : mode === 'month' ? (
+        <ComplianceMonthCalendar cursor={cursor} events={visibleEvents} onCursorChange={setCursor} onDayClick={(day) => { setCursor(day); setMode('day'); }} onEventClick={openEvent} onShowMore={(day) => { setCursor(day); setMode('day'); }} maxEvents={3} showToolbar={false} />
       ) : (
-        <div className={cn('grid gap-px bg-slate-200', mode === 'day' ? 'grid-cols-1' : 'grid-cols-7')}>
-          {days.map((day) => <div key={day.toISOString()} className={cn('min-h-32 bg-white p-2', mode === 'month' && !isSameMonth(day, cursor) && 'bg-slate-50 text-slate-300')}>
-            <p className={cn('mb-2 flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-semibold', isSameDay(day, new Date()) && 'bg-blue-600 text-white')}>{format(day, 'd')}</p>
-            <div className="space-y-1">{byDay(day).slice(0, mode === 'day' ? 50 : 4).map((event) => <button key={`${event.event_type}-${event.id}`} type="button" onClick={() => openEvent(event)} className={cn('block w-full truncate rounded-md px-2 py-1 text-left text-[9px] font-semibold', event.event_type === 'LEGAL_HEARING' ? 'bg-violet-100 text-violet-700' : event.event_type === 'LICENCE_EXPIRY' ? 'bg-orange-100 text-orange-700' : event.risk_level === 'CRITICAL' ? 'bg-red-100 text-red-700' : 'bg-blue-50 text-blue-700')}>{event.title}</button>)}{byDay(day).length > 4 && mode !== 'day' && <p className="px-1 text-[9px] text-slate-400">+{byDay(day).length - 4} more</p>}</div>
-          </div>)}
-        </div>
+        <>
+          {mode !== 'day' && <div className="grid grid-cols-7 border-b border-mr-line bg-mr-surface-2/70">{['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((weekday) => <p key={weekday} className="px-2.5 py-2 text-center text-[10px] font-bold uppercase tracking-[.12em] text-mr-faint">{weekday}</p>)}</div>}
+          <div className={cn('grid gap-px bg-mr-line', mode === 'day' ? 'grid-cols-1' : 'grid-cols-7')}>
+            {days.map((day) => {
+              const dayEvents = byDay(day);
+              return <div key={day.toISOString()} className={cn('group relative min-h-[172px] bg-mr-surface p-2.5 transition hover:bg-mr-surface-2/65 sm:p-3', mode === 'day' && 'min-h-[460px] p-5')}>
+                <div className="mb-2 flex items-center justify-between gap-2"><button type="button" onClick={() => { setCursor(day); setMode('day'); }} className={cn('flex h-7 min-w-7 items-center justify-center rounded-full px-1.5 text-[11px] font-bold transition hover:bg-mr-surface-2', isSameDay(day, new Date()) && 'bg-mr-blue text-white hover:bg-mr-blue-deep')} aria-label={`Open ${format(day, 'dd MMMM yyyy')}`}>{format(day, 'd')}</button>{dayEvents.length > 0 && <span className="rounded-full bg-mr-surface-2 px-1.5 py-0.5 text-[9px] font-bold tabular-nums text-mr-muted">{dayEvents.length}</span>}</div>
+                <div className={cn('space-y-1.5', mode === 'day' && 'max-w-3xl space-y-2')}>{dayEvents.slice(0, mode === 'day' ? 50 : 3).map((event) => {
+                  const meta = COMPLIANCE_EVENT_META[event.event_type] || COMPLIANCE_EVENT_META.COMPLIANCE;
+                  const EventIcon = meta.Icon;
+                  const eventTime = calendarEventTime(event);
+                  return <CalendarEventPreview key={`${event.event_type}-${event.id}`} event={event}><button type="button" onClick={() => openEvent(event)} className={cn('flex w-full items-center gap-1.5 rounded-lg border px-1.5 py-1 text-left text-[9px] font-bold shadow-[0_1px_0_rgba(15,23,42,.03)] transition hover:-translate-y-px hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500', meta.chip, mode === 'day' && 'px-3 py-2 text-xs')}><span className={cn('flex h-5 w-5 shrink-0 items-center justify-center rounded-md', meta.icon)}><EventIcon className="h-3 w-3" /></span><span className="truncate">{event.title}</span>{eventTime && <span className="ml-auto inline-flex shrink-0 items-center gap-0.5 text-[8px] font-semibold tabular-nums opacity-75"><Clock3 className="h-2.5 w-2.5" />{eventTime}</span>}</button></CalendarEventPreview>;
+                })}{dayEvents.length > 3 && mode !== 'day' && <button type="button" onClick={() => { setCursor(day); setMode('day'); }} className="px-1 text-[10px] font-semibold text-mr-faint transition hover:text-mr-blue">+{dayEvents.length - 3} more</button>}</div>
+              </div>;
+            })}
+          </div>
+        </>
       )}
     </Panel>
   );
@@ -494,7 +574,7 @@ function TemplatesView({ siteId }) {
     } catch (error) { toast.error(error.response?.data?.message || 'Template import file is invalid'); }
   };
   return <Panel><div className="flex flex-col justify-between gap-3 border-b border-slate-100 p-5 sm:flex-row sm:items-center"><div><h2 className="text-sm font-bold text-slate-900">Configurable compliance templates</h2><p className="mt-1 text-xs text-slate-500">No legal dates are hard-coded; administrators define applicability and due rules.</p></div><div className="flex flex-wrap gap-2"><Button variant="outline" className="rounded-xl text-xs" onClick={exportAll}><Download className="mr-1.5 h-4 w-4" />Export</Button><label className="inline-flex h-9 cursor-pointer items-center rounded-xl border border-slate-200 bg-white px-3 text-xs font-medium hover:bg-slate-50"><Upload className="mr-1.5 h-4 w-4" />Import<input type="file" accept=".json,application/json" className="hidden" onChange={importFile} /></label><Button className="rounded-xl text-xs" onClick={() => setOpen(true)}><Plus className="mr-1.5 h-4 w-4" />New template</Button></div></div>
-    {loading ? <div className="grid gap-3 p-5 md:grid-cols-2 xl:grid-cols-3">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-44 rounded-2xl" />)}</div> : rows.length ? <div className="grid gap-3 p-5 md:grid-cols-2 xl:grid-cols-3">{rows.map((row) => <div key={row.id} className={cn('rounded-2xl border p-4', row.is_active ? 'border-slate-200' : 'border-slate-200 bg-slate-50 opacity-70')}><div className="flex items-start justify-between gap-3"><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 text-blue-700"><ListChecks className="h-4 w-4" /></span><div className="flex gap-1.5">{pill(row.default_risk, RISK_STYLE)}{pill(row.is_active ? 'ACTIVE' : 'INACTIVE', STATUS_STYLE)}</div></div><h3 className="mt-4 text-sm font-bold text-slate-900">{row.name}</h3><p className="mt-1 text-xs text-slate-500">{labelize(row.frequency)} · {row.authority_name || 'Any authority'}</p><p className="mt-3 line-clamp-2 min-h-10 text-[11px] leading-5 text-slate-500">{row.description || labelize(row.compliance_type)}</p><div className="mt-4 grid grid-cols-3 gap-2"><Button size="sm" className="rounded-xl text-xs" onClick={() => apply(row)} disabled={!siteId || !row.is_active}>Apply</Button><Button size="sm" variant="outline" className="rounded-xl text-xs" onClick={() => duplicate(row)}>Duplicate</Button><Button size="sm" variant="outline" className="rounded-xl text-xs" onClick={() => toggleActive(row)}>{row.is_active ? 'Deactivate' : 'Activate'}</Button></div></div>)}</div> : <Empty title="No templates configured" />}
+    {loading ? <div className="space-y-1 p-5">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)}</div> : rows.length ? <div className="divide-y divide-slate-100">{rows.map((row) => <div key={row.id} className={cn('grid gap-4 px-5 py-4 transition hover:bg-slate-50 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center', !row.is_active && 'bg-slate-50/70 opacity-70')}><div className="flex min-w-0 items-start gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-700"><ListChecks className="h-4 w-4" /></span><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="text-sm font-bold text-slate-900">{row.name}</h3>{pill(row.default_risk, RISK_STYLE)}{pill(row.is_active ? 'ACTIVE' : 'INACTIVE', STATUS_STYLE)}</div><p className="mt-1 text-[11px] text-slate-500">{labelize(row.frequency)} · {row.authority_name || 'Any authority'} · {labelize(row.compliance_type)}</p><p className="mt-1 line-clamp-1 text-[11px] text-slate-400">{row.description || 'Reusable compliance workflow'}</p></div></div><div className="flex flex-wrap gap-2 lg:justify-end"><Button size="sm" className="text-xs" onClick={() => apply(row)} disabled={!siteId || !row.is_active}>Apply</Button><Button size="sm" variant="outline" className="text-xs" onClick={() => duplicate(row)}>Duplicate</Button><Button size="sm" variant="ghost" className="text-xs" onClick={() => toggleActive(row)}>{row.is_active ? 'Deactivate' : 'Activate'}</Button></div></div>)}</div> : <Empty title="No templates configured" />}
     <Dialog open={open} onOpenChange={setOpen}><DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>New compliance template</DialogTitle><DialogDescription>Define recurrence and due-date calculation without hard-coding a state rule.</DialogDescription></DialogHeader><form className="space-y-4" onSubmit={create}><div><Label>Template name</Label><Input className="mt-1.5" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div><div className="grid gap-4 sm:grid-cols-2"><div><Label>Frequency</Label><NativeSelect className="mt-1.5 w-full" value={form.frequency} onChange={(e) => setForm({ ...form, frequency: e.target.value })}>{FREQUENCIES.map((v) => <option key={v}>{labelize(v)}</option>)}</NativeSelect></div><div><Label>Risk</Label><NativeSelect className="mt-1.5 w-full" value={form.default_risk} onChange={(e) => setForm({ ...form, default_risk: e.target.value })}>{RISK_OPTIONS.map((v) => <option key={v}>{labelize(v)}</option>)}</NativeSelect></div><div><Label>Start date</Label><Input className="mt-1.5" type="date" value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })} /></div><div><Label>End date (optional)</Label><Input className="mt-1.5" type="date" value={form.end_date} onChange={(e) => setForm({ ...form, end_date: e.target.value })} /></div><div><Label>Due-date rule</Label><NativeSelect className="mt-1.5 w-full" value={form.due_type} onChange={(e) => setForm({ ...form, due_type: e.target.value })}><option>DAYS_AFTER_MONTH_END</option><option>DAYS_AFTER_QUARTER_END</option><option>DAYS_AFTER_FINANCIAL_YEAR_END</option><option>FIXED_DAY_OF_MONTH</option><option>DAYS_AFTER_EVENT</option><option>MANUAL</option></NativeSelect></div><div><Label>Days / fixed day</Label><Input className="mt-1.5" type="number" value={form.due_days} onChange={(e) => setForm({ ...form, due_days: e.target.value })} /></div></div><div><Label>Reminder days</Label><Input className="mt-1.5" value={form.default_reminder_days} onChange={(e) => setForm({ ...form, default_reminder_days: e.target.value })} placeholder="30,15,7,1,0" /></div><DialogFooter><Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button disabled={saving}>{saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Create template</Button></DialogFooter></form></DialogContent></Dialog>
   </Panel>;
 }
@@ -553,7 +633,7 @@ function ReportsView({ siteId, legalMode = false }) {
   const legalReports = ['LEGAL_CASE_SUMMARY','HEARING_CALENDAR','NOTICE_REPLY','LEGAL_FINANCIAL_EXPOSURE','COMPLIANCE_AUDIT_TRAIL'];
   const availableReports = legalMode ? REPORT_TYPES.filter((value) => legalReports.includes(value)) : REPORT_TYPES.filter((value) => !legalReports.includes(value));
   return <Panel><div className="flex flex-col gap-3 border-b border-slate-100 p-4 lg:flex-row lg:flex-wrap lg:items-end"><div><Label>Report</Label><NativeSelect className="mt-1 w-56" value={filters.report_type} onChange={(e) => setFilters({ ...filters, report_type: e.target.value, status: 'all', risk: 'all' })}>{availableReports.map((value) => <option key={value} value={value}>{labelize(value)}</option>)}</NativeSelect></div><div><Label>From</Label><Input type="date" className="mt-1 w-40" value={filters.from} onChange={(e) => setFilters({ ...filters, from: e.target.value })} /></div><div><Label>To</Label><Input type="date" className="mt-1 w-40" value={filters.to} onChange={(e) => setFilters({ ...filters, to: e.target.value })} /></div><NativeSelect aria-label="Status filter" value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}><option value="all">All statuses</option>{STATUS_OPTIONS.map((v) => <option key={v} value={v}>{labelize(v)}</option>)}</NativeSelect><NativeSelect aria-label="Risk filter" value={filters.risk} onChange={(e) => setFilters({ ...filters, risk: e.target.value })}><option value="all">All risks</option>{RISK_OPTIONS.map((v) => <option key={v} value={v}>{labelize(v)}</option>)}</NativeSelect><NativeSelect aria-label="Authority filter" value={filters.authority_id} onChange={(e) => setFilters({ ...filters, authority_id: e.target.value })}><option value="">All authorities</option>{authorities.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</NativeSelect><NativeSelect aria-label="Responsible user filter" value={filters.responsible_user_id} onChange={(e) => setFilters({ ...filters, responsible_user_id: e.target.value })}><option value="">All users</option>{users.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</NativeSelect><div className="ml-auto flex gap-2"><Button variant="outline" onClick={() => exportRows('csv')}><Download className="mr-1.5 h-4 w-4" />CSV</Button><Button variant="outline" onClick={() => exportRows('xlsx')}><FileSpreadsheet className="mr-1.5 h-4 w-4" />XLSX</Button><Button onClick={() => window.print()}>Print</Button></div></div>
-    {loading ? <div className="space-y-3 p-5"><Skeleton className="h-24 rounded-2xl"/><Skeleton className="h-72 rounded-2xl"/></div> : report ? <><div className="grid gap-3 border-b border-slate-100 p-5 sm:grid-cols-3"><div className="rounded-2xl bg-blue-50 p-4"><p className="text-[10px] font-bold uppercase text-blue-600">Total records</p><p className="mt-2 text-2xl font-bold text-blue-950">{report.summary.total}</p></div><div className="rounded-2xl bg-red-50 p-4"><p className="text-[10px] font-bold uppercase text-red-600">Overdue</p><p className="mt-2 text-2xl font-bold text-red-950">{report.summary.overdue}</p></div><div className="rounded-2xl bg-amber-50 p-4"><p className="text-[10px] font-bold uppercase text-amber-600">Financial impact</p><p className="mt-2 text-2xl font-bold text-amber-950">{money(report.summary.financial_impact)}</p></div></div>{report.rows.length ? <div className="overflow-x-auto"><Table><TableHeader><TableRow>{report.columns.map((key) => <TableHead key={key} className="whitespace-nowrap">{labelize(key)}</TableHead>)}</TableRow></TableHeader><TableBody>{report.rows.slice(0, 1000).map((row, index) => <TableRow key={`${row.compliance_code || row.case_code || row.notice_number || row.expense_id || 'row'}-${index}`}>{report.columns.map((key) => <TableCell key={key} className="max-w-sm whitespace-nowrap text-xs">{display(key, row[key])}</TableCell>)}</TableRow>)}</TableBody></Table></div> : <Empty title="No records in this report period" />}</> : null}
+    {loading ? <div className="space-y-3 p-5"><Skeleton className="h-24 rounded-xl"/><Skeleton className="h-72 rounded-xl"/></div> : report ? <><div className="grid divide-y divide-slate-100 border-b border-slate-100 sm:grid-cols-3 sm:divide-x sm:divide-y-0"><div className="px-5 py-4"><p className="text-[10px] font-bold uppercase tracking-wide text-blue-600">Total records</p><p className="mt-1 text-2xl font-bold text-slate-950">{report.summary.total}</p></div><div className="px-5 py-4"><p className="text-[10px] font-bold uppercase tracking-wide text-red-600">Overdue</p><p className="mt-1 text-2xl font-bold text-slate-950">{report.summary.overdue}</p></div><div className="px-5 py-4"><p className="text-[10px] font-bold uppercase tracking-wide text-amber-600">Financial impact</p><p className="mt-1 text-2xl font-bold text-slate-950">{money(report.summary.financial_impact)}</p></div></div>{report.rows.length ? <div className="overflow-x-auto"><Table><TableHeader><TableRow>{report.columns.map((key) => <TableHead key={key} className="whitespace-nowrap">{labelize(key)}</TableHead>)}</TableRow></TableHeader><TableBody>{report.rows.slice(0, 1000).map((row, index) => <TableRow key={`${row.compliance_code || row.case_code || row.notice_number || row.expense_id || 'row'}-${index}`}>{report.columns.map((key) => <TableCell key={key} className="max-w-sm whitespace-nowrap text-xs">{display(key, row[key])}</TableCell>)}</TableRow>)}</TableBody></Table></div> : <Empty title="No records in this report period" />}</> : null}
   </Panel>;
 }
 
@@ -585,7 +665,8 @@ function DocumentExpiryView({ siteId }) {
   const openDocument = async (id) => {
     try {
       const { data } = await api.get(`/compliance-documents/file/${id}`);
-      if (data.document?.file_url) window.open(data.document.file_url, '_blank', 'noopener,noreferrer');
+      const previewUrl = data.document?.file_url || data.document?.content_url;
+      if (previewUrl) window.open(previewUrl, '_blank', 'noopener,noreferrer');
     } catch (error) { toast.error(error.response?.data?.message || 'Document access denied'); }
   };
   return <Panel>
@@ -680,7 +761,7 @@ function SettingsView() {
   };
   if (!settings) return <Skeleton className="h-96 rounded-[22px]" />;
   const channelSet = new Set(settings.notification_channels || []);
-  return <div className="grid gap-5 xl:grid-cols-[.8fr_1.2fr]"><Panel className="p-5"><h2 className="text-sm font-bold text-slate-900">Workflow & reminders</h2><p className="mt-1 text-xs text-slate-500">Organisation-level defaults; individual records can override reminder days.</p><div className="mt-5 space-y-4"><div><Label>Timezone</Label><Input className="mt-1.5" value={settings.timezone} onChange={(e) => setSettings({ ...settings, timezone: e.target.value })} /></div><div><Label>Default reminder days</Label><Input className="mt-1.5" value={(settings.default_reminder_days || []).join(',')} onChange={(e) => setSettings({ ...settings, default_reminder_days: e.target.value.split(',').map(Number) })} /></div><div><Label>Overdue escalation days</Label><Input className="mt-1.5" value={(settings.overdue_escalation_days || []).join(',')} onChange={(e) => setSettings({ ...settings, overdue_escalation_days: e.target.value.split(',').map(Number) })} /></div><div><Label>Legal case stages</Label><Textarea className="mt-1.5 min-h-20" value={(settings.legal_case_stages || []).join(', ')} onChange={(e) => setSettings({ ...settings, legal_case_stages: e.target.value.split(',').map((value) => value.trim().toUpperCase().replaceAll(' ', '_')).filter(Boolean) })} /><p className="mt-1 text-[10px] text-slate-400">Comma-separated and organisation-specific.</p></div><div><Label>Compliance status transitions</Label><Textarea className="mt-1.5 min-h-36 font-mono text-[10px]" value={statusJson} onChange={(event) => setStatusJson(event.target.value)} /><p className="mt-1 text-[10px] text-slate-400">JSON object mapping each status to its allowed next statuses.</p></div><div><Label>Notice status transitions</Label><Textarea className="mt-1.5 min-h-36 font-mono text-[10px]" value={noticeJson} onChange={(event) => setNoticeJson(event.target.value)} /><p className="mt-1 text-[10px] text-slate-400">Only known notice statuses are accepted by the server.</p></div><label className="flex items-center justify-between rounded-xl border p-3 text-xs font-semibold"><span>Approve due-date changes</span><Switch checked={settings.due_date_change_requires_approval} onCheckedChange={(v) => setSettings({ ...settings, due_date_change_requires_approval: v })} /></label><label className="flex items-center justify-between rounded-xl border p-3 text-xs font-semibold"><span>Approve completion</span><Switch checked={settings.completion_requires_approval} onCheckedChange={(v) => setSettings({ ...settings, completion_requires_approval: v })} /></label><div><Label>Notification channels</Label><div className="mt-2 grid grid-cols-2 gap-2">{['DASHBOARD','EMAIL','SMS','WHATSAPP'].map((channel) => <label key={channel} className="flex items-center justify-between rounded-xl border p-3 text-xs"><span>{labelize(channel)}</span><Switch checked={channelSet.has(channel)} onCheckedChange={(v) => setSettings({ ...settings, notification_channels: v ? [...channelSet, channel] : [...channelSet].filter((x) => x !== channel) })} /></label>)}</div><p className="mt-2 text-[10px] leading-4 text-slate-400">SMS uses the existing queue worker; WhatsApp requires the approved compliance template configured in the environment.</p></div><Button className="w-full rounded-xl" onClick={save} disabled={saving}>{saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save settings</Button></div></Panel><Panel><div className="border-b p-5"><h2 className="text-sm font-bold">Audit trail</h2><p className="mt-1 text-xs text-slate-500">Immutable record of significant compliance and legal actions.</p></div>{audit.length ? <div className="divide-y">{audit.map((row) => <div key={row.id} className="px-5 py-3"><div className="flex items-center justify-between gap-3"><p className="text-xs font-semibold text-slate-800">{labelize(row.action)} · {labelize(row.entity_type)}</p><p className="text-[10px] text-slate-400">{fmtDate(row.created_at, true)}</p></div><p className="mt-1 text-[10px] text-slate-500">{row.user_name || 'System'} · {row.site_name || 'Organisation-wide'} {row.reason ? `· ${row.reason}` : ''}</p></div>)}</div> : <Empty title="No audit events" />}</Panel></div>;
+  return <div className="grid gap-5 xl:grid-cols-[.8fr_1.2fr]"><Panel className="p-5"><h2 className="text-sm font-bold text-slate-900">Workflow & reminders</h2><p className="mt-1 text-xs text-slate-500">Organisation-level defaults; individual records can override reminder days.</p><div className="mt-5 space-y-4"><div><Label>Timezone</Label><Input className="mt-1.5" value={settings.timezone} onChange={(e) => setSettings({ ...settings, timezone: e.target.value })} /></div><div><Label>Default reminder days</Label><Input className="mt-1.5" value={(settings.default_reminder_days || []).join(',')} onChange={(e) => setSettings({ ...settings, default_reminder_days: e.target.value.split(',').map(Number) })} /></div><div><Label>Overdue escalation days</Label><Input className="mt-1.5" value={(settings.overdue_escalation_days || []).join(',')} onChange={(e) => setSettings({ ...settings, overdue_escalation_days: e.target.value.split(',').map(Number) })} /></div><div><Label>Legal case stages</Label><Textarea className="mt-1.5 min-h-20" value={(settings.legal_case_stages || []).join(', ')} onChange={(e) => setSettings({ ...settings, legal_case_stages: e.target.value.split(',').map((value) => value.trim().toUpperCase().replaceAll(' ', '_')).filter(Boolean) })} /><p className="mt-1 text-[10px] text-slate-400">Comma-separated and organisation-specific.</p></div><div className="divide-y divide-slate-100 border-y border-slate-200"><label className="flex items-center justify-between py-3 text-xs font-semibold"><span><span className="block">Approve due-date changes</span><span className="mt-0.5 block text-[10px] font-normal text-slate-400">Route deadline changes through an administrator.</span></span><Switch checked={settings.due_date_change_requires_approval} onCheckedChange={(v) => setSettings({ ...settings, due_date_change_requires_approval: v })} /></label><label className="flex items-center justify-between py-3 text-xs font-semibold"><span><span className="block">Approve completion</span><span className="mt-0.5 block text-[10px] font-normal text-slate-400">Require review before an obligation closes.</span></span><Switch checked={settings.completion_requires_approval} onCheckedChange={(v) => setSettings({ ...settings, completion_requires_approval: v })} /></label></div><div><Label>Notification channels</Label><div className="mt-2 divide-y divide-slate-100 border-y border-slate-200">{['DASHBOARD','EMAIL','SMS','WHATSAPP'].map((channel) => <label key={channel} className="flex items-center justify-between py-3 text-xs"><span>{labelize(channel)}</span><Switch checked={channelSet.has(channel)} onCheckedChange={(v) => setSettings({ ...settings, notification_channels: v ? [...channelSet, channel] : [...channelSet].filter((x) => x !== channel) })} /></label>)}</div><p className="mt-2 text-[10px] leading-4 text-slate-400">SMS uses the existing queue worker; WhatsApp requires the approved compliance template configured in the environment.</p></div><details className="border-y border-slate-200 py-3"><summary className="cursor-pointer text-xs font-semibold text-slate-700">Advanced workflow transitions</summary><p className="mt-1 text-[10px] leading-4 text-slate-400">Edit only when changing the permitted compliance and notice workflow paths.</p><div className="mt-4 space-y-4"><div><Label>Compliance status transitions</Label><Textarea className="mt-1.5 min-h-36 font-mono text-[10px]" value={statusJson} onChange={(event) => setStatusJson(event.target.value)} /></div><div><Label>Notice status transitions</Label><Textarea className="mt-1.5 min-h-36 font-mono text-[10px]" value={noticeJson} onChange={(event) => setNoticeJson(event.target.value)} /></div></div></details><Button className="w-full bg-slate-950 text-white hover:bg-slate-800" onClick={save} disabled={saving}>{saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save settings</Button></div></Panel><Panel><div className="border-b p-5"><h2 className="text-sm font-bold">Audit trail</h2><p className="mt-1 text-xs text-slate-500">Immutable record of significant compliance and legal actions.</p></div>{audit.length ? <div className="divide-y">{audit.map((row) => <div key={row.id} className="px-5 py-3"><div className="flex items-center justify-between gap-3"><p className="text-xs font-semibold text-slate-800">{labelize(row.action)} · {labelize(row.entity_type)}</p><p className="text-[10px] text-slate-400">{fmtDate(row.created_at, true)}</p></div><p className="mt-1 text-[10px] text-slate-500">{row.user_name || 'System'} · {row.site_name || 'Organisation-wide'} {row.reason ? `· ${row.reason}` : ''}</p></div>)}</div> : <Empty title="No audit events" />}</Panel></div>;
 }
 
 const VIEW_META = {
@@ -722,22 +803,29 @@ export default function ComplianceLegal() {
   if (!currentSite && !['authorities','settings','templates'].includes(view)) return <Empty title="Select a site" copy="Compliance records and legal matters are isolated by organisation and project site." />;
   const siteId = currentSite?.id;
   return (
-    <div className="mx-auto w-full max-w-[1500px] space-y-5 pb-10">
-      <Head eyebrow={`${currentSite?.name || 'Organisation'} · Compliance & legal`} title={title} copy={copy} icon={Icon} actions={<><Link to="/compliance/calendar"><Button variant="outline" className="border-white/15 bg-white/10 text-white hover:bg-white/20 hover:text-white"><CalendarDays className="mr-2 h-4 w-4" />Calendar</Button></Link><Link to="/compliance/register"><Button className="bg-white text-slate-950 hover:bg-slate-100"><ClipboardCheck className="mr-2 h-4 w-4" />Register</Button></Link></>} />
-      {view === 'dashboard' && <DashboardView siteId={siteId} />}
-      {view === 'tasks' && <MyTasksView />}
-      {view === 'calendar' && <CalendarView siteId={siteId} />}
-      {view === 'register' && <RegisterView siteId={siteId} />}
-      {view === 'licences' && <EntityRegister kind="licences" siteId={siteId} />}
-      {view === 'documents' && <DocumentExpiryView siteId={siteId} />}
-      {view === 'cases' && <EntityRegister kind="cases" siteId={siteId} />}
-      {view === 'notices' && <EntityRegister kind="notices" siteId={siteId} />}
-      {view === 'inspections' && <EntityRegister kind="inspections" siteId={siteId} />}
-      {view === 'hearings' && <HearingsView siteId={siteId} />}
-      {view === 'templates' && <TemplatesView siteId={siteId} />}
-      {view === 'authorities' && <AuthoritiesView />}
-      {view === 'reports' && <ReportsView siteId={siteId} legalMode={path.startsWith('/legal/')} />}
-      {view === 'settings' && <SettingsView />}
+    <div className="-mx-4 -mt-4 min-h-[calc(100dvh-4rem)] bg-mr-canvas md:-mx-6 md:-mt-6">
+      <div className="bg-gradient-to-r from-mr-surface via-mr-surface to-mr-blue-soft/60">
+        <div className="mx-auto w-full max-w-[1720px] px-4 pt-5 md:px-6 md:pt-6">
+          <Head eyebrow={`${currentSite?.name || 'Organisation'} · Compliance & legal`} title={title} copy={copy} icon={Icon} actions={<><Link to="/compliance/calendar"><Button variant="outline"><CalendarDays className="mr-2 h-4 w-4" />Calendar</Button></Link><Link to="/compliance/register"><Button className="bg-slate-950 text-white hover:bg-slate-800"><ClipboardCheck className="mr-2 h-4 w-4" />Open register</Button></Link></>} />
+          <ModuleNav active={view} />
+        </div>
+      </div>
+      <div className="mx-auto w-full max-w-[1720px] px-4 py-5 md:px-6 md:py-6">
+        {view === 'dashboard' && <DashboardView siteId={siteId} />}
+        {view === 'tasks' && <MyTasksView />}
+        {view === 'calendar' && <CalendarView siteId={siteId} />}
+        {view === 'register' && <RegisterView siteId={siteId} />}
+        {view === 'licences' && <EntityRegister kind="licences" siteId={siteId} />}
+        {view === 'documents' && <DocumentExpiryView siteId={siteId} />}
+        {view === 'cases' && <EntityRegister kind="cases" siteId={siteId} />}
+        {view === 'notices' && <EntityRegister kind="notices" siteId={siteId} />}
+        {view === 'inspections' && <EntityRegister kind="inspections" siteId={siteId} />}
+        {view === 'hearings' && <HearingsView siteId={siteId} />}
+        {view === 'templates' && <TemplatesView siteId={siteId} />}
+        {view === 'authorities' && <AuthoritiesView />}
+        {view === 'reports' && <ReportsView siteId={siteId} legalMode={path.startsWith('/legal/')} />}
+        {view === 'settings' && <SettingsView />}
+      </div>
     </div>
   );
 }

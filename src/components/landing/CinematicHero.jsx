@@ -53,7 +53,7 @@ export default function CinematicHero() {
       <div
         className="pointer-events-none absolute z-0"
         style={{
-          top: 'clamp(120px, 22vh, 300px)',
+          top: 0,
           right: 0,
           bottom: 0,
           left: 0,
@@ -77,6 +77,7 @@ export default function CinematicHero() {
           fetchPriority="high"
           decoding="async"
           className="h-full w-full object-cover"
+          style={{ filter: 'brightness(0.85) saturate(0.78)' }}
         />
       </div>
 
@@ -126,24 +127,21 @@ export default function CinematicHero() {
       {/* ── Hero (z-10) ── */}
       <div
         className="relative z-10 flex flex-col items-center justify-center px-6 pb-40 text-center"
-        style={{ paddingTop: 'calc(8rem - 75px)' }}
+        style={{ paddingTop: 'calc(8rem + 60px)' }}
       >
         <h1
-          className="animate-fade-rise max-w-7xl text-5xl font-normal sm:text-7xl md:text-8xl"
-          style={{ color: INK, lineHeight: 0.95, letterSpacing: '-2.46px' }}
+          className="animate-fade-rise max-w-full whitespace-nowrap font-normal"
+          style={{ color: INK, lineHeight: 0.95, letterSpacing: '-2.46px', fontSize: 'clamp(1.5rem, 4.2vw, 6rem)' }}
         >
-          Every site. Every rupee.{' '}
-          {/* Emphasis by colour alone — the reference sets these in serif
-              italic, which is the letterform change you asked to drop. */}
-          <span style={{ color: GREY }}>One source of truth.</span>
+          Every plot. Every payment.{' '}
+          <span style={{ color: GREY }}>One clear ledger.</span>
         </h1>
 
         <p
           className="animate-fade-rise-delay mt-8 max-w-2xl text-base leading-relaxed sm:text-lg"
           style={{ color: GREY }}
         >
-          Plot instalments, farmer land payouts, broker commission and site expenses — recorded
-          where the work happens, approved before they post, and reported from one ledger.
+          Track sales, land payouts, commissions and site costs in one place.
         </p>
 
         <Link to="/signup" className={`${CTA_INK} animate-fade-rise-delay-2 mt-12 px-14 py-5 text-base`}>

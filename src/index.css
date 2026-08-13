@@ -1,6 +1,12 @@
 @import "tailwindcss";
 @plugin "tailwindcss-animate";
 
+/* The app owns theme state through the `.dark` class on <html>. Without this
+   override Tailwind's `dark:` utilities follow the operating-system setting,
+   which made calendar badges switch to their dark colours while the app was
+   still visibly in light mode. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* ── MountReality design tokens ──────────────────────────────────────
    One small palette shared by the dashboard shell, sidebar and panels.
    Colour is semantic here, never decorative:
@@ -46,9 +52,9 @@
   --color-mr-aqua: #50ddeb;
   --color-mr-aqua-soft: #e2fbfe;
   --color-mr-aqua-ink: #0a7a8a;
-  --color-mr-lime: #b9ff45;
-  --color-mr-lime-soft: #eeffd2;
-  --color-mr-lime-ink: #4d7a00;
+  --color-mr-lime: #4ade80;
+  --color-mr-lime-soft: #f0fdf4;
+  --color-mr-lime-ink: #15803d;
   --color-mr-amber: #ffb02e;
   --color-mr-amber-soft: #fff4e0;
   --color-mr-amber-ink: #8a5a00;
@@ -85,8 +91,8 @@
   --color-mr-blue-soft: #1d2a4a;
   --color-mr-aqua-soft: #0d3038;
   --color-mr-aqua-ink: #5fd3e4;
-  --color-mr-lime-soft: #222f0e;
-  --color-mr-lime-ink: #a9e15f;
+  --color-mr-lime-soft: #14532d;
+  --color-mr-lime-ink: #86efac;
   --color-mr-amber-soft: #382a10;
   --color-mr-amber-ink: #f0b45a;
   --color-mr-coral-soft: #3d1a13;
@@ -130,6 +136,47 @@
 }
 .mr-rise {
   animation: mr-rise 240ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+/* ── Land acquisition progress ──────────────────────────────────────
+   Completed steps use the standard green-400 accent. The current step alone
+   gets a slow focus pulse, so it remains obvious in both the detail journey
+   and the compact acquisition-table timelines. */
+.mr-acquisition-stage-connector-complete {
+  background-color: #4ade80;
+}
+.mr-acquisition-stage-complete {
+  border-color: #4ade80;
+  background-color: #f0fdf4;
+  color: #15803d;
+}
+.mr-acquisition-stage-current {
+  border-color: #1f5fd1;
+  background-color: #e4efff;
+  color: #1f5fd1;
+  animation: mr-acquisition-current-stage 2.15s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+@keyframes mr-acquisition-current-stage {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(31, 95, 209, 0.12); }
+  48% { box-shadow: 0 0 0 6px rgba(31, 95, 209, 0); }
+}
+.dark .mr-acquisition-stage-connector-complete {
+  background-color: #4ade80;
+}
+.dark .mr-acquisition-stage-complete {
+  border-color: #4ade80;
+  background-color: #14532d;
+  color: #86efac;
+}
+.dark .mr-acquisition-stage-current {
+  border-color: #78a3ff;
+  background-color: #1d315b;
+  color: #92b6ff;
+  animation-name: mr-acquisition-current-stage-dark;
+}
+@keyframes mr-acquisition-current-stage-dark {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(120, 163, 255, 0.15); }
+  48% { box-shadow: 0 0 0 6px rgba(120, 163, 255, 0); }
 }
 
 /* ── Liquid glass controls ───────────────────────────────────────────

@@ -33,6 +33,10 @@ import {
 } from 'lucide-react';
 import SignaturePad from '../components/SignaturePad';
 import { printUnifiedReceipt } from '../lib/printReceipt';
+import {
+  getReceiptConfiguration,
+  RECEIPT_CONFIGURATION_DEFAULTS,
+} from '../lib/receiptConfiguration';
 import { customerSigImg, authoritySigHtml, nameSignOn } from '../lib/receiptSignature';
 import { Textarea } from '../components/ui/textarea';
 import VoucherUpload, { VoucherThumbnail } from '../components/VoucherUpload';
@@ -160,6 +164,7 @@ export default function PlotDetail() {
   const [approvers, setApprovers] = useState([]);
   const [autocomplete, setAutocomplete] = useState({ members: [] });
   const [paymentMetadataLoading, setPaymentMetadataLoading] = useState(false);
+  const [receiptConfiguration, setReceiptConfiguration] = useState(RECEIPT_CONFIGURATION_DEFAULTS);
   const [message, setMessage] = useState({ type: '', text: '' });
   const loadedPlotIdRef = useRef(null);
   const paymentMetadataSiteRef = useRef(null);
@@ -220,12 +225,12 @@ export default function PlotDetail() {
       date: payDate,
       leadIn: 'As a full and final settlement in the following manner:',
       rows: [
-        { label: 'Received From', value: plot?.buyer_name || 'UNDEFINED ENTITY' },
+        { field: 'party', label: 'Received From', value: plot?.buyer_name || 'UNDEFINED ENTITY' },
         { label: 'Plot No.', value: plot?.plot_no },
         { label: 'Measuring', value: plotMeasure },
-        { label: 'Payment Mode / Ch. No.', value: instrumentRef },
+        { field: 'payment_mode', label: 'Payment Mode / Ch. No.', value: instrumentRef },
         ...(pay.payment_type === 'BANK'
-          ? [{ label: 'Name of the Bank', value: bankName }, { label: 'Branch', value: branchName }]
+          ? [{ field: 'bank_details', label: 'Name of the Bank', value: bankName }, { field: 'bank_details', label: 'Branch', value: branchName }]
           : []),
         { label: 'In Favour Of', value: siteName },
         { label: 'Payment Date', value: payDate },
@@ -245,6 +250,7 @@ export default function PlotDetail() {
         ? 'STATUTORY PROVISO: Cash received exclusively as a temporary custodian on behalf of our designated banking institution for immediate reconciliation and ledger entry.'
         : undefined,
       printedAt,
+      configuration: receiptConfiguration,
     });
   };
 
@@ -882,6 +888,18 @@ export default function PlotDetail() {
     void fetchAll(controller.signal);
     return () => controller.abort();
   }, [fetchAll]);
+
+  useEffect(() => {
+    if (!currentSite?.id) {
+      setReceiptConfiguration(RECEIPT_CONFIGURATION_DEFAULTS);
+      return undefined;
+    }
+    let active = true;
+    getReceiptConfiguration(currentSite.id)
+      .then((configuration) => { if (active) setReceiptConfiguration(configuration); })
+      .catch(() => { if (active) setReceiptConfiguration(RECEIPT_CONFIGURATION_DEFAULTS); });
+    return () => { active = false; };
+  }, [currentSite?.id]);
 
   useEffect(() => {
     paymentMetadataSiteRef.current = null;

@@ -21,7 +21,6 @@ import MembersSummary from '../components/clients/MembersSummary';
 import MembersToolbar from '../components/clients/MembersToolbar';
 import MembersTable from '../components/clients/MembersTable';
 import MembersMobileList from '../components/clients/MembersMobileList';
-import { MemberAvatar as Avatar } from '../components/clients/memberDisplay';
 import { MEMBER_TYPES, isKycIncomplete } from '../components/clients/memberMeta';
 import { SiteRegistrationDialog } from '../components/MemberKycDialog';
 import { KYC_DOC_FIELDS, EMPLOYEE_DOC_FIELDS } from '../components/memberKycFields';
@@ -452,7 +451,6 @@ export const Clients = () => {
         <td>${index + 1}</td>
         <td>${escapeHtml(m.member_type || '')}</td>
         <td>${escapeHtml(m.full_name || '')}</td>
-        <td>${escapeHtml(m.father_name || '')}</td>
         <td>${escapeHtml(m.phone || '')}</td>
         <td>${escapeHtml(m.email || '')}</td>
         <td>${escapeHtml(m.city || '')}</td>
@@ -544,7 +542,6 @@ export const Clients = () => {
                 <th>#</th>
                 <th>Type</th>
                 <th>Name</th>
-                <th>Father Name</th>
                 <th>Phone</th>
                 <th>Email</th>
                 <th>City</th>
@@ -553,7 +550,7 @@ export const Clients = () => {
                 <th>KYC Status</th>
               </tr>
             </thead>
-            <tbody>${rowsHtml || '<tr><td colspan="10" style="text-align:center; color:#6b7280;">No records found</td></tr>'}</tbody>
+            <tbody>${rowsHtml || '<tr><td colspan="9" style="text-align:center; color:#6b7280;">No records found</td></tr>'}</tbody>
           </table>
         </body>
       </html>
@@ -603,9 +600,9 @@ export const Clients = () => {
 
   // ── Excel Export ──
   const downloadExcel = () => {
-    const headers = ['#', 'Type', 'Full Name', 'Father Name', 'Phone', 'Email', 'City', 'State', 'Aadhar', 'PAN', 'Occupation', 'Status'];
+    const headers = ['#', 'Type', 'Full Name', 'Phone', 'Email', 'City', 'State', 'Aadhar', 'PAN', 'Occupation', 'Status'];
     const rows = filteredMembers.map((m, i) => [
-      i + 1, m.member_type, m.full_name, m.father_name || '', m.phone || '', m.email || '',
+      i + 1, m.member_type, m.full_name, m.phone || '', m.email || '',
       m.city || '', m.state || '', m.aadhar_no || '', m.pan_no || '', m.occupation || '', m.status,
     ]);
     const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);

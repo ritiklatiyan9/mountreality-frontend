@@ -15,13 +15,13 @@ export default function LandAcquisitionProgress({ status, compact = false }) {
             {index > 0 && (
               <span className={cn(
                 'absolute right-1/2 top-3 h-px w-full -translate-y-1/2',
-                current >= stepNumber ? 'bg-mr-lime-ink/50' : 'bg-mr-line',
+                current >= stepNumber ? 'mr-acquisition-stage-connector-complete' : 'bg-mr-line',
               )} aria-hidden="true" />
             )}
             <span className={cn(
               'relative z-10 mx-auto flex h-6 w-6 items-center justify-center rounded-full border bg-mr-surface',
-              complete && 'border-mr-lime-ink bg-mr-lime-soft text-mr-lime-ink',
-              active && 'border-mr-blue bg-mr-blue-soft text-mr-blue',
+              complete && 'mr-acquisition-stage-complete',
+              active && 'mr-acquisition-stage-current',
               !complete && !active && 'border-mr-line text-mr-faint',
             )}>
               {complete ? <Check className="h-3.5 w-3.5" strokeWidth={2.5} /> : <Circle className={cn('h-2 w-2', active && 'fill-current')} />}
@@ -36,4 +36,3 @@ export default function LandAcquisitionProgress({ status, compact = false }) {
     </ol>
   );
 }
-

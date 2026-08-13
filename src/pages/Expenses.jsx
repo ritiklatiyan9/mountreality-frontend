@@ -1,10 +1,9 @@
-import { writePrintDocument } from '../lib/safePrint';
+import { escapePrintText, writePrintDocument } from '../lib/safePrint';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/api';
-import QRCode from 'qrcode';
 import { apolloClient } from '../graphql/client';
 import { GET_EXPENSES_PAGE_DATA, GET_EXPENSES_BREAKDOWN } from '../graphql/queries';
 import * as XLSX from 'xlsx';
@@ -49,7 +48,12 @@ import {
 import ChequeStatusControl from '../components/ChequeStatusControl';
 import SignaturePad from '../components/SignaturePad';
 import { useDocViewer } from '../components/DocViewer';
-import { printCashReceipt } from '../lib/cashReceipt';
+import { printUnifiedReceipt } from '../lib/printReceipt';
+import {
+  getReceiptConfiguration,
+  RECEIPT_CONFIGURATION_DEFAULTS,
+} from '../lib/receiptConfiguration';
+import { authoritySigHtml, customerSigImg } from '../lib/receiptSignature';
 import {
   Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
 } from '../components/ui/tooltip';
@@ -155,54 +159,6 @@ const buildExpensesQueryFilters = ({
   return filters;
 };
 
-// Shared A4 voucher print styles — reused by both the single-row printReceipt
-// and the bulk printSelectedReceipts (one combined window covers all selected
-// rows; looping window.open per row gets killed by popup blockers after the
-// first). ".document + .document" page-breaks are a no-op when only one
-// document is printed.
-const RECEIPT_STYLES = `
-    @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Inter:wght@400;500;600;700&family=Dancing+Script:wght@400;500;600;700&display=swap');
-    @page { size: A4 portrait; margin: 0; }
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: 'Inter', -apple-system, sans-serif; color: #1a1a1a; background: #f1f5f9; display: flex; flex-direction: column; align-items: center; padding: 10mm 0; }
-    .document { background: #fff; width: 210mm; min-height: 297mm; padding: 8mm 15mm; position: relative; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1); border: 1px solid #e2e8f0; display: flex; flex-direction: column; overflow: hidden; }
-    .document + .document { margin-top: 8mm; page-break-before: always; }
-    .receipt-copy { position: relative; flex: 1; display: flex; flex-direction: column; padding: 3mm 5mm; overflow: hidden; }
-    .copy-label { position: absolute; top: 2mm; right: 3mm; font-size: 8px; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; font-weight: 700; }
-    .scissor-line { position: relative; border: none; border-top: 1.5px dashed #94a3b8; margin: 2mm 0; overflow: visible; }
-    .scissor-line::before { content: '✂'; position: absolute; top: -10px; left: -2px; font-size: 16px; color: #94a3b8; line-height: 1; }
-    .border-frame { position: absolute; top: 2mm; left: 2mm; right: 2mm; bottom: 2mm; border: 1px solid #cbd5e1; pointer-events: none; }
-    .watermark { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-45deg); font-family: 'Cinzel', serif; font-size: 60px; color: rgba(226,232,240,0.25); font-weight: 700; z-index: 1; pointer-events: none; white-space: nowrap; text-transform: uppercase; }
-    .content { position: relative; z-index: 10; flex: 1; display: flex; flex-direction: column; }
-    .header { text-align: center; margin-bottom: 3mm; border-bottom: 2px double #0f172a; padding: 3mm 3mm 2.5mm; background: #f0fdf4; border-radius: 4px; }
-    .header h1 { font-family: 'Cinzel', serif; font-size: 18px; color: #166534; letter-spacing: 2px; margin-bottom: 2px; text-transform: uppercase; }
-    .header p { font-size: 9px; color: #475569; text-transform: uppercase; letter-spacing: 1px; font-weight: 600; max-width: 80%; margin: 0 auto; }
-    .doc-type { text-align: center; margin-bottom: 3mm; }
-    .doc-type h2 { font-family: 'Cinzel', serif; font-size: 12px; color: #64748b; letter-spacing: 4px; text-transform: uppercase; display: inline-block; padding: 1px 15px; border-bottom: 1px solid #cbd5e1; }
-    .meta-info { display: flex; justify-content: space-between; margin-bottom: 3mm; font-size: 10px; padding: 0 3mm; }
-    .meta-item b { color: #64748b; font-size: 8px; text-transform: uppercase; margin-right: 3px; }
-    .kv-qr-wrap { display: flex; align-items: flex-start; gap: 4mm; padding: 0 3mm; margin-bottom: 2mm; }
-    .kv-section { flex: 1; min-width: 0; }
-    .kv-row { display: grid; grid-template-columns: 44% 4% 52%; gap: 1px; align-items: baseline; margin: 1mm 0; font-size: 10px; }
-    .kv-row .k { color: #0f172a; font-weight: 600; } .kv-row .c { text-align: center; color: #475569; font-weight: 700; } .kv-row .v { color: #0f172a; font-weight: 600; text-transform: uppercase; }
-    .qr-section { flex-shrink: 0; display: flex; flex-direction: column; align-items: center; background: #fff; padding: 1.5mm; border: 1px solid #0f172a; border-radius: 3px; }
-    .qr-section img { display: block; width: 30mm; height: 30mm; image-rendering: pixelated; image-rendering: crisp-edges; }
-    .qr-label { font-size: 7px; color: #166534; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 800; margin-top: 1mm; }
-    .settlement-title { margin: 1mm 3mm 0.8mm; font-size: 10px; color: #0f172a; font-weight: 700; }
-    .data-table { width: 100%; border-collapse: collapse; margin-bottom: 2mm; }
-    .data-table th, .data-table td { border: 1px solid #e2e8f0; padding: 0.8mm 3mm; text-align: left; line-height: 1.25; }
-    .data-table th { background: #f8fafc; font-size: 8px; text-transform: uppercase; color: #64748b; width: 35%; }
-    .data-table td { font-size: 10px; font-weight: 600; color: #0f172a; }
-    .footer { flex-shrink: 0; margin-top: auto; display: flex; justify-content: space-between; align-items: flex-end; padding: 3mm 5mm 1mm; }
-    .print-meta { flex-shrink: 0; text-align: center; font-size: 7.5px; color: #64748b; margin-top: 1.5mm; padding: 0.8mm 0 0; border-top: 1px dashed #e2e8f0; letter-spacing: 0.3px; }
-    .print-meta b { color: #0f172a; font-weight: 600; }
-    .sig-box { text-align: center; width: 55mm; min-height: 14mm; display: flex; flex-direction: column; justify-content: flex-end; }
-    .sig-line { border-top: 1.5px solid #0f172a; padding-top: 3px; font-size: 8px; font-weight: 700; color: #475569; text-transform: uppercase; letter-spacing: 0.5px; }
-    .digital-signature { font-family: 'Dancing Script', 'Brush Script MT', cursive; font-size: 22px; font-weight: 700; color: #1a237e; margin-bottom: 1px; line-height: 1; height: 8mm; display: flex; align-items: flex-end; justify-content: center; }
-    .customer-sign { display: block; max-height: 11mm; max-width: 48mm; margin: 0 auto 1px; object-fit: contain; }
-    @media print { body { background: white; padding: 0; } .document { box-shadow: none !important; border: none !important; width: 210mm; height: 297mm; margin: 0 !important; padding: 8mm 15mm !important; } .document + .document { margin-top: 0 !important; } .receipt-copy { padding: 3mm 5mm !important; } .header { padding: 2mm 3mm !important; margin-bottom: 1.5mm !important; } .header h1 { font-size: 16px !important; } .doc-type { margin-bottom: 1.5mm !important; } .meta-info { margin-bottom: 1.5mm !important; } .kv-qr-wrap { margin-bottom: 1mm !important; } .qr-section img { width: 24mm !important; height: 24mm !important; } .settlement-title { margin: 1mm 3mm 0.5mm !important; } .data-table { margin-bottom: 1.5mm !important; } .data-table th, .data-table td { padding: 0.8mm 3mm !important; } .bank-proviso { margin-top: 1mm !important; padding: 1.5mm 2mm !important; font-size: 7px !important; line-height: 1.35 !important; } .footer { padding: 1.5mm 5mm 0 !important; } .sig-box { min-height: 11mm !important; } .digital-signature { font-size: 18px !important; height: 6mm !important; } .customer-sign { max-height: 9mm !important; } .print-meta { margin-top: 0.5mm !important; } .no-print { display: none !important; } }
-`;
-
 const Expenses = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -233,6 +189,8 @@ const Expenses = () => {
   const [editingId, setEditingId] = useState(null);
   const [message, setMessage] = useState({ type: '', text: '' });
   const [submitting, setSubmitting] = useState(false);
+  const [printingReport, setPrintingReport] = useState(false);
+  const [receiptConfiguration, setReceiptConfiguration] = useState(RECEIPT_CONFIGURATION_DEFAULTS);
 
   const [categoryOpen, setCategoryOpen] = useState(false);
   const [uploadingVoucher, setUploadingVoucher] = useState(false);
@@ -306,6 +264,20 @@ const Expenses = () => {
     }, 400);
     return () => clearTimeout(searchTimerRef.current);
   }, [searchQuery]);
+
+  // Expense vouchers intentionally use the same Site-level receipt configuration
+  // edited at Settings → Receipt, rather than maintaining a separate template.
+  useEffect(() => {
+    if (!siteId) {
+      setReceiptConfiguration(RECEIPT_CONFIGURATION_DEFAULTS);
+      return undefined;
+    }
+    let active = true;
+    getReceiptConfiguration(siteId)
+      .then((configuration) => { if (active) setReceiptConfiguration(configuration); })
+      .catch(() => { if (active) setReceiptConfiguration(RECEIPT_CONFIGURATION_DEFAULTS); });
+    return () => { active = false; };
+  }, [siteId]);
 
   // ── Fetch all ──
   const fetchExpenses = useCallback(async () => {
@@ -794,35 +766,46 @@ const Expenses = () => {
     );
   };
 
+  const fetchFilteredExpenseRows = async () => {
+    const filters = buildExpensesQueryFilters({
+      search: searchQuery,
+      mode: filterMode,
+      category: filterCategories,
+      toEntity: filterTo,
+      dateFrom: filterDateFrom,
+      dateTo: filterDateTo,
+      missingBill: filterBillStatus === 'missing',
+      order: sortOrder,
+    });
+    const baseVariables = { siteId: String(siteId), limit: 100, filters };
+    const { data: firstResponse } = await apolloClient.query({
+      query: GET_EXPENSES_PAGE_DATA,
+      variables: { ...baseVariables, page: 1 },
+      fetchPolicy: 'network-only',
+    });
+    const firstPage = firstResponse?.expensesPageData || {};
+    const pages = Number(firstPage.pagination?.totalPages || 1);
+    const remaining = pages > 1 ? await Promise.all(
+      Array.from({ length: pages - 1 }, (_, index) => apolloClient.query({
+        query: GET_EXPENSES_PAGE_DATA,
+        variables: { ...baseVariables, page: index + 2 },
+        fetchPolicy: 'network-only',
+      }))
+    ) : [];
+    return {
+      rows: [
+        ...(firstPage.expenses || []),
+        ...remaining.flatMap((response) => response.data?.expensesPageData?.expenses || []),
+      ],
+      summary: firstPage.summary || { total_debit: 0, total_credit: 0, total_count: 0 },
+    };
+  };
+
   // ── Download Excel ──
   const downloadExcel = async () => {
     try {
       setMessage({ type: 'info', text: 'Generating Excel...' });
-
-      const filters = buildExpensesQueryFilters({
-        search: searchQuery,
-        mode: filterMode,
-        category: filterCategories,
-        toEntity: filterTo,
-        dateFrom: filterDateFrom,
-        dateTo: filterDateTo,
-        missingBill: filterBillStatus === 'missing',
-        order: sortOrder,
-      });
-
-      const { data } = await apolloClient.query({
-        query: GET_EXPENSES_PAGE_DATA,
-        variables: {
-          siteId: String(siteId),
-          page: 1,
-          limit: 0, // fetch all rows for export
-          filters,
-        },
-        fetchPolicy: 'network-only',
-      });
-
-      const fullData = data?.expensesPageData?.expenses || [];
-      const summaryData = data?.expensesPageData?.summary || { total_debit: 0, total_credit: 0 };
+      const { rows: fullData, summary: summaryData } = await fetchFilteredExpenseRows();
 
       const dlTotalDebit = parseFloat(summaryData.total_debit) || 0;
       const dlTotalCredit = parseFloat(summaryData.total_credit) || 0;
@@ -878,182 +861,130 @@ const Expenses = () => {
     }
   };
 
+  const printExpenseReport = async () => {
+    if (!siteId || printingReport) return;
+    const reportWindow = window.open('', '_blank', 'width=1120,height=800');
+    if (!reportWindow) return toast.error('Pop-up blocked. Allow pop-ups to print the expense register.');
+    setPrintingReport(true);
+    try {
+      reportWindow.document.write('<title>Preparing expense register…</title><p style="font-family:system-ui;padding:24px">Preparing your printable expense register…</p>');
+      const { rows, summary: reportSummary } = await fetchFilteredExpenseRows();
+      if (!rows.length) {
+        reportWindow.close();
+        return toast.error('There are no expense entries in this selection.');
+      }
+      const reportDebit = parseFloat(reportSummary.total_debit) || 0;
+      const reportCredit = parseFloat(reportSummary.total_credit) || 0;
+      const reportNet = reportCredit - reportDebit;
+      const periodLabel = filterPeriod === 'all' ? 'All time' : (PERIOD_OPTIONS.find((period) => period.key === filterPeriod)?.label || 'Custom period');
+      const esc = escapePrintText;
+      const rowsHtml = rows.map((expense, index) => {
+        const debit = parseFloat(expense.debit) || 0;
+        const credit = parseFloat(expense.credit) || 0;
+        const title = expense.remark || expense.category || 'Expense entry';
+        const party = expense.to_entity || expense.from_entity || '—';
+        return `<tr>
+          <td>${index + 1}</td><td>${esc(fmtDate(expense.date))}</td>
+          <td><strong>${esc(title)}</strong><small>${esc(expense.category || 'Uncategorised')} · ${esc(party)}</small></td>
+          <td>${esc(expense.payment_mode || '—')}</td>
+          <td class="amount debit">${debit ? `₹${esc(fmt(debit))}` : '—'}</td>
+          <td class="amount credit">${credit ? `₹${esc(fmt(credit))}` : '—'}</td>
+          <td><span class="status ${esc(String(expense.status || 'pending').toLowerCase())}">${esc(expense.status || 'pending')}</span></td>
+        </tr>`;
+      }).join('');
+      const html = `<!DOCTYPE html><html><head><title>Expense register — ${esc(currentSite?.name || 'Site')}</title><style>
+        @page { size: A4 landscape; margin: 12mm; }
+        * { box-sizing: border-box; } body { margin: 0; color: #172033; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+        .report { max-width: 100%; } .top { display:flex; justify-content:space-between; gap:20px; border-bottom:2px solid #172033; padding-bottom:14px; }
+        .eyebrow { color:#2563eb; font-size:10px; font-weight:800; letter-spacing:.14em; text-transform:uppercase; } h1 { margin:4px 0 0; font-size:26px; letter-spacing:-.045em; } .copy { margin:5px 0 0; color:#64748b; font-size:11px; }
+        .stamp { min-width:155px; border-left:1px solid #dbe3ee; padding-left:16px; color:#64748b; font-size:10px; line-height:1.55; } .stamp b { color:#172033; }
+        .metrics { display:grid; grid-template-columns:repeat(4,1fr); border:1px solid #dbe3ee; border-bottom:0; margin-top:18px; } .metric { min-height:68px; padding:11px 13px; border-right:1px solid #dbe3ee; } .metric:last-child { border-right:0; }
+        .metric span { display:block; color:#718096; font-size:9px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; } .metric b { display:block; margin-top:7px; color:#172033; font-size:17px; } .metric .out { color:#dc2626; } .metric .in { color:#059669; }
+        table { width:100%; border-collapse:collapse; margin-top:18px; font-size:10px; } th { padding:9px 8px; border-bottom:1.5px solid #172033; color:#64748b; font-size:8px; letter-spacing:.09em; text-align:left; text-transform:uppercase; } td { padding:9px 8px; border-bottom:1px solid #e7edf4; vertical-align:top; } tbody tr:nth-child(even) { background:#f8fafc; } td small { display:block; margin-top:3px; color:#7b8aa1; font-size:9px; } .amount { font-weight:800; text-align:right; white-space:nowrap; } .debit { color:#dc2626; } .credit { color:#059669; } .status { display:inline-block; border-radius:999px; padding:3px 7px; font-size:8px; font-weight:800; text-transform:capitalize; } .status.approved { background:#dcfce7; color:#15803d; } .status.pending { background:#fef3c7; color:#b45309; } .status.rejected { background:#fee2e2; color:#dc2626; }
+        .footer { display:flex; justify-content:space-between; gap:16px; margin-top:12px; color:#7b8aa1; font-size:9px; } .print-actions { position:fixed; right:20px; bottom:20px; } .print-actions button { border:0; border-radius:8px; background:#172033; color:#fff; cursor:pointer; font:700 13px Inter, sans-serif; padding:11px 18px; box-shadow:0 8px 18px rgba(15,23,42,.18); }
+        @media print { .print-actions { display:none; } }
+      </style></head><body><main class="report"><header class="top"><div><p class="eyebrow">${esc(currentSite?.name || 'Site')} · Finance workspace</p><h1>Expense register</h1><p class="copy">${esc(periodLabel)} · ${rows.length} ${rows.length === 1 ? 'entry' : 'entries'} · Generated ${esc(new Date().toLocaleString('en-IN'))}</p></div><div class="stamp"><b>FINANCIAL OS</b><br/>Printable management register<br/>Use Print → Save as PDF</div></header><section class="metrics"><div class="metric"><span>Entries</span><b>${rows.length}</b></div><div class="metric"><span>Total debit</span><b class="out">₹${esc(fmt(reportDebit))}</b></div><div class="metric"><span>Total credit</span><b class="in">₹${esc(fmt(reportCredit))}</b></div><div class="metric"><span>Net position</span><b class="${reportNet >= 0 ? 'in' : 'out'}">₹${esc(fmt(Math.abs(reportNet)))}</b></div></section><table><thead><tr><th>#</th><th>Date</th><th>Expense / party</th><th>Method</th><th style="text-align:right">Debit</th><th style="text-align:right">Credit</th><th>Status</th></tr></thead><tbody>${rowsHtml}</tbody></table><footer class="footer"><span>System generated expense register · ${esc(currentSite?.name || 'Site')}</span><span>Active filters applied</span></footer></main><div class="print-actions"><button id="print-expense-register" type="button">Print / Save as PDF</button></div></body></html>`;
+      writePrintDocument(reportWindow, html);
+      toast.success('Printable expense register is ready. Choose “Save as PDF” in the print dialog.');
+    } catch (error) {
+      reportWindow.close();
+      console.error('Failed to print expense register:', error);
+      toast.error('Could not prepare the expense register.');
+    } finally {
+      setPrintingReport(false);
+    }
+  };
+
   // ── Print Receipt ──
-  // Builds the two-copy "office / payee" markup for one entry (general A4
-  // voucher template — used for every non-CASH mode). Shared by the
-  // single-row printReceipt and the bulk printSelectedReceipts so the two
-  // never drift out of sync.
-  const buildReceiptDocument = async (exp) => {
+  // Every expense voucher is rendered by the reusable receipt engine and
+  // therefore follows the Site design configured at Settings → Receipt.
+  const printReceipt = async (exp, popup) => {
     const debit = parseFloat(exp.debit) || 0;
     const credit = parseFloat(exp.credit) || 0;
     const isDebit = debit > 0;
-    const amt = isDebit ? debit : credit;
-    const absAmt = Math.abs(amt);
-    const typeLabel = isDebit ? 'Payment Voucher' : 'Receipt Voucher';
+    const amount = Math.abs(isDebit ? debit : credit);
     const voucherNo = `${isDebit ? 'PV' : 'RV'}-${String(exp.id).padStart(6, '0')}`;
     const dateStr = fmtDate(exp.date);
     const printedAt = new Date().toLocaleString('en-IN', {
       day: '2-digit', month: '2-digit', year: 'numeric',
       hour: '2-digit', minute: '2-digit', hour12: true,
     });
-    const fmtINR = (v) => parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 0 });
-    const siteName = (currentSite?.name || 'COMPANY').toUpperCase();
-    const siteAddr = [currentSite?.address, currentSite?.city, currentSite?.state].filter(Boolean).join(', ').toUpperCase();
     const signerName = user?.full_name || user?.name || '';
-    const amtColor = isDebit ? '#dc2626' : '#059669';
+    const party = (isDebit ? exp.to_entity : exp.from_entity) || exp.to_entity || exp.from_entity || '';
+    const bankDetails = [
+      exp.account_no ? `Account ending ${String(exp.account_no).slice(-4)}` : '',
+      exp.branch,
+    ].filter(Boolean).join(' · ');
+    const reference = exp.cheque_no || exp.bank_reference || '';
+    const expenseName = exp.remark || exp.category || 'Expense entry';
 
-    let qrDataUrl = null;
-    if (exp.verifyUrl) {
-      try {
-        qrDataUrl = await QRCode.toDataURL(exp.verifyUrl, {
-          width: 640, margin: 2, errorCorrectionLevel: 'M',
-          color: { dark: '#000000', light: '#ffffff' },
-        });
-      } catch { qrDataUrl = null; }
-    }
-    const qrSection = qrDataUrl
-      ? `<div class="qr-section"><img src="${qrDataUrl}" alt="Verify QR" /><div class="qr-label">Scan to verify</div></div>`
-      : '';
-
-    // Authorized signatory: drawn signature wins; else name (when Name Sign on).
-    const authoritySigHtml = exp.authority_signature_url
-      ? `<img class="customer-sign" src="${exp.authority_signature_url}" alt="" />`
-      : (nameSignOn ? `<div class="digital-signature">${signerName}</div>` : '');
-
-    const receiptBlock = (copyLabel) => `
-      <div class="receipt-copy">
-        <div class="copy-label">${copyLabel}</div>
-        <div class="border-frame"></div>
-        <div class="watermark">${siteName}</div>
-        <div class="content">
-          <div class="header">
-            <h1>${siteName}</h1>
-            <p>${siteAddr || 'ACCOUNTS & FINANCE DIVISION'}</p>
-          </div>
-          <div class="doc-type"><h2>${typeLabel}</h2></div>
-          <div class="meta-info">
-            <div class="meta-item"><b>Voucher No:</b> ${voucherNo}</div>
-            <div class="meta-item"><b>Date:</b> ${dateStr}</div>
-          </div>
-          <div class="kv-qr-wrap">
-            <div class="kv-section">
-              ${exp.from_entity ? `<div class="kv-row"><div class="k">From / Source</div><div class="c">:</div><div class="v">${exp.from_entity.toUpperCase()}</div></div>` : ''}
-              ${exp.to_entity ? `<div class="kv-row"><div class="k">To / Paid To</div><div class="c">:</div><div class="v">${exp.to_entity.toUpperCase()}</div></div>` : ''}
-              ${exp.category ? `<div class="kv-row"><div class="k">Category</div><div class="c">:</div><div class="v" style="color:#7c3aed;font-weight:700">${String(exp.category).toUpperCase()}</div></div>` : ''}
-              <div class="kv-row"><div class="k">Amount</div><div class="c">:</div><div class="v" style="color:${amtColor}">RS ${fmtINR(absAmt)}/-</div></div>
-            </div>
-            ${qrSection}
-          </div>
-          <div class="settlement-title">${isDebit ? 'Payment' : 'Receipt'} Details:</div>
-          <table class="data-table">
-            <tr><th>Date</th><td>${dateStr}</td></tr>
-            ${exp.category ? `<tr><th>Category</th><td>${exp.category}</td></tr>` : ''}
-            ${exp.payment_mode ? `<tr><th>Payment Mode</th><td>${exp.payment_mode}</td></tr>` : ''}
-            ${exp.account_no ? `<tr><th>Account No</th><td>${exp.account_no}</td></tr>` : ''}
-            ${exp.branch ? `<tr><th>Branch</th><td>${exp.branch}</td></tr>` : ''}
-            <tr><th>Amount</th><td style="color:${amtColor}">RS ${fmtINR(absAmt)}/-</td></tr>
-            ${exp.remark ? `<tr><th>Remark</th><td>${exp.remark}</td></tr>` : ''}
-          </table>
-          <div class="footer">
-            <div class="sig-box">${exp.customer_signature_url ? `<img class="customer-sign" src="${exp.customer_signature_url}" alt="" />` : ''}<div class="sig-line">${isDebit ? 'Received By' : 'Deposited By'}</div></div>
-            <div class="sig-box">${authoritySigHtml}<div class="sig-line">Authorized Signatory & Seal</div></div>
-          </div>
-          <div class="print-meta">Printed on: <b>${printedAt}</b></div>
-        </div>
-      </div>
-    `;
-
-    return {
-      typeLabel, voucherNo,
-      documentHtml: `<div class="document">
-        ${receiptBlock('Office Copy')}
-        <hr class="scissor-line" />
-        ${receiptBlock(isDebit ? 'Payee Copy' : 'Payer Copy')}
-      </div>`,
-    };
-  };
-
-  const printReceipt = async (exp) => {
-    const debit = parseFloat(exp.debit) || 0;
-    const credit = parseFloat(exp.credit) || 0;
-    const isDebit = debit > 0;
-    const amt = isDebit ? debit : credit;
-    const absAmt = Math.abs(amt);
-    const voucherNo = `${isDebit ? 'PV' : 'RV'}-${String(exp.id).padStart(6, '0')}`;
-    const dateStr = fmtDate(exp.date);
-    const printedAt = new Date().toLocaleString('en-IN', {
-      day: '2-digit', month: '2-digit', year: 'numeric',
-      hour: '2-digit', minute: '2-digit', hour12: true,
-    });
-    const siteName = (currentSite?.name || 'COMPANY').toUpperCase();
-    const siteAddr = [currentSite?.address, currentSite?.city, currentSite?.state].filter(Boolean).join(', ').toUpperCase();
-    const signerName = user?.full_name || user?.name || '';
-    const amtColor = isDebit ? '#dc2626' : '#059669';
-
-    // CASH mode → clean minimal A5 receipt (no QR / watermark); issuer kept.
-    if ((exp.payment_mode || '').toUpperCase() === 'CASH') {
-      printCashReceipt({
-        siteName, siteAddr,
-        docTitle: isDebit ? 'Cash Payment Voucher' : 'Cash Receipt',
-        voucherNo, dateStr, printedAt,
-        partyLabel: isDebit ? 'Paid To' : 'Received From',
-        partyName: ((isDebit ? exp.to_entity : exp.from_entity) || exp.to_entity || exp.from_entity || '').toUpperCase(),
-        amount: absAmt, amountColor: amtColor,
+    try {
+      await printUnifiedReceipt({
+        popup,
+        docTitle: isDebit ? 'Expense Payment Voucher' : 'Expense Credit Receipt',
+        site: currentSite || {},
+        receiptNo: voucherNo,
+        date: dateStr,
+        leadIn: `${expenseName} · ${isDebit ? 'Payment recorded from the Site expense account.' : 'Credit recorded in the Site expense account.'}`,
         rows: [
-          { label: 'Category', value: exp.category ? String(exp.category).toUpperCase() : '' },
-          { label: 'Remark', value: exp.remark || '' },
+          { field: 'party', label: isDebit ? 'Paid to' : 'Received from', value: party },
+          { label: 'Expense', value: expenseName },
+          { field: 'allocation', label: 'Category', value: exp.category },
+          { field: 'payment_mode', label: 'Payment mode', value: exp.payment_mode },
+          { field: 'reference', label: 'Payment reference', value: reference },
+          { field: 'bank_details', label: 'Bank details', value: bankDetails },
+          { field: 'status', label: 'Status', value: exp.status },
+          { field: 'recorded_by', label: 'Recorded by', value: exp.created_by_name || exp.assigned_admin_name },
         ],
-        signerName,
-        customerSigLabel: isDebit ? 'Received By' : 'Deposited By',
-        row: exp,
+        amount,
+        amountDirection: isDebit ? 'out' : 'in',
+        amountLabel: isDebit ? 'Amount paid' : 'Amount received',
+        verifyUrl: exp.verifyUrl,
+        signatures: {
+          customerImg: customerSigImg(exp),
+          authorityHtml: authoritySigHtml(exp, signerName),
+          customerLabel: isDebit ? 'Payee signature' : 'Payer signature',
+          authorityLabel: 'Authorized signatory & seal',
+        },
+        extraNote: 'This receipt confirms the expense record as entered in the Site financial register.',
+        printedAt,
+        configuration: receiptConfiguration,
       });
-      return;
+    } catch (error) {
+      console.error('Could not print expense receipt:', error);
+      toast.error(error?.message || 'Could not prepare the expense receipt.');
     }
-
-    const { typeLabel, documentHtml } = await buildReceiptDocument(exp);
-    const html = `<!DOCTYPE html>
-<html><head>
-  <title>${typeLabel.toUpperCase()} — ${voucherNo}</title>
-  <style>${RECEIPT_STYLES}</style>
-</head>
-<body>
-  ${documentHtml}
-  <div class="no-print" style="position:fixed; bottom: 30px; left:0; right:0; text-align:center; z-index:1000;">
-    <button onclick="(async () => { try { if (document.fonts && document.fonts.ready) await document.fonts.ready; } catch(e){} window.print(); })()" style="padding:12px 50px; font-size:15px; font-weight:700; background:#0f172a; color:#fff; border:none; border-radius:10px; cursor:pointer; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.2);">EXECUTE PRINT (A4)</button>
-    <button onclick="window.close()" style="padding:12px 50px; font-size:15px; font-weight:700; background:#fff; color:#475569; border:1px solid #e2e8f0; border-radius:10px; cursor:pointer; margin-left:15px;">TERMINATE</button>
-  </div>
-</body></html>`;
-
-    const w = window.open('', '_blank', 'width=1000,height=750');
-    writePrintDocument(w, html);
-    w.document.close();
   };
 
-  // Bulk print — ONE window covering every selected native row (looping
-  // window.open per row gets popup-blocked after the first). All rows go
-  // through the general A4 template regardless of payment mode; ponytail:
-  // CASH-mode entries lose their special A5 layout in bulk print — acceptable
-  // for a multi-voucher printout, upgrade to per-mode branching if that ever
-  // matters for bulk.
   const printSelectedReceipts = async (rows) => {
     if (!rows.length) return;
-    const docs = await Promise.all(rows.map(buildReceiptDocument));
-    const html = `<!DOCTYPE html>
-<html><head>
-  <title>Vouchers (${rows.length})</title>
-  <style>${RECEIPT_STYLES}</style>
-</head>
-<body>
-  ${docs.map((d) => d.documentHtml).join('\n')}
-  <div class="no-print" style="position:fixed; bottom: 30px; left:0; right:0; text-align:center; z-index:1000;">
-    <button onclick="(async () => { try { if (document.fonts && document.fonts.ready) await document.fonts.ready; } catch(e){} window.print(); })()" style="padding:12px 50px; font-size:15px; font-weight:700; background:#0f172a; color:#fff; border:none; border-radius:10px; cursor:pointer; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.2);">EXECUTE PRINT (A4)</button>
-    <button onclick="window.close()" style="padding:12px 50px; font-size:15px; font-weight:700; background:#fff; color:#475569; border:1px solid #e2e8f0; border-radius:10px; cursor:pointer; margin-left:15px;">TERMINATE</button>
-  </div>
-</body></html>`;
-
-    const w = window.open('', '_blank', 'width=1000,height=750');
-    writePrintDocument(w, html);
-    w.document.close();
+    const popups = rows.map(() => window.open('', '_blank', 'width=1000,height=820'));
+    if (popups.some((popup) => !popup)) {
+      popups.forEach((popup) => popup?.close());
+      toast.error('Pop-ups are blocked. Allow pop-ups to print multiple receipts.');
+      return;
+    }
+    await Promise.all(rows.map((row, index) => printReceipt(row, popups[index])));
   };
 
   const handleBulkPrint = () => {
@@ -1084,16 +1015,18 @@ const Expenses = () => {
   // ═══════════════════════════════════════════════════
   return (
     <div className="mx-auto w-full max-w-[1800px] space-y-6 pb-6">
-      <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
-        <div className="min-w-0">
-          <h1 className="text-[clamp(1.5rem,2.6vw,2rem)] font-semibold leading-tight tracking-[-0.03em] text-mr-text">
-            Expenses
-          </h1>
-          <p className="mt-1 text-[13px] text-mr-muted">
-            Spending, reimbursements and bills{currentSite?.name ? ` · ${currentSite.name}` : ''}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
+      <header className="relative overflow-hidden border-y border-mr-line bg-gradient-to-r from-mr-surface via-mr-surface to-mr-blue-soft/45 px-5 py-5 sm:px-6">
+        <div className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full bg-mr-blue/10 blur-3xl" />
+        <div className="relative flex flex-col items-start justify-between gap-5 xl:flex-row xl:items-end">
+          <div className="flex min-w-0 items-start gap-3.5">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-mr-ink text-white shadow-sm"><IndianRupee className="h-5 w-5" strokeWidth={2} /></span>
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase tracking-[.16em] text-mr-blue">{currentSite?.name || 'Finance workspace'} · cash control</p>
+              <h1 className="mt-1 text-[clamp(1.65rem,2.7vw,2.25rem)] font-semibold leading-tight tracking-[-0.045em] text-mr-text">Expense control</h1>
+              <p className="mt-1.5 max-w-2xl text-[13px] leading-5 text-mr-muted">Track spending, reimbursements, bills and approval evidence in one auditable register.</p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
           <BulkActionsBar
             count={selection.count}
             onClear={selection.clear}
@@ -1109,11 +1042,21 @@ const Expenses = () => {
             className="h-10 rounded-full border-mr-line text-[13px]"
             title="Category radar chart"
           >
-            <RadarIcon className="mr-1.5 h-4 w-4" strokeWidth={1.9} /> Radar
-          </Button>
-          <Button
-            variant="outline"
-            onClick={downloadExcel}
+              <RadarIcon className="mr-1.5 h-4 w-4" strokeWidth={1.9} /> Radar
+            </Button>
+            <Button
+              variant="outline"
+              onClick={printExpenseReport}
+              disabled={expenses.length === 0 || printingReport}
+              className="h-10 rounded-full border-mr-line bg-mr-surface text-[13px]"
+              title="Open a printable register. Choose Save as PDF in the system print dialog."
+            >
+              {printingReport ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" strokeWidth={1.9} /> : <Printer className="mr-1.5 h-4 w-4" strokeWidth={1.9} />}
+              Print PDF
+            </Button>
+            <Button
+              variant="outline"
+              onClick={downloadExcel}
             disabled={expenses.length === 0}
             className="h-10 rounded-full border-mr-line text-[13px]"
           >
@@ -1128,7 +1071,8 @@ const Expenses = () => {
             </Button>
           )}
         </div>
-      </div>
+        </div>
+      </header>
 
       <ExpenseSummary
         totalDebit={totalDebit}

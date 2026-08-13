@@ -1,16 +1,15 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useDeferredValue } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/api';
 import UserAvatar from '../components/UserAvatar';
 import CreditDebitTabs from '../components/CreditDebitTabs';
 import { EntryDialog, EntryFooter, EntryRow, EntryField, EntryAmount } from '../components/EntryModal';
-import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
-import { Badge } from '../components/ui/badge';
 import { Textarea } from '../components/ui/textarea';
 import { Separator } from '../components/ui/separator';
+import { EmptyState, SkeletonBlock } from '../components/dashboard/primitives';
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader,
   DialogTitle, DialogFooter,
@@ -21,13 +20,12 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '../components/ui/table';
+import { Tabs, TabsContent } from '../components/ui/tabs';
+import { EmptyBlock, PageHeader, PageTabs, SectionHead, StatusDot } from '../components/ui/page';
 import {
-  Tabs, TabsContent, TabsList, TabsTrigger,
-} from '../components/ui/tabs';
-import {
-  Plus, AlertCircle, Search, Loader2, IndianRupee, Wallet,
-  Users, ArrowUpRight, ArrowDownRight, Check, X, RefreshCw,
+  Plus, AlertCircle, Search, Loader2, Check, X, RefreshCw,
   Send, Eye, Clock, CheckCircle2, XCircle, Banknote, Settings2, Undo2,
+  UsersRound, ArrowLeftRight, ReceiptText,
 } from 'lucide-react';
 
 // ── Helpers ──
@@ -46,14 +44,38 @@ const formatCurrency = (val) => {
   return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 0 }).format(num);
 };
 
+const getExpenseData = (value) => {
+  if (!value) return {};
+  if (typeof value === 'object') return value;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
+const WORKSPACE_VIEWS = [
+  { id: 'overview', label: 'Balances' },
+  { id: 'review', label: 'Approvals' },
+  { id: 'allocations', label: 'Allocations' },
+  { id: 'requests', label: 'Requests' },
+  { id: 'returns', label: 'Returns' },
+];
+
 const STATUS_CONFIG = {
-  PENDING_RECEIPT: { label: 'Pending Receipt', icon: Clock, className: 'bg-amber-50 text-amber-700 border-amber-200' },
-  RECEIVED: { label: 'Received', icon: CheckCircle2, className: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-  CANCELLED: { label: 'Cancelled', icon: XCircle, className: 'bg-red-50 text-red-700 border-red-200' },
-  PENDING: { label: 'Pending', icon: Clock, className: 'bg-amber-50 text-amber-700 border-amber-200' },
-  APPROVED: { label: 'Approved', icon: CheckCircle2, className: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-  REJECTED: { label: 'Rejected', icon: XCircle, className: 'bg-red-50 text-red-700 border-red-200' },
-  ACCEPTED: { label: 'Accepted', icon: CheckCircle2, className: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  PENDING_RECEIPT: { label: 'Pending Receipt', icon: Clock, tone: 'attention' },
+  RECEIVED: { label: 'Received', icon: CheckCircle2, tone: 'positive' },
+  CANCELLED: { label: 'Cancelled', icon: XCircle, tone: 'negative' },
+  PENDING: { label: 'Pending', icon: Clock, tone: 'attention' },
+  APPROVED: { label: 'Approved', icon: CheckCircle2, tone: 'positive' },
+  REJECTED: { label: 'Rejected', icon: XCircle, tone: 'negative' },
+  ACCEPTED: { label: 'Accepted', icon: CheckCircle2, tone: 'positive' },
+};
+
+const STATUS_TONES = {
+  PENDING_RECEIPT: 'attention', RECEIVED: 'positive', CANCELLED: 'negative',
+  PENDING: 'attention', APPROVED: 'positive', REJECTED: 'negative', ACCEPTED: 'positive',
 };
 
 const ImprestManagement = () => {
@@ -65,6 +87,7 @@ const ImprestManagement = () => {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
   const [searchQuery, setSearchQuery] = useState('');
+  const deferredSearchQuery = useDeferredValue(searchQuery);
 
   // Data
   const [balances, setBalances] = useState([]);
@@ -141,6 +164,24 @@ const ImprestManagement = () => {
     const pendingReturns = returns.filter(r => r.status === 'PENDING').length;
     return { totalAllocated, totalOverdraft, pendingAllocations, pendingRequests, pendingReturns };
   }, [balances, allocations, expenseRequests, returns]);
+
+  const reviewQueue = useMemo(() => ([
+    ...expenseRequests
+      .filter((request) => request.status === 'PENDING')
+      .map((request) => ({ ...request, queueType: 'request', queueDate: request.created_at })),
+    ...returns
+      .filter((returnRecord) => returnRecord.status === 'PENDING')
+      .map((returnRecord) => ({ ...returnRecord, queueType: 'return', queueDate: returnRecord.created_at })),
+    ...allocations
+      .filter((allocation) => allocation.status === 'PENDING_RECEIPT')
+      .map((allocation) => ({ ...allocation, queueType: 'receipt', queueDate: allocation.created_at })),
+  ]).sort((a, b) => new Date(a.queueDate) - new Date(b.queueDate)), [allocations, expenseRequests, returns]);
+
+  const metrics = useMemo(() => ([
+    { label: 'Available balance', value: formatCurrency(stats.totalAllocated), hint: `${balances.length} accounts` },
+    { label: 'Overdraft', value: formatCurrency(stats.totalOverdraft), hint: 'Balances below zero' },
+    { label: 'Pending items', value: reviewQueue.length.toLocaleString('en-IN'), hint: 'Needs your review', tab: 'review' },
+  ]), [balances.length, reviewQueue.length, stats.totalAllocated, stats.totalOverdraft]);
 
   // ── Allocate Imprest ──
   const handleAllocate = async () => {
@@ -240,481 +281,132 @@ const ImprestManagement = () => {
 
   // ── Filtered data ──
   const filteredBalances = useMemo(() => {
-    if (!searchQuery) return balances;
-    const q = searchQuery.toLowerCase();
+    if (!deferredSearchQuery) return balances;
+    const q = deferredSearchQuery.toLowerCase();
     return balances.filter(b => b.name?.toLowerCase().includes(q) || b.email?.toLowerCase().includes(q));
-  }, [balances, searchQuery]);
+  }, [balances, deferredSearchQuery]);
 
   const filteredAllocations = useMemo(() => {
-    if (!searchQuery) return allocations;
-    const q = searchQuery.toLowerCase();
+    if (!deferredSearchQuery) return allocations;
+    const q = deferredSearchQuery.toLowerCase();
     return allocations.filter(a =>
       a.sub_admin_name?.toLowerCase().includes(q) || a.remark?.toLowerCase().includes(q)
     );
-  }, [allocations, searchQuery]);
+  }, [allocations, deferredSearchQuery]);
 
-  const StatusBadge = ({ status }) => {
+  const filteredRequests = useMemo(() => {
+    if (!deferredSearchQuery) return expenseRequests;
+    const q = deferredSearchQuery.toLowerCase();
+    return expenseRequests.filter((request) => `${request.sub_admin_name || ''} ${request.reason || ''} ${request.assigned_admin_name || ''}`.toLowerCase().includes(q));
+  }, [expenseRequests, deferredSearchQuery]);
+
+  const filteredReturns = useMemo(() => {
+    if (!deferredSearchQuery) return returns;
+    const q = deferredSearchQuery.toLowerCase();
+    return returns.filter((returnRecord) => `${returnRecord.sub_admin_name || ''} ${returnRecord.reason || ''} ${returnRecord.payment_mode || ''}`.toLowerCase().includes(q));
+  }, [returns, deferredSearchQuery]);
+
+  const filteredReviewQueue = useMemo(() => {
+    if (!deferredSearchQuery) return reviewQueue;
+    const q = deferredSearchQuery.toLowerCase();
+    return reviewQueue.filter((item) => `${item.sub_admin_name || ''} ${item.reason || ''} ${item.remark || ''} ${item.admin_name || ''}`.toLowerCase().includes(q));
+  }, [deferredSearchQuery, reviewQueue]);
+
+  const StatusMark = ({ status }) => {
     const cfg = STATUS_CONFIG[status] || STATUS_CONFIG.PENDING;
-    const Icon = cfg.icon;
-    return (
-      <Badge variant="outline" className={`${cfg.className} text-[11px] font-medium gap-1`}>
-        <Icon className="w-3 h-3" /> {cfg.label}
-      </Badge>
-    );
+    return <StatusDot tone={STATUS_TONES[status] || 'neutral'}>{cfg.label}</StatusDot>;
   };
 
   // No site picked yet — avoid loading indefinitely or showing cross-site data.
   if (!currentSite?.id) {
     return (
-      <div className="mx-auto flex max-w-lg flex-col items-center justify-center rounded-[28px] border border-dashed border-slate-200 bg-slate-50/70 px-6 py-20 text-center">
-        <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-amber-600 shadow-sm">
-          <Banknote className="h-6 w-6" />
-        </div>
-        <h2 className="text-lg font-bold text-slate-900">Select a site to continue</h2>
-        <p className="mt-2 max-w-sm text-sm leading-6 text-slate-500">
-          Pick a site from the sidebar to manage imprest allocations, requests and returns for that site.
-        </p>
+      <div className="mx-auto max-w-lg rounded-[28px] border border-dashed border-mr-line bg-mr-surface-2 py-6">
+        <EmptyState
+          icon={Banknote}
+          title="Select a site to continue"
+          description="Pick a site from the sidebar to manage imprest allocations, requests and returns for that site."
+        />
       </div>
     );
   }
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center rounded-[28px] border border-slate-200 bg-white py-24">
-        <Loader2 className="h-6 w-6 animate-spin text-amber-500" />
+      <div className="mx-auto w-full max-w-[1500px] space-y-6 pb-12">
+        <SkeletonBlock className="h-20 w-full" />
+        <SkeletonBlock className="h-12 w-full" />
+        <SkeletonBlock className="h-80 w-full" />
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-7xl space-y-5 p-4 sm:p-6">
-      {/* ── Header ── */}
-      <section className="relative overflow-hidden rounded-[28px] border border-slate-200 bg-white px-5 py-6 shadow-sm shadow-slate-900/[0.03] sm:px-7">
-        <div className="pointer-events-none absolute right-0 top-0 h-44 w-80 bg-[radial-gradient(circle_at_top_right,rgba(245,158,11,.16),transparent_65%)]" />
-        <div className="relative flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
-          <div className="flex items-start gap-3"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-50 text-amber-600"><Banknote className="h-5 w-5" /></span><div><p className="text-[11px] font-bold uppercase tracking-[0.15em] text-amber-600">Cash control</p><h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-950">Imprest management</h1><p className="mt-1 text-sm text-slate-500">
-            {currentSite?.name ? (
-              <>
-                Petty-cash operations for <span className="font-semibold text-slate-700">{currentSite.name}</span>
-              </>
-            ) : (
-              'Manage petty cash allocations to sub-admins'
-            )}
-          </p></div></div>
-          <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="sm" onClick={loadData} className="gap-1.5 rounded-full">
-            <RefreshCw className="h-3.5 w-3.5" /> Refresh
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => setAdjustModal(true)} className="gap-1.5 rounded-full">
-            <Settings2 className="h-3.5 w-3.5" /> Adjust
-          </Button>
-          <Button size="sm" onClick={() => setAllocateModal(true)} className="gap-1.5 rounded-full bg-amber-600 hover:bg-amber-700">
-            <Plus className="h-3.5 w-3.5" /> Allocate imprest
-          </Button>
-          </div></div>
-      </section>
+    <div className="mx-auto w-full max-w-[1500px] space-y-6 pb-12">
+      <PageHeader
+        title="Imprest Management"
+        description={`Balances, allocations, requests and returns · ${currentSite?.name || 'Selected Site'}`}
+        actions={(
+          <>
+            <Button variant="outline" size="icon" onClick={loadData} title="Refresh"><RefreshCw className="h-4 w-4" /></Button>
+            <Button onClick={() => setAllocateModal(true)}><Plus className="mr-2 h-4 w-4" />Allocate imprest</Button>
+          </>
+        )}
+      />
+      <PageTabs items={WORKSPACE_VIEWS} value={activeTab} onChange={setActiveTab} label="Imprest Management sections" />
 
       {/* ── Message ── */}
       {message.text && (
         <div className={`flex items-center gap-2 rounded-xl border px-4 py-3 text-sm ${
-          message.type === 'error' ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+          message.type === 'error' ? 'border-mr-coral-ink/15 bg-mr-coral-soft text-mr-coral-ink' : 'border-mr-lime-ink/15 bg-mr-lime-soft text-mr-lime-ink'
         }`}>
           {message.type === 'error' ? <AlertCircle className="w-4 h-4" /> : <Check className="w-4 h-4" />}
           {message.text}
         </div>
       )}
 
-      {/* ── Summary Cards ── */}
-      <section className="grid overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm shadow-slate-900/[0.02] sm:grid-cols-2 lg:grid-cols-4">
-        <div className="border-b border-slate-100 p-4 sm:border-r lg:border-b-0">
-          <div className="mb-3 flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Outstanding</span>
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-50 text-blue-600">
-              <Wallet className="h-4 w-4" />
-            </div>
-          </div>
-          <p className="text-xl font-bold text-slate-950 tabular-nums">{formatCurrency(stats.totalAllocated)}</p>
-          <p className="mt-1 text-[11px] text-slate-400">{balances.length} sub-admin{balances.length !== 1 ? 's' : ''}</p>
-        </div>
-
-        <div className="border-b border-slate-100 p-4 lg:border-b-0 lg:border-r">
-          <div className="mb-3 flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Overdraft</span>
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-red-50 text-red-600">
-              <ArrowDownRight className="h-4 w-4" />
-            </div>
-          </div>
-          <p className="text-xl font-bold text-red-600 tabular-nums">{formatCurrency(stats.totalOverdraft)}</p>
-          <p className="mt-1 text-[11px] text-slate-400">{balances.filter(b => parseFloat(b.balance) < 0).length} account{balances.filter(b => parseFloat(b.balance) < 0).length !== 1 ? 's' : ''}</p>
-        </div>
-
-        <div className="border-b border-slate-100 p-4 sm:border-r lg:border-b-0">
-          <div className="mb-3 flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Pending receipts</span>
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-amber-50 text-amber-600">
-              <Clock className="h-4 w-4" />
-            </div>
-          </div>
-          <p className="text-xl font-bold text-slate-950 tabular-nums">{stats.pendingAllocations}</p>
-          <p className="mt-1 text-[11px] text-slate-400">awaiting confirmation</p>
-        </div>
-
-        <button
-          onClick={() => stats.pendingRequests > 0 && setActiveTab('requests')}
-          className={`p-4 text-left transition-colors ${
-            stats.pendingRequests > 0
-              ? 'bg-violet-50/60 hover:bg-violet-50 cursor-pointer'
-              : 'bg-white'
-          }`}
-        >
-          <div className="mb-3 flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Pending requests</span>
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-violet-50 text-violet-600">
-              <Send className="h-4 w-4" />
-            </div>
-          </div>
-          <p className={`text-xl font-bold tabular-nums ${stats.pendingRequests > 0 ? 'text-violet-700' : 'text-slate-950'}`}>
-            {stats.pendingRequests}
-          </p>
-          <p className="mt-1 text-[11px] text-slate-400">{stats.pendingRequests > 0 ? 'Click to review' : 'no pending'}</p>
-        </button>
-      </section>
-
-      {/* ── Pending requests alert banner ── */}
-      {stats.pendingRequests > 0 && (
-        <div className="flex items-center gap-3 rounded-2xl border border-violet-200 bg-violet-50 px-4 py-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-violet-600 shadow-sm">
-            <Send className="h-4 w-4" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-violet-800">
-              {stats.pendingRequests} imprest request{stats.pendingRequests !== 1 ? 's' : ''} awaiting your approval
-            </p>
-            <p className="text-xs text-violet-500 mt-0.5">Sub-admins are waiting for funds to continue their work</p>
-          </div>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setActiveTab('requests')}
-            className="shrink-0 rounded-full border-violet-300 text-violet-700 hover:bg-violet-100"
-          >
-            Review Now
-          </Button>
-        </div>
+      {activeTab === 'overview' && (
+        <section className="grid gap-y-4 border-y border-mr-line py-4 sm:grid-cols-3" aria-label="Imprest summary">
+          {metrics.map((metric, index) => {
+            const content = <><p className="text-[11px] font-medium uppercase tracking-[0.08em] text-mr-faint">{metric.label}</p><p className="mt-1 truncate text-[19px] font-semibold tracking-[-0.02em] text-mr-text tabular-nums">{metric.value}</p><p className="mt-1 text-[12px] text-mr-muted">{metric.hint}</p></>;
+            return metric.tab ? <button key={metric.label} type="button" onClick={() => setActiveTab(metric.tab)} className={`${index ? 'border-l border-mr-line pl-5' : ''} min-w-0 text-left transition-colors hover:text-mr-blue`}>{content}</button> : <div key={metric.label} className={index ? 'min-w-0 border-l border-mr-line pl-5' : 'min-w-0'}>{content}</div>;
+          })}
+        </section>
       )}
 
-      {/* ── Tabs ── */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="rounded-[24px] border border-slate-200 bg-white p-3 shadow-sm shadow-slate-900/[0.02] sm:p-4">
-        <TabsList className="h-auto w-full justify-start overflow-x-auto rounded-xl bg-slate-100 p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          <TabsTrigger value="overview" className="shrink-0 rounded-lg text-xs">Sub-admin balances</TabsTrigger>
-          <TabsTrigger value="allocations" className="shrink-0 rounded-lg text-xs">Allocations</TabsTrigger>
-          <TabsTrigger value="requests">
-            Expense Requests
-            {stats.pendingRequests > 0 && (
-              <Badge className="ml-1.5 bg-red-100 text-red-700 text-[10px] px-1.5">{stats.pendingRequests}</Badge>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="returns" className="shrink-0 rounded-lg text-xs">
-            Returns
-            {stats.pendingReturns > 0 && (
-              <Badge className="ml-1.5 bg-purple-100 text-purple-700 text-[10px] px-1.5">{stats.pendingReturns}</Badge>
-            )}
-          </TabsTrigger>
-        </TabsList>
-
-        {/* ── Search ── */}
-        <div className="mt-4 flex items-center gap-3">
-          <div className="relative w-full max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <Input
-              placeholder="Search..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="h-10 rounded-xl border-slate-200 pl-9 text-sm"
-            />
-          </div>
-        </div>
-
-        {/* ── Tab: Overview ── */}
-        <TabsContent value="overview" className="mt-4">
-          <Card className="overflow-hidden rounded-2xl border-slate-200 shadow-none">
-            <CardContent className="p-0">
-              <div className="overflow-auto relative z-0 will-change-scroll" style={{ maxHeight: 'calc(100vh - 350px)', WebkitOverflowScrolling: 'touch' }}>
-                <table className="w-full text-sm">
-                  <thead className="sticky top-0 z-30 bg-slate-50" style={{ boxShadow: '0 2px 0 0 #e2e8f0' }}>
-                    <tr>
-                      <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 sticky left-0 z-40 bg-slate-50 px-3 py-2 text-left" style={{boxShadow: '2px 0 4px -1px rgba(0,0,0,0.08)'}}>Sub-Admin</th>
-                      <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 px-3 py-2 text-left">Email</th>
-                      <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 px-3 py-2 text-right">Balance</th>
-                      <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 px-3 py-2 text-right">Transactions</th>
-                      <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 px-3 py-2 text-left">Last Activity</th>
-                      <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 px-3 py-2 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredBalances.length === 0 ? (
-                      <tr>
-                        <td colSpan={6} className="text-center py-8 text-sm text-slate-400">
-                          No sub-admins found
-                        </td>
-                      </tr>
-                    ) : (
-                      filteredBalances.map((b) => (
-                        <tr key={b.user_id} className="border-b hover:bg-slate-50/50" style={{ contentVisibility: 'auto', containIntrinsicSize: '0 44px' }}>
-                          <td className="font-medium text-sm sticky left-0 z-10 bg-white px-3 py-2" style={{boxShadow: '2px 0 4px -1px rgba(0,0,0,0.08)'}}>{b.name}</td>
-                          <td className="text-sm text-slate-500 px-3 py-2">{b.email}</td>
-                          <td className={`text-right font-semibold text-sm px-3 py-2 ${parseFloat(b.balance) < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-                            {formatCurrency(b.balance)}
-                          </td>
-                          <td className="text-right text-sm text-slate-500 px-3 py-2">{b.total_transactions}</td>
-                          <td className="text-xs text-slate-400 px-3 py-2">
-                            {b.last_transaction_at ? fmtDate(b.last_transaction_at) : '—'}
-                          </td>
-                          <td className="text-right px-3 py-2">
-                            <Button
-                              variant="outline" size="sm"
-                              onClick={() => {
-                                setAllocForm(f => ({ ...f, sub_admin_id: String(b.user_id) }));
-                                setAllocateModal(true);
-                              }}
-                              className="gap-1 text-xs h-7"
-                            >
-                              <Plus className="w-3 h-3" /> Allocate
-                            </Button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsContent value="overview" className="mt-0">
+          <section>
+            <SectionHead title="Sub-admin balances" meta={`${balances.length} accounts`} actions={<div className="flex items-center gap-2"><Button variant="outline" size="sm" onClick={() => setAdjustModal(true)}><Settings2 className="mr-1.5 h-3.5 w-3.5" />Adjust</Button><div className="relative w-[250px]"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-mr-faint" /><Input placeholder="Search balances…" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} className="pl-9" /></div></div>} />
+            {!filteredBalances.length ? <EmptyBlock icon={UsersRound} title="No sub-admins found" description="Try changing the search or add a sub-admin to begin allocating imprest." tall /> : <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Sub-admin</TableHead><TableHead>Email</TableHead><TableHead className="text-right">Balance</TableHead><TableHead className="text-right">Transactions</TableHead><TableHead>Last activity</TableHead><TableHead className="w-28" /></TableRow></TableHeader><TableBody>{filteredBalances.map((balance) => <TableRow key={balance.user_id}><TableCell className="font-medium">{balance.name}</TableCell><TableCell className="text-mr-muted">{balance.email}</TableCell><TableCell className={`text-right font-semibold tabular-nums ${Number(balance.balance) < 0 ? 'text-mr-coral-ink' : 'text-mr-lime-ink'}`}>{formatCurrency(balance.balance)}</TableCell><TableCell className="text-right tabular-nums text-mr-muted">{balance.total_transactions}</TableCell><TableCell className="text-mr-muted">{balance.last_transaction_at ? fmtDate(balance.last_transaction_at) : '—'}</TableCell><TableCell><Button variant="outline" size="sm" onClick={() => { setAllocForm((form) => ({ ...form, sub_admin_id: String(balance.user_id) })); setAllocateModal(true); }}><Plus className="mr-1 h-3.5 w-3.5" />Allocate</Button></TableCell></TableRow>)}</TableBody></Table></div>}
+          </section>
         </TabsContent>
 
-        {/* ── Tab: Allocations ── */}
-        <TabsContent value="allocations" className="mt-4">
-          <Card className="overflow-hidden rounded-2xl border-slate-200 shadow-none">
-            <CardContent className="p-0">
-              <div className="overflow-auto relative z-0 will-change-scroll" style={{ maxHeight: 'calc(100vh - 350px)', WebkitOverflowScrolling: 'touch' }}>
-                <table className="w-full text-sm">
-                  <thead className="sticky top-0 z-30 bg-slate-50" style={{ boxShadow: '0 2px 0 0 #e2e8f0' }}>
-                    <tr>
-                      <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 w-24 sticky left-0 z-40 bg-slate-50 px-3 py-2 text-left">Date</th>
-                      <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 sticky left-24 z-40 bg-slate-50 px-3 py-2 text-left" style={{boxShadow: '2px 0 4px -1px rgba(0,0,0,0.08)'}}>Sub-Admin</th>
-                      <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 px-3 py-2 text-right">Amount</th>
-                      <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 px-3 py-2 text-left">Remark</th>
-                      <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 px-3 py-2 text-left">Assigned To</th>
-                      <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 px-3 py-2 text-left">Status</th>
-                      <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 px-3 py-2 text-left">Confirmed At</th>
-                      <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 px-3 py-2 text-left">Created By</th>
-                      <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 px-3 py-2 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredAllocations.length === 0 ? (
-                      <tr>
-                        <td colSpan={9} className="text-center py-8 text-sm text-slate-400">
-                          No allocations yet
-                        </td>
-                      </tr>
-                    ) : (
-                      filteredAllocations.map((a) => (
-                        <tr key={a.id} className="border-b hover:bg-slate-50/50" style={{ contentVisibility: 'auto', containIntrinsicSize: '0 44px' }}>
-                          <td className="text-sm sticky left-0 z-10 bg-white px-3 py-2">{fmtDate(a.created_at)}</td>
-                          <td className="font-medium text-sm sticky left-24 z-10 bg-white px-3 py-2" style={{boxShadow: '2px 0 4px -1px rgba(0,0,0,0.08)'}}>{a.sub_admin_name}</td>
-                          <td className="text-right font-semibold text-sm text-emerald-600 px-3 py-2">
-                            {formatCurrency(a.amount)}
-                          </td>
-                          <td className="text-sm text-slate-500 max-w-[200px] truncate px-3 py-2">{a.remark || '—'}</td>
-                          <td className="px-3 py-2">
-                            {a.assigned_admin_name ? (
-                              <Badge variant="outline" className="text-[10px] bg-indigo-50 text-indigo-700 border-indigo-200">
-                                {a.assigned_admin_name}
-                              </Badge>
-                            ) : (
-                              <span className="text-slate-300 text-xs">—</span>
-                            )}
-                          </td>
-                          <td className="px-3 py-2"><StatusBadge status={a.status} /></td>
-                          <td className="text-xs text-slate-400 px-3 py-2">
-                            {a.confirmed_at ? fmtDate(a.confirmed_at) : '—'}
-                          </td>
-                          <td className="text-xs text-slate-600 px-3 py-2">
-                            <UserAvatar name={a.admin_name} label="Created by" />
-                          </td>
-                          <td className="text-right px-3 py-2">
-                            {a.status === 'PENDING_RECEIPT' && (
-                              <Button
-                                variant="ghost" size="sm"
-                                onClick={() => handleCancelAllocation(a.id)}
-                                className="text-red-600 hover:text-red-700 hover:bg-red-50 h-7 text-xs"
-                              >
-                                <X className="w-3 h-3 mr-1" /> Cancel
-                              </Button>
-                            )}
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
+        <TabsContent value="review" className="mt-0">
+          <section>
+            <SectionHead title="Review queue" meta={`${reviewQueue.length} pending`} description="Oldest items appear first, so no approval or confirmation is missed." actions={<div className="relative w-full sm:w-[320px]"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-mr-faint" /><Input placeholder="Search the review queue…" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} className="pl-9" /></div>} />
+            {!filteredReviewQueue.length ? <EmptyBlock icon={CheckCircle2} title={reviewQueue.length ? 'No matching queue items' : 'Your queue is clear'} description={reviewQueue.length ? 'Try a different search.' : 'New fund requests, returns and receipt confirmations will appear here.'} tall /> : <div className="divide-y divide-mr-line">{filteredReviewQueue.map((item) => { const isRequest = item.queueType === 'request'; const isReturn = item.queueType === 'return'; const Icon = isRequest ? ReceiptText : isReturn ? Undo2 : ArrowLeftRight; const title = isRequest ? 'Fund request' : isReturn ? 'Return request' : 'Receipt confirmation'; return <article key={`${item.queueType}-${item.id}`} className="flex flex-col gap-3 py-4 lg:flex-row lg:items-center lg:justify-between"><div className="flex min-w-0 items-start gap-3"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-mr-surface-2 text-mr-muted"><Icon className="h-4 w-4" /></span><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><p className="text-[13px] font-medium text-mr-text">{title} · {item.sub_admin_name || 'Sub-admin'}</p><StatusMark status={isRequest || isReturn ? item.status : 'PENDING_RECEIPT'} /></div><p className="mt-0.5 truncate text-[12px] text-mr-muted">{isRequest || isReturn ? item.reason || 'No reason provided' : `Sent by ${item.admin_name || 'Admin'} · awaiting recipient confirmation`} · {fmtDate(item.created_at)}</p></div></div><div className="flex items-center gap-2 self-end lg:self-auto"><span className="mr-1 text-[14px] font-semibold tabular-nums text-mr-text">{formatCurrency(item.amount)}</span>{isRequest && <><Button variant="outline" size="sm" onClick={() => setDetailModal({ open: true, request: item })}><Eye className="mr-1.5 h-3.5 w-3.5" />Details</Button><Button size="sm" onClick={() => setConfirmDialog({ open: true, type: 'approve', item })}><Check className="mr-1.5 h-3.5 w-3.5" />Approve</Button></>}{isReturn && <Button size="sm" onClick={() => setReturnConfirmDialog({ open: true, type: 'accept', item, remark: '' })}><Check className="mr-1.5 h-3.5 w-3.5" />Accept</Button>}{!isRequest && !isReturn && <Button variant="outline" size="sm" onClick={() => setActiveTab('allocations')}>Open allocations</Button>}</div></article>; })}</div>}
+          </section>
         </TabsContent>
 
-        {/* ── Tab: Expense Requests (Overdraft) ── */}
-        <TabsContent value="requests" className="mt-4">
-          {expenseRequests.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-slate-200 bg-slate-50 py-16">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-50 text-violet-500 shadow-sm">
-                <Send className="h-6 w-6" />
-              </div>
-              <div className="text-center">
-                <p className="text-sm font-semibold text-slate-700">No expense requests</p>
-                <p className="text-xs text-slate-400 mt-0.5">Sub-admin imprest requests will appear here</p>
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {expenseRequests.map((r) => {
-                const data = typeof r.expense_data === 'string' ? JSON.parse(r.expense_data) : r.expense_data;
-                const cfg = STATUS_CONFIG[r.status] || STATUS_CONFIG.PENDING;
-                const CfgIcon = cfg.icon;
-                const isPending = r.status === 'PENDING';
-                return (
-                  <div key={r.id} className={`rounded-2xl border bg-white px-4 py-4 shadow-sm shadow-slate-900/[0.02] transition-colors hover:bg-slate-50/60 ${isPending ? 'border-violet-200' : 'border-slate-200'}`}>
-                    <div className="flex items-start gap-3">
-                      <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${isPending ? 'bg-violet-50 text-violet-600' : 'bg-slate-100 text-slate-400'}`}>
-                        <Send className={`w-4.5 h-4.5 ${isPending ? 'text-violet-600' : 'text-slate-400'}`} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-start justify-between gap-2 flex-wrap">
-                          <div>
-                            <p className="text-sm font-semibold text-slate-800">{r.sub_admin_name}</p>
-                            <p className="text-[11px] text-slate-400 mt-0.5">{r.site_name} · {fmtDate(r.created_at)}</p>
-                          </div>
-                          <div className="flex items-center gap-2 flex-wrap shrink-0">
-                            <span className="text-base font-bold text-slate-900 tabular-nums">{formatCurrency(r.amount)}</span>
-                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-semibold ${cfg.className}`}>
-                              <CfgIcon className="w-3 h-3" /> {cfg.label}
-                            </span>
-                          </div>
-                        </div>
-                        {(r.reason || data?.remark) && (
-                          <p className="text-xs text-slate-500 mt-1.5 bg-slate-50 rounded-lg px-2 py-1 border border-slate-100 italic">
-                            {r.reason || data?.remark}
-                          </p>
-                        )}
-                        {r.assigned_admin_name && (
-                          <div className="mt-1.5">
-                            <span className="text-[10px] bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-full px-2 py-0.5 font-medium">
-                              Assigned: {r.assigned_admin_name}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    {isPending && (
-                      <div className="flex items-center gap-2 mt-3 ml-13 pl-0.5">
-                        <Button
-                          variant="outline" size="sm"
-                          onClick={() => setDetailModal({ open: true, request: r })}
-                          className="h-7 text-xs gap-1"
-                        >
-                          <Eye className="w-3 h-3" /> Details
-                        </Button>
-                        <Button
-                          size="sm"
-                          onClick={() => setConfirmDialog({ open: true, type: 'approve', item: r })}
-                          className="bg-emerald-600 hover:bg-emerald-700 h-7 text-xs gap-1"
-                        >
-                          <Check className="w-3 h-3" /> Approve
-                        </Button>
-                        <Button
-                          variant="destructive" size="sm"
-                          onClick={() => setConfirmDialog({ open: true, type: 'reject', item: r })}
-                          className="h-7 text-xs gap-1"
-                        >
-                          <X className="w-3 h-3" /> Reject
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
+        <TabsContent value="allocations" className="mt-0">
+          <section>
+            <SectionHead title="Allocations" meta={`${allocations.length} records`} description="Every imprest issue, its recipient, confirmation and ownership." actions={<div className="relative w-full sm:w-[320px]"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-mr-faint" /><Input placeholder="Search recipient or remark…" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} className="pl-9" /></div>} />
+            {!filteredAllocations.length ? <EmptyBlock icon={ArrowLeftRight} title="No allocations found" description="Allocated imprest will appear here." tall /> : <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Sub-admin</TableHead><TableHead className="text-right">Amount</TableHead><TableHead>Remark</TableHead><TableHead>Assigned to</TableHead><TableHead>Status</TableHead><TableHead>Receipt confirmed</TableHead><TableHead>Created by</TableHead><TableHead className="w-24" /></TableRow></TableHeader><TableBody>{filteredAllocations.map((allocation) => <TableRow key={allocation.id}><TableCell className="text-mr-muted">{fmtDate(allocation.created_at)}</TableCell><TableCell className="font-medium">{allocation.sub_admin_name}</TableCell><TableCell className="text-right font-semibold tabular-nums text-mr-lime-ink">{formatCurrency(allocation.amount)}</TableCell><TableCell className="max-w-[240px] truncate text-mr-muted">{allocation.remark || '—'}</TableCell><TableCell>{allocation.assigned_admin_name || 'Auto-assigned'}</TableCell><TableCell><StatusMark status={allocation.status} /></TableCell><TableCell className="text-mr-muted">{allocation.confirmed_at ? fmtDate(allocation.confirmed_at) : '—'}</TableCell><TableCell><UserAvatar name={allocation.admin_name} label="Created by" /></TableCell><TableCell>{allocation.status === 'PENDING_RECEIPT' && <Button variant="ghost" size="sm" onClick={() => handleCancelAllocation(allocation.id)} className="text-mr-coral-ink hover:bg-mr-coral-soft hover:text-mr-coral-ink"><X className="mr-1 h-3.5 w-3.5" />Cancel</Button>}</TableCell></TableRow>)}</TableBody></Table></div>}
+          </section>
         </TabsContent>
-        {/* ── Tab: Returns ── */}
-        <TabsContent value="returns" className="mt-4">
-          {returns.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-slate-200 bg-slate-50 py-16">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-purple-50 text-purple-500 shadow-sm">
-                <Undo2 className="h-6 w-6" />
-              </div>
-              <div className="text-center">
-                <p className="text-sm font-semibold text-slate-700">No return requests</p>
-                <p className="text-xs text-slate-400 mt-0.5">Sub-admin return requests will appear here</p>
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {returns.map((r) => {
-                const cfg = STATUS_CONFIG[r.status] || STATUS_CONFIG.PENDING;
-                const CfgIcon = cfg.icon;
-                const isPending = r.status === 'PENDING';
-                return (
-                  <div key={r.id} className={`rounded-2xl border bg-white px-4 py-4 shadow-sm shadow-slate-900/[0.02] transition-colors hover:bg-slate-50/60 ${isPending ? 'border-purple-200' : 'border-slate-200'}`}>
-                    <div className="flex items-start gap-3">
-                      <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${isPending ? 'bg-purple-50 text-purple-600' : 'bg-slate-100 text-slate-400'}`}>
-                        <Undo2 className={`w-4.5 h-4.5 ${isPending ? 'text-purple-600' : 'text-slate-400'}`} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-start justify-between gap-2 flex-wrap">
-                          <div>
-                            <p className="text-sm font-semibold text-slate-800">{r.sub_admin_name || '—'}</p>
-                            <p className="text-[11px] text-slate-400 mt-0.5">{fmtDate(r.created_at)}{r.payment_mode ? ` · ${r.payment_mode}` : ''}</p>
-                          </div>
-                          <div className="flex items-center gap-2 flex-wrap shrink-0">
-                            <span className="text-base font-bold text-purple-700 tabular-nums">{formatCurrency(r.amount)}</span>
-                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-semibold ${cfg.className}`}>
-                              <CfgIcon className="w-3 h-3" /> {cfg.label}
-                            </span>
-                          </div>
-                        </div>
-                        {r.reason && (
-                          <p className="text-xs text-slate-500 mt-1.5 bg-slate-50 rounded-lg px-2 py-1 border border-slate-100 italic">{r.reason}</p>
-                        )}
-                        {!isPending && r.review_remark && (
-                          <p className="text-xs text-slate-400 mt-1.5">Admin: {r.review_remark}</p>
-                        )}
-                      </div>
-                    </div>
-                    {isPending && (
-                      <div className="flex items-center gap-2 mt-3">
-                        <Button
-                          size="sm"
-                          onClick={() => setReturnConfirmDialog({ open: true, type: 'accept', item: r, remark: '' })}
-                          className="bg-emerald-600 hover:bg-emerald-700 h-7 text-xs gap-1"
-                        >
-                          <Check className="w-3 h-3" /> Accept Return
-                        </Button>
-                        <Button
-                          variant="destructive" size="sm"
-                          onClick={() => setReturnConfirmDialog({ open: true, type: 'reject', item: r, remark: '' })}
-                          className="h-7 text-xs gap-1"
-                        >
-                          <X className="w-3 h-3" /> Reject
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
+
+        <TabsContent value="requests" className="mt-0">
+          <section>
+            <SectionHead title="Fund requests" meta={`${expenseRequests.length} records`} description="Requests that would place a sub-admin balance into overdraft." actions={<div className="relative w-full sm:w-[320px]"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-mr-faint" /><Input placeholder="Search request or sub-admin…" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} className="pl-9" /></div>} />
+            {!filteredRequests.length ? <EmptyBlock icon={Send} title="No fund requests found" description="Sub-admin imprest requests will appear here." tall /> : <div className="divide-y divide-mr-line">{filteredRequests.map((request) => { const data = getExpenseData(request.expense_data); const isPending = request.status === 'PENDING'; return <article key={request.id} className="flex flex-col gap-3 py-4 lg:flex-row lg:items-start lg:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><p className="text-[13px] font-medium text-mr-text">{request.sub_admin_name || 'Sub-admin'}</p><StatusMark status={request.status} /></div><p className="mt-0.5 text-[12px] text-mr-muted">{request.site_name || currentSite?.name} · {fmtDate(request.created_at)}{request.assigned_admin_name ? ` · Assigned to ${request.assigned_admin_name}` : ''}</p>{(request.reason || data.remark) && <p className="mt-2 text-[13px] text-mr-text">{request.reason || data.remark}</p>}</div><div className="flex items-center gap-2 self-end lg:self-auto"><span className="mr-1 text-[14px] font-semibold tabular-nums text-mr-text">{formatCurrency(request.amount)}</span>{isPending && <><Button variant="outline" size="sm" onClick={() => setDetailModal({ open: true, request })}><Eye className="mr-1.5 h-3.5 w-3.5" />Details</Button><Button size="sm" onClick={() => setConfirmDialog({ open: true, type: 'approve', item: request })}><Check className="mr-1.5 h-3.5 w-3.5" />Approve</Button><Button variant="destructive" size="sm" onClick={() => setConfirmDialog({ open: true, type: 'reject', item: request })}><X className="mr-1.5 h-3.5 w-3.5" />Reject</Button></>}</div></article>; })}</div>}
+          </section>
+        </TabsContent>
+
+        <TabsContent value="returns" className="mt-0">
+          <section>
+            <SectionHead title="Returns" meta={`${returns.length} records`} description="Returned imprest awaiting acceptance or previous review decisions." actions={<div className="relative w-full sm:w-[320px]"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-mr-faint" /><Input placeholder="Search return or sub-admin…" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} className="pl-9" /></div>} />
+            {!filteredReturns.length ? <EmptyBlock icon={Undo2} title="No returns found" description="Sub-admin return requests will appear here." tall /> : <div className="divide-y divide-mr-line">{filteredReturns.map((returnItem) => { const isPending = returnItem.status === 'PENDING'; return <article key={returnItem.id} className="flex flex-col gap-3 py-4 lg:flex-row lg:items-start lg:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><p className="text-[13px] font-medium text-mr-text">{returnItem.sub_admin_name || 'Sub-admin'}</p><StatusMark status={returnItem.status} /></div><p className="mt-0.5 text-[12px] text-mr-muted">{fmtDate(returnItem.created_at)}{returnItem.payment_mode ? ` · ${returnItem.payment_mode}` : ''}</p>{returnItem.reason && <p className="mt-2 text-[13px] text-mr-text">{returnItem.reason}</p>}{!isPending && returnItem.review_remark && <p className="mt-1 text-[12px] text-mr-muted">Review note: {returnItem.review_remark}</p>}</div><div className="flex items-center gap-2 self-end lg:self-auto"><span className="mr-1 text-[14px] font-semibold tabular-nums text-mr-text">{formatCurrency(returnItem.amount)}</span>{isPending && <><Button size="sm" onClick={() => setReturnConfirmDialog({ open: true, type: 'accept', item: returnItem, remark: '' })}><Check className="mr-1.5 h-3.5 w-3.5" />Accept</Button><Button variant="destructive" size="sm" onClick={() => setReturnConfirmDialog({ open: true, type: 'reject', item: returnItem, remark: '' })}><X className="mr-1.5 h-3.5 w-3.5" />Reject</Button></>}</div></article>; })}</div>}
+          </section>
         </TabsContent>
       </Tabs>
 
@@ -869,22 +561,22 @@ const ImprestManagement = () => {
           </DialogHeader>
           {detailModal.request && (() => {
             const r = detailModal.request;
-            const data = typeof r.expense_data === 'string' ? JSON.parse(r.expense_data) : r.expense_data;
+            const data = getExpenseData(r.expense_data);
             return (
               <div className="space-y-3 py-2 text-sm">
                 <div className="grid grid-cols-2 gap-3">
-                  <div><span className="text-slate-400">Sub-Admin:</span> <span className="font-medium">{r.sub_admin_name}</span></div>
-                  <div><span className="text-slate-400">Site:</span> <span className="font-medium">{r.site_name}</span></div>
-                  <div><span className="text-slate-400">Amount:</span> <span className="font-semibold text-slate-900">{formatCurrency(r.amount)}</span></div>
-                  <div><span className="text-slate-400">Date:</span> <span>{fmtDate(data?.date)}</span></div>
-                  <div><span className="text-slate-400">Category:</span> <span>{data?.category || '—'}</span></div>
-                  <div><span className="text-slate-400">Payment Mode:</span> <span>{data?.payment_mode || '—'}</span></div>
-                  <div><span className="text-slate-400">To:</span> <span>{data?.to_entity || '—'}</span></div>
-                  <div><span className="text-slate-400">From:</span> <span>{data?.from_entity || '—'}</span></div>
+                  <div><span className="text-mr-faint">Sub-Admin:</span> <span className="font-medium">{r.sub_admin_name}</span></div>
+                  <div><span className="text-mr-faint">Site:</span> <span className="font-medium">{r.site_name}</span></div>
+                  <div><span className="text-mr-faint">Amount:</span> <span className="font-semibold text-mr-text">{formatCurrency(r.amount)}</span></div>
+                  <div><span className="text-mr-faint">Date:</span> <span>{fmtDate(data?.date)}</span></div>
+                  <div><span className="text-mr-faint">Category:</span> <span>{data?.category || '—'}</span></div>
+                  <div><span className="text-mr-faint">Payment Mode:</span> <span>{data?.payment_mode || '—'}</span></div>
+                  <div><span className="text-mr-faint">To:</span> <span>{data?.to_entity || '—'}</span></div>
+                  <div><span className="text-mr-faint">From:</span> <span>{data?.from_entity || '—'}</span></div>
                 </div>
                 <Separator />
-                <div><span className="text-slate-400">Reason:</span> <span>{r.reason || '—'}</span></div>
-                <div><span className="text-slate-400">Remark:</span> <span>{data?.remark || '—'}</span></div>
+                <div><span className="text-mr-faint">Reason:</span> <span>{r.reason || '—'}</span></div>
+                <div><span className="text-mr-faint">Remark:</span> <span>{data?.remark || '—'}</span></div>
               </div>
             );
           })()}
@@ -935,9 +627,9 @@ const ImprestManagement = () => {
           <div className="py-2 space-y-3">
             {confirmDialog.item && (
               <div className="text-sm">
-                <span className="text-slate-400">Amount: </span>
+                <span className="text-mr-faint">Amount: </span>
                 <span className="font-semibold">{formatCurrency(confirmDialog.item.amount)}</span>
-                <span className="text-slate-400 ml-3">by </span>
+                <span className="text-mr-faint ml-3">by </span>
                 <span className="font-medium">{confirmDialog.item.sub_admin_name}</span>
               </div>
             )}

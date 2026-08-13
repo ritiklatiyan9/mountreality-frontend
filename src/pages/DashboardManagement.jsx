@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
 import {
   Users, UserCog, ChevronRight, Search, Check, X, Loader2,
   LayoutDashboard, BarChart2, IndianRupee, TrendingUp, TrendingDown,
-  Wallet, Shield, PieChart, ClipboardList, BarChartHorizontalBig,
+  Wallet, Shield, CalendarDays, ClipboardList, BarChartHorizontalBig,
   Banknote, Bell, UserSearch, Activity, ShieldCheck, Save,
   RefreshCw, CheckSquare, Square,
 } from 'lucide-react';
@@ -38,7 +38,7 @@ const COMPONENT_GROUPS = [
     headerColor: 'text-purple-700',
     components: [
       { key: 'revenue_charts', label: 'Revenue vs Expense Charts', desc: 'Line/bar charts for revenue & expense trends', Icon: BarChart2 },
-      { key: 'expense_radar', label: 'Expense Radar Chart', desc: 'Expense breakdown by category (radar)', Icon: PieChart },
+      { key: 'expense_radar', label: 'Compliance Calendar', desc: 'Live compliance deadlines, hearings, inspections and licences', Icon: CalendarDays },
       { key: 'module_breakdown', label: 'Module Breakdown', desc: 'Progress bars per expense source', Icon: BarChartHorizontalBig },
     ],
   },
