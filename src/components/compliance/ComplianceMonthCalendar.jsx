@@ -90,10 +90,13 @@ export default function ComplianceMonthCalendar({
             const inMonth = isSameMonth(day, cursor);
             const today = isSameDay(day, new Date());
             return (
-              <div key={day.toISOString()} className={cn('group relative bg-mr-surface transition-colors hover:bg-mr-surface-2/65', compact ? 'min-h-28 p-1.5 sm:min-h-32 sm:p-2' : 'min-h-[172px] p-2.5 sm:p-3', !inMonth && 'bg-mr-surface-2/75 text-mr-faint')}>
+              <div key={day.toISOString()} className={cn('group relative bg-mr-surface transition-colors hover:bg-mr-surface-2/65', compact ? 'min-h-28 p-1.5 sm:min-h-32 sm:p-2' : 'min-h-[172px] p-2.5 sm:p-3', !inMonth && 'bg-mr-surface-2/75 text-mr-faint', today && 'bg-mr-blue-soft ring-2 ring-inset ring-mr-blue/45 before:absolute before:inset-x-0 before:top-0 before:h-1 before:bg-mr-blue')}>
                 <div className="flex items-center justify-between gap-2">
-                  <button type="button" onClick={() => onDayClick?.(day)} className={cn('flex h-7 min-w-7 items-center justify-center rounded-full px-1.5 text-[11px] font-bold tabular-nums transition hover:bg-mr-surface-2', today && 'bg-mr-blue text-white shadow-sm shadow-mr-blue/25 hover:bg-mr-blue-deep', !inMonth && !today && 'text-mr-faint')} aria-label={`Open ${format(day, 'dd MMMM yyyy')}`}>{format(day, 'd')}</button>
-                  {dayEvents.length > 0 && <span className="rounded-full border border-mr-line bg-mr-surface px-1.5 py-0.5 text-[9px] font-bold tabular-nums text-mr-muted shadow-sm">{dayEvents.length}</span>}
+                  <button type="button" onClick={() => onDayClick?.(day)} className={cn('flex h-7 min-w-7 items-center justify-center rounded-full px-1.5 text-[11px] font-bold tabular-nums transition hover:bg-mr-surface-2', today && 'bg-mr-blue text-white shadow-sm shadow-mr-blue/25 ring-2 ring-mr-blue/20 hover:bg-mr-blue-deep', !inMonth && !today && 'text-mr-faint')} aria-current={today ? 'date' : undefined} aria-label={`${today ? 'Today, ' : ''}Open ${format(day, 'dd MMMM yyyy')}`}>{format(day, 'd')}</button>
+                  <div className="flex items-center gap-1">
+                    {today && <span className="rounded-full bg-mr-blue px-1.5 py-0.5 text-[8px] font-extrabold uppercase tracking-[.08em] text-white shadow-sm">Today</span>}
+                    {dayEvents.length > 0 && <span className="rounded-full border border-mr-line bg-mr-surface px-1.5 py-0.5 text-[9px] font-bold tabular-nums text-mr-muted shadow-sm">{dayEvents.length}</span>}
+                  </div>
                 </div>
                 <div className={cn('mt-2 space-y-1.5', compact && 'mt-1.5 space-y-1')}>
                   {visibleEvents.map((event) => {

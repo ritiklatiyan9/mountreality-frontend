@@ -17,6 +17,7 @@ import {
   BadgeCheck,
   BellRing,
   Building2,
+  CalendarCheck2,
   Camera,
   Check,
   ChevronRight,
@@ -40,6 +41,7 @@ import {
 import { orgDomainHost, orgDomainUrl } from "../lib/tenant";
 import KycTimeline from "../components/kyc/KycTimeline";
 import OperatingProfileSettings from "../components/settings/OperatingProfileSettings";
+import GoogleCalendarSettings from "../components/settings/GoogleCalendarSettings";
 import { useOrgKyc } from "../hooks/useOrgKyc";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
@@ -97,6 +99,13 @@ const SETTINGS_TAB_META = {
     title: "Payment reminders",
     description:
       "Set when buyers receive upcoming and overdue payment reminders.",
+  },
+  "google-calendar": {
+    icon: CalendarCheck2,
+    kicker: "Automation",
+    title: "Google Calendar sync",
+    description:
+      "Push compliance events to a connected Google Calendar and invite your team.",
   },
 };
 
@@ -510,6 +519,7 @@ export const Settings = () => {
       ? [
           { id: "workflow", label: "Registry workflow" },
           { id: "sms", label: "Payment reminders" },
+          { id: "google-calendar", label: "Google Calendar" },
         ]
       : []),
   ];
@@ -769,6 +779,10 @@ export const Settings = () => {
                 (isAdmin || hasPermission("operating_profile", "read")) && (
                   <OperatingProfileSettings />
                 )}
+
+              {active === "google-calendar" && isAdmin && (
+                <GoogleCalendarSettings />
+              )}
 
               {/* ── My details ── */}
               {active === "profile" && organization?.subdomain && (
