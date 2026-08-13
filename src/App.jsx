@@ -26,6 +26,7 @@ const MemberKycPage = lazy(() => import('./pages/MemberKycPage.jsx'));
 const FinanceForecast = lazy(() => import('./pages/FinanceForecast.jsx'));
 const Reports = lazy(() => import('./pages/Reports.jsx'));
 const Settings = lazy(() => import('./pages/Settings.jsx'));
+const ReceiptDesigner = lazy(() => import('./pages/ReceiptDesigner.jsx'));
 const Sites = lazy(() => import('./pages/Sites.jsx'));
 const SubAdmins = lazy(() => import('./pages/SubAdmins.jsx'));
 const FarmerPayments = lazy(() => import('./pages/FarmerPayments.jsx'));
@@ -241,6 +242,7 @@ function App() {
             <Route path="/legal/inspections" element={<ProtectedRoute requiredModule="compliance"><ComplianceLegal /></ProtectedRoute>} />
             <Route path="/legal/reports" element={<ProtectedRoute requiredModule="legal"><ComplianceLegal /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute requiredAnyModule={['settings', 'operating_profile']}><Settings /></ProtectedRoute>} />
+            <Route path="/settings/receipt" element={<ProtectedRoute requiredAnyModule={['settings', 'operating_profile']}><ReceiptDesigner /></ProtectedRoute>} />
             <Route path="/ecosystem" element={<ProtectedRoute requiredRole="admin"><Suspense fallback={<LazyRouteFallback />}><EcosystemControlCentre /></Suspense></ProtectedRoute>} />
             {/* Billing — reachable by every authenticated role (402 redirects land here) */}
             <Route path="/subscription" element={<ProtectedRoute><Subscription /></ProtectedRoute>} />

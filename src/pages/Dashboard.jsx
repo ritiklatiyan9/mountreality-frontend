@@ -13,7 +13,7 @@ import {
 import { Skeleton } from '../components/ui/skeleton';
 import {
   Users, Tractor, Landmark, Wallet, Banknote, LayoutGrid,
-  ClipboardList, CreditCard, MapPin, UserCog, Settings,
+  CreditCard,
   ChevronRight, ExternalLink,
   Search, Phone, AlertTriangle, X, ShieldCheck,
 } from 'lucide-react';
@@ -21,34 +21,15 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useTimeRange } from '../components/dashboard/timeRange';
 import FinancialHero from '../components/dashboard/FinancialHero';
 import FinancialPulseBoard from '../components/dashboard/FinancialPulseBoard';
-import WorkflowStrip from '../components/dashboard/WorkflowStrip';
 import AttentionPanel from '../components/dashboard/AttentionPanel';
 import RecentActivity from '../components/dashboard/RecentActivity';
 import ConstructionInventoryCards from '../components/dashboard/ConstructionInventoryCards';
 import VerifyPanel from '../components/dashboard/VerifyPanel';
 import ComplianceWatchCard from '../components/dashboard/ComplianceWatchCard';
-import { RevenueVsExpenseChart, ProfitTrendChart, ExpenseByCategoryRadar } from '../components/dashboard/AnalyticsCharts';
+import ComplianceCalendar from '../components/dashboard/ComplianceCalendar';
+import { RevenueVsExpenseChart, ProfitTrendChart } from '../components/dashboard/AnalyticsCharts';
 import QuickEntry from '../components/QuickEntry';
 import { money } from '../lib/utils';
-
-/* Workflow steps — routes and permission keys unchanged; the per-module
-   gradient colours are gone, the strip draws one monochrome icon family. */
-const MODULE_CARDS = [
-  { to: '/clients', label: 'Clients & users', icon: Users, desc: 'Clients, farmers, members', module: 'clients' },
-  { to: '/farmers', label: 'Farmer payments', icon: Tractor, desc: 'Payment records', module: 'farmers' },
-  { to: '/commissions', label: 'Plot commission', icon: Landmark, desc: 'Commission calculations', module: 'commissions' },
-  { to: '/cashflow', label: 'Cash flow', icon: Wallet, desc: 'Income and expense', module: 'cashflow' },
-  { to: '/firm-transactions', label: 'Firm transactions', icon: Banknote, desc: 'Firm-level entries', module: 'firm_transactions' },
-  { to: '/plot-payments', label: 'Plot payments', icon: LayoutGrid, desc: 'Payment schedules', module: 'plot_payments' },
-  { to: '/plot-registry', label: 'Plot registry', icon: ClipboardList, desc: 'Registry and docs', module: 'plot_registry' },
-  { to: '/expenses', label: 'Expenses', icon: CreditCard, desc: 'Vouchers and tracking', module: 'expenses' },
-];
-
-const ADMIN_CARDS = [
-  { to: '/sites', label: 'Sites', icon: MapPin, desc: 'Manage project sites' },
-  { to: '/sub-admins', label: 'Sub-admins', icon: UserCog, desc: 'Access and roles' },
-  { to: '/settings', label: 'Settings', icon: Settings, desc: 'Account preferences' },
-];
 
 const MEMBER_MODULE_CONFIG = {
   clients: {
@@ -659,10 +640,6 @@ export const Dashboard = () => {
     return plotResults.find((p) => String(p.plot_no || '').toUpperCase() === q) || null;
   }, [plotResults, memberSearchQuery]);
 
-  const visibleWorkspaceCards = [
-    ...MODULE_CARDS.filter((item) => hasPermission(item.module, 'read')),
-    ...(isAdmin ? ADMIN_CARDS : []),
-  ];
   const approvalItems = appTab === 'received' ? receivedData : sentData;
   const approvalsHref = isAdmin ? '/pending-approvals' : '/edit-approvals';
 
@@ -867,11 +844,6 @@ export const Dashboard = () => {
         />
       )}
 
-      <WorkflowStrip
-        items={visibleWorkspaceCards}
-        description="Jump into an accounting workflow"
-      />
-
       {currentSite && (
         <div className={`grid gap-6 ${canSee('recent_transactions') ? 'xl:grid-cols-[minmax(0,1.75fr)_minmax(0,1fr)]' : 'grid-cols-1'}`}>
           {canSee('recent_transactions') && (
@@ -912,8 +884,8 @@ export const Dashboard = () => {
         </div>
       )}
 
-      {currentSite && deferredReady && canSee('expense_radar') && (
-        <ExpenseByCategoryRadar siteId={currentSite.id} range={range} />
+      {currentSite && canReadCompliance && canSee('expense_radar') && (
+        <ComplianceCalendar siteId={currentSite.id} />
       )}
 
       {/* ── Construction & Inventory (own permission gating inside) ── */}

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { MEMBER_TYPES, STATUS_TONE, isKycIncomplete } from './memberMeta';
 
@@ -13,11 +14,8 @@ const AVATAR_SIZES = {
   xl: 'h-28 w-28 text-[30px]',
 };
 
-export function MemberAvatar({ src, name, size = 'md', className }) {
+function MemberAvatarFallback({ name, size, className }) {
   const initials = (name || '??').split(' ').slice(0, 2).map((w) => w[0]).join('').toUpperCase();
-  if (src) {
-    return <img src={src} alt="" className={cn(AVATAR_SIZES[size], 'rounded-full object-cover', className)} />;
-  }
   return (
     <span
       className={cn(AVATAR_SIZES[size], 'flex items-center justify-center rounded-full bg-mr-blue font-semibold text-white', className)}
@@ -26,6 +24,17 @@ export function MemberAvatar({ src, name, size = 'md', className }) {
       {initials}
     </span>
   );
+}
+
+function MemberAvatarImage({ src, name, size, className }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  if (imageFailed) return <MemberAvatarFallback name={name} size={size} className={className} />;
+  return <img src={src} alt={`${name || 'Member'} profile`} onError={() => setImageFailed(true)} className={cn(AVATAR_SIZES[size], 'rounded-full object-cover ring-1 ring-mr-line', className)} />;
+}
+
+export function MemberAvatar({ src, name, size = 'md', className }) {
+  if (src) return <MemberAvatarImage key={src} src={src} name={name} size={size} className={className} />;
+  return <MemberAvatarFallback name={name} size={size} className={className} />;
 }
 
 export function TypeBadge({ type }) {

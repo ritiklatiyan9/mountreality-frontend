@@ -27,9 +27,6 @@ export default function MembersMobileList({ members, selection, permissions, act
                 <MemberAvatar src={m.photo} name={m.full_name} size="sm" />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[14px] font-medium text-mr-text">{m.full_name}</span>
-                  {m.father_name && (
-                    <span className="block truncate text-[12px] text-mr-faint">S/o {m.father_name}</span>
-                  )}
                   <span className="mt-1.5 flex flex-wrap items-center gap-1.5">
                     <TypeBadge type={m.member_type} />
                     <StatusChip status={m.status} />

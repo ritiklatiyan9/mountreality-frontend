@@ -28,10 +28,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../components/ui/select';
-import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
-import {
-  Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
-} from '../components/ui/command';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu';
@@ -39,7 +35,7 @@ import {
   Plus, Edit2, Trash2, AlertCircle, Check, Search, Loader2, Eye, X,
   IndianRupee, ArrowLeft, Lock, Unlock, MoreHorizontal,
   Printer, ArrowUp, ArrowDown, ArrowUpDown, User, Building2, ArrowUpRight, ArrowDownRight,
-  BarChart3, Wallet, Landmark, TrendingUp, TrendingDown, PenLine, Download, ChevronsUpDown,
+  BarChart3, Wallet, Landmark, TrendingUp, TrendingDown, PenLine, Download,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import SignaturePad from '../components/SignaturePad';
@@ -139,7 +135,6 @@ const CashFlow = () => {
   const [signEntry, setSignEntry] = useState(null);
   const [firms, setFirms] = useState([]);
   const [approvers, setApprovers] = useState([]);
-  const [ledgerMembers, setLedgerMembers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadingFirms, setLoadingFirms] = useState(false);
 
@@ -183,11 +178,7 @@ const CashFlow = () => {
   // Ledger form (for creating new person ledger)
   const [ledgerForm, setLedgerForm] = useState({
     ledger_name: '',
-    linked_user_id: '',
-    linked_member_id: '',
   });
-  const [ledgerPersonSearch, setLedgerPersonSearch] = useState('');
-  const [ledgerPersonOpen, setLedgerPersonOpen] = useState(false);
 
   // Entry form
   const [entryForm, setEntryForm] = useState({
@@ -314,14 +305,9 @@ const CashFlow = () => {
 
   useEffect(() => {
     if (!siteId) return;
-    Promise.allSettled([
-      api.get(`/admin/approvers?site_id=${siteId}`),
-      api.get('/members', { params: { site_id: siteId } }),
-    ]).then(([usersResult, membersResult]) => {
-      setApprovers(usersResult.status === 'fulfilled' ? usersResult.value.data.approvers || [] : []);
-      const members = membersResult.status === 'fulfilled' ? membersResult.value.data.members || [] : [];
-      setLedgerMembers(members.filter((member) => member.status === 'ACTIVE'));
-    });
+    api.get(`/admin/approvers?site_id=${siteId}`)
+      .then((result) => setApprovers(result.data.approvers || []))
+      .catch(() => setApprovers([]));
   }, [siteId]);
 
   const getAssignedAdminLabel = (entry) => {
@@ -346,11 +332,7 @@ const CashFlow = () => {
   const resetLedgerForm = () => {
     setLedgerForm({
       ledger_name: '',
-      linked_user_id: '',
-      linked_member_id: '',
     });
-    setLedgerPersonSearch('');
-    setLedgerPersonOpen(false);
     setEditingLedgerId(null);
     setMessage({ type: '', text: '' });
   };
@@ -363,47 +345,11 @@ const CashFlow = () => {
   const handleOpenEditLedger = (ledger) => {
     setLedgerForm({
       ledger_name: ledger.ledger_name || '',
-      linked_user_id: ledger.linked_user_id ? String(ledger.linked_user_id) : '',
-      linked_member_id: ledger.linked_member_id ? String(ledger.linked_member_id) : '',
     });
-    setLedgerPersonSearch('');
     setEditingLedgerId(ledger.id);
     setMessage({ type: '', text: '' });
     setLedgerDialogOpen(true);
   };
-
-  const matchesLedgerPersonSearch = (person, source) => {
-    const query = ledgerPersonSearch.trim().toLowerCase();
-    if (!query) return true;
-    const values = source === 'user'
-      ? [person.name, person.email, person.phone, person.role]
-      : [person.full_name, person.father_name, person.email, person.phone, person.member_type, person.city];
-    return values.some((value) => String(value || '').toLowerCase().includes(query));
-  };
-
-  const selectLedgerPerson = (source, id) => {
-    const selectedUser = source === 'user' ? approvers.find((item) => String(item.id) === String(id)) : null;
-    const selectedMember = source === 'member' ? ledgerMembers.find((item) => String(item.id) === String(id)) : null;
-    const selectedName = selectedUser?.name || selectedMember?.full_name;
-    setLedgerForm((prev) => ({
-      ...prev,
-      linked_user_id: source === 'user' ? String(id) : '',
-      linked_member_id: source === 'member' ? String(id) : '',
-      ledger_name: selectedName ? selectedName.toUpperCase() : prev.ledger_name,
-    }));
-    setLedgerPersonSearch('');
-    setLedgerPersonOpen(false);
-  };
-
-  const selectedLedgerPersonLabel = ledgerForm.linked_user_id
-    ? approvers.find((item) => String(item.id) === ledgerForm.linked_user_id)?.name
-      || ledgers.find((item) => item.id === editingLedgerId)?.linked_user_name
-      || `Mapped user #${ledgerForm.linked_user_id}`
-    : ledgerForm.linked_member_id
-      ? ledgerMembers.find((item) => String(item.id) === ledgerForm.linked_member_id)?.full_name
-        || ledgers.find((item) => item.id === editingLedgerId)?.linked_member_name
-        || `Mapped client #${ledgerForm.linked_member_id}`
-      : '';
 
   const handleDeleteLedger = async (ledger) => {
     if (!window.confirm(`Delete ledger "${ledger.ledger_name}" and all its entries? This cannot be undone.`)) return;
@@ -426,11 +372,6 @@ const CashFlow = () => {
       setMessage({ type: 'error', text: 'Please enter person/entity name' });
       return;
     }
-    if (!ledgerForm.linked_user_id && !ledgerForm.linked_member_id) {
-      setMessage({ type: 'error', text: 'Please select a User Management account or client' });
-      return;
-    }
-
     // ── Edit (rename) existing ledger ──
     if (editingLedgerId) {
       setSubmitting(true);
@@ -438,8 +379,6 @@ const CashFlow = () => {
       try {
         const { data } = await api.put(`/cashflow/months/${editingLedgerId}`, {
           ledger_name: newName,
-          linked_user_id: ledgerForm.linked_user_id ? Number(ledgerForm.linked_user_id) : null,
-          linked_member_id: ledgerForm.linked_member_id ? Number(ledgerForm.linked_member_id) : null,
         });
         setLedgers((prev) => prev.map((l) => (l.id === editingLedgerId ? { ...l, ...(data?.month || {}), ledger_name: newName } : l)));
         setSelectedLedger((prev) => (prev?.id === editingLedgerId ? { ...prev, ...(data?.month || {}), ledger_name: newName } : prev));
@@ -465,8 +404,6 @@ const CashFlow = () => {
         notes: '',
         ledger_type: 'person',
         ledger_name: ledgerForm.ledger_name.toUpperCase(),
-        linked_user_id: ledgerForm.linked_user_id ? Number(ledgerForm.linked_user_id) : null,
-        linked_member_id: ledgerForm.linked_member_id ? Number(ledgerForm.linked_member_id) : null,
       };
       const { data } = await api.post('/cashflow/months', payload);
       // Optimistic prepend — close dialog instantly; refresh in background.
@@ -482,7 +419,7 @@ const CashFlow = () => {
           ...prev,
         ]);
       }
-      setMessage({ type: 'success', text: 'Person ledger created. You can now add entries from any date.' });
+      setMessage({ type: 'success', text: 'Manual personal ledger created. You can now add entries from any date.' });
       setLedgerDialogOpen(false);
       refreshLedgers(); // reconcile with server-computed totals
     } catch (err) {
@@ -2593,13 +2530,7 @@ const CashFlow = () => {
                         </div>
                         <div className="min-w-0">
                           <span className="block text-sm font-semibold text-slate-900 whitespace-nowrap">{ledger.ledger_name}</span>
-                          {ledger.linked_user_id || ledger.linked_member_id ? (
-                            <span className="block text-[10px] font-medium text-emerald-600 whitespace-nowrap">
-                              Linked: {ledger.linked_user_name || ledger.linked_member_name || (ledger.linked_user_id ? `User #${ledger.linked_user_id}` : `Client #${ledger.linked_member_id}`)}
-                            </span>
-                          ) : (
-                            <span className="block text-[10px] font-medium text-amber-600 whitespace-nowrap">User/client mapping required</span>
-                          )}
+                          <span className="block text-[10px] font-medium text-slate-400 whitespace-nowrap">Manual ledger</span>
                         </div>
                       </div>
                     </td>
@@ -2741,8 +2672,8 @@ const CashFlow = () => {
             <DialogTitle className="text-base">{editingLedgerId ? 'Edit Person Ledger' : 'Create Person Ledger'}</DialogTitle>
             <DialogDescription className="text-sm">
               {editingLedgerId
-                ? 'Map this ledger to a User Management account or client, then update its display name. Existing entries remain unchanged.'
-                : 'Select a User Management account or client to create a permanently linked Personal Ledger.'}
+                ? 'Update the display name. Existing entries remain unchanged.'
+                : 'Create a standalone Personal Ledger. Entries are recorded manually only.'}
             </DialogDescription>
           </DialogHeader>
 
@@ -2759,59 +2690,6 @@ const CashFlow = () => {
 
           <form onSubmit={handleSubmitLedger} className="space-y-4">
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium">Linked Person from User Management *</Label>
-              <Popover open={ledgerPersonOpen} onOpenChange={setLedgerPersonOpen}>
-                <PopoverTrigger asChild>
-                  <Button type="button" variant="outline" role="combobox" aria-expanded={ledgerPersonOpen} className="h-9 w-full justify-between font-normal">
-                    <span className={selectedLedgerPersonLabel ? 'truncate' : 'text-slate-400'}>{selectedLedgerPersonLabel || 'Search and select user or client'}</span>
-                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 text-slate-400" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] p-0">
-                  <Command shouldFilter={false}>
-                    <CommandInput
-                      placeholder="Search name, phone, email, client type…"
-                      value={ledgerPersonSearch}
-                      onValueChange={setLedgerPersonSearch}
-                    />
-                    <CommandList className="max-h-72">
-                      <CommandEmpty className="py-5 text-center text-xs text-slate-500">No user or client found.</CommandEmpty>
-                      {editingLedgerId && ledgerForm.linked_user_id && !approvers.some((item) => String(item.id) === ledgerForm.linked_user_id) && (
-                        <CommandGroup heading="Current mapping">
-                          <CommandItem value={`current-user-${ledgerForm.linked_user_id}`} onSelect={() => selectLedgerPerson('user', ledgerForm.linked_user_id)}>
-                            {ledgers.find((item) => item.id === editingLedgerId)?.linked_user_name || `Mapped user #${ledgerForm.linked_user_id}`}
-                          </CommandItem>
-                        </CommandGroup>
-                      )}
-                      {editingLedgerId && ledgerForm.linked_member_id && !ledgerMembers.some((item) => String(item.id) === ledgerForm.linked_member_id) && (
-                        <CommandGroup heading="Current mapping">
-                          <CommandItem value={`current-member-${ledgerForm.linked_member_id}`} onSelect={() => selectLedgerPerson('member', ledgerForm.linked_member_id)}>
-                            {ledgers.find((item) => item.id === editingLedgerId)?.linked_member_name || `Mapped client #${ledgerForm.linked_member_id}`}
-                          </CommandItem>
-                        </CommandGroup>
-                      )}
-                      <CommandGroup heading="Login users">
-                        {approvers.filter((managedUser) => matchesLedgerPersonSearch(managedUser, 'user')).map((managedUser) => (
-                          <CommandItem key={`user-${managedUser.id}`} value={`user ${managedUser.name || ''} ${managedUser.email || ''} ${managedUser.phone || ''}`} onSelect={() => selectLedgerPerson('user', managedUser.id)}>
-                            {managedUser.name || managedUser.email} · {String(managedUser.role || 'USER').replace('_', ' ').toUpperCase()}
-                          </CommandItem>
-                        ))}
-                      </CommandGroup>
-                      <CommandGroup heading="Clients / members">
-                        {ledgerMembers.filter((member) => matchesLedgerPersonSearch(member, 'member')).map((member) => (
-                          <CommandItem key={`member-${member.id}`} value={`member ${member.full_name || ''} ${member.phone || ''} ${member.member_type || ''}`} onSelect={() => selectLedgerPerson('member', member.id)}>
-                            {member.full_name} · {String(member.member_type || 'MEMBER').replace('_', ' ')}{member.phone ? ` · ${member.phone}` : ''}
-                          </CommandItem>
-                        ))}
-                      </CommandGroup>
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
-              <p className="text-[10px] text-slate-400">Search directly inside the dropdown. The selected record is saved by ID, so name changes do not break tracking.</p>
-            </div>
-
-            <div className="space-y-1.5">
               <Label className="text-xs font-medium">Ledger Display Name *</Label>
               <Input
                 placeholder="e.g., OM ASSOCIATES, RAVI BHAI, KULDEEP MAIN"
@@ -2819,7 +2697,7 @@ const CashFlow = () => {
                 onChange={(ev) => setLedgerForm({ ...ledgerForm, ledger_name: ev.target.value.toUpperCase() })}
                 required
               />
-              <p className="text-[10px] text-slate-400">Defaults to the selected person’s name; you may keep a familiar ledger label.</p>
+              <p className="text-[10px] text-slate-400">Use the person or entity name you want to track. It is not linked to any other module.</p>
             </div>
 
             {!editingLedgerId && (
@@ -2830,6 +2708,7 @@ const CashFlow = () => {
                   <li>• Add entries from any date (not limited by month)</li>
                   <li>• Track money given (Debit) and returned (Credit)</li>
                   <li>• Pending = Total Given - Total Returned</li>
+                  <li>• Entries are never added automatically from another module</li>
                 </ul>
               </div>
             )}

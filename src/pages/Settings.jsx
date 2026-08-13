@@ -41,7 +41,7 @@ import { orgDomainHost, orgDomainUrl } from "../lib/tenant";
 import KycTimeline from "../components/kyc/KycTimeline";
 import OperatingProfileSettings from "../components/settings/OperatingProfileSettings";
 import { useOrgKyc } from "../hooks/useOrgKyc";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 const SMS_DEFAULTS = {
   enabled: false,
@@ -81,8 +81,8 @@ const SETTINGS_TAB_META = {
   receipt: {
     icon: ReceiptText,
     kicker: "Documents",
-    title: "Receipt identity",
-    description: "Control the signatory displayed on customer-facing receipts.",
+    title: "Receipt design & identity",
+    description: "Control the Site-wide receipt layout, content and authorized signatory.",
   },
   workflow: {
     icon: Workflow,
@@ -199,6 +199,7 @@ export const Settings = () => {
   /* The reminder modal deep-links here as ?tab=kyc&step=<id>, so the
      wizard opens on the exact step that is still missing. */
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [nameSign, setNameSign] = useState(
     () => localStorage.getItem("nameSign") !== "0",
   );
@@ -239,8 +240,12 @@ export const Settings = () => {
 
   useEffect(() => {
     const requested = searchParams.get("tab");
+    if (requested === "receipt") {
+      navigate("/settings/receipt", { replace: true });
+      return;
+    }
     if (requested && requested !== tab) setTab(requested);
-  }, [searchParams, tab]);
+  }, [navigate, searchParams, tab]);
 
   useEffect(() => {
     if (!isAdmin || !currentSite?.id) {
@@ -510,6 +515,10 @@ export const Settings = () => {
   ];
   const active = tabs.some((t) => t.id === tab) ? tab : "profile";
   const changeTab = (nextTab) => {
+    if (nextTab === "receipt") {
+      navigate("/settings/receipt");
+      return;
+    }
     if (nextTab === active) return;
     setTab(nextTab);
     const next = new URLSearchParams(searchParams);

@@ -5,15 +5,19 @@ import { useSitePolicy } from '../hooks/useSitePolicy';
 import api from '../api/api';
 import eventBus from '../utils/eventBus';
 import {
-  AlertTriangle, Bell, BookOpen, CalendarClock, CheckCircle2, ChevronRight,
+  Activity, Bell, BookOpen, CalendarClock, CheckCircle2, ChevronRight,
   ChevronsUpDown, Clock, CreditCard, ExternalLink, FileClock,
   FileEdit, Gavel, Inbox, LayoutGrid, Loader2, LogOut, Menu, PanelLeft, Send,
   Settings, ShieldAlert, ShieldCheck, Home, UserRound, Wallet, X, XCircle,
 } from 'lucide-react';
+import {
+  COMPLIANCE_EVENT_META, calendarEventTime, calendarIsoDate, complianceEventDate, complianceEventRoute,
+} from './compliance/complianceCalendarMeta';
 import { Skeleton } from './ui/skeleton';
 import { AnimatedThemeToggler } from './ui/animated-theme-toggler';
 import { TooltipProvider } from './ui/tooltip';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from './ui/sheet';
 import { useDocViewer } from './DocViewer';
 import AppSidebar from './sidebar/AppSidebar';
 import WorkspaceDomainModal from './WorkspaceDomainModal';
@@ -274,6 +278,9 @@ const Layout = () => {
   const [complianceNotifLoading, setComplianceNotifLoading] = useState(false);
   const [complianceNotifications, setComplianceNotifications] = useState([]);
   const [complianceUnread, setComplianceUnread] = useState(0);
+  const [notifUpcoming, setNotifUpcoming] = useState([]);
+  const [notifActivity, setNotifActivity] = useState([]);
+  const [notifExtrasLoading, setNotifExtrasLoading] = useState(false);
   const canReadCompliance = hasPermission('compliance', 'read');
   const canReadLegal = hasPermission('legal', 'read');
   const complianceNotificationBase = canReadCompliance
@@ -326,6 +333,30 @@ const Layout = () => {
       // Keep the current unread state if the server rejects the request.
     }
   };
+
+  // Upcoming compliance events (next 30 days) + recent daybook activity for
+  // the bell's Upcoming and Activity tabs. Either call failing simply leaves
+  // that tab empty — the drawer stays usable.
+  const fetchNotifExtras = useCallback(async () => {
+    if (!currentSite?.id) return;
+    setNotifExtrasLoading(true);
+    const from = new Date();
+    const to = new Date();
+    to.setDate(to.getDate() + 30);
+    const [eventsRes, activityRes] = await Promise.allSettled([
+      canReadCompliance
+        ? api.get('/compliance/calendar', { params: { site_id: currentSite.id, from: calendarIsoDate(from), to: calendarIsoDate(to) } })
+        : Promise.reject(new Error('no permission')),
+      api.get(`/daybook/recent?site_id=${currentSite.id}&page=1&limit=10`),
+    ]);
+    setNotifUpcoming(eventsRes.status === 'fulfilled'
+      ? (eventsRes.value.data.events || [])
+          .sort((a, b) => complianceEventDate(a.event_date) - complianceEventDate(b.event_date))
+          .slice(0, 15)
+      : []);
+    setNotifActivity(activityRes.status === 'fulfilled' ? (activityRes.value.data.transactions || []) : []);
+    setNotifExtrasLoading(false);
+  }, [canReadCompliance, currentSite?.id]);
 
   // Map remapped daybook sources back to 'daybook' for the API
   const getApiSource = (source) => {
@@ -505,17 +536,19 @@ const Layout = () => {
     if (!currentSite?.id) return;
     fetchNotifApprovals();
     fetchComplianceNotifications();
-  }, [currentSite?.id, fetchNotifApprovals, fetchComplianceNotifications]);
+    fetchNotifExtras();
+  }, [currentSite?.id, fetchNotifApprovals, fetchComplianceNotifications, fetchNotifExtras]);
 
   useEffect(() => {
     if (!currentSite?.id) return;
     const refresh = () => {
       fetchNotifApprovals();
       fetchComplianceNotifications({ silent: true });
+      fetchNotifExtras();
     };
     eventBus.on('data-mutated', refresh);
     return () => eventBus.off('data-mutated', refresh);
-  }, [currentSite?.id, fetchNotifApprovals, fetchComplianceNotifications]);
+  }, [currentSite?.id, fetchNotifApprovals, fetchComplianceNotifications, fetchNotifExtras]);
 
   useEffect(() => {
     if (!currentSite?.id || !complianceNotificationBase) return undefined;
@@ -523,19 +556,13 @@ const Layout = () => {
     return () => clearInterval(timer);
   }, [complianceNotificationBase, currentSite?.id, fetchComplianceNotifications]);
 
-  // Close modal on Escape key
-  useEffect(() => {
-    if (!notifOpen) return;
-    const onKey = (e) => { if (e.key === 'Escape') setNotifOpen(false); };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [notifOpen]);
-
   const imprestPendingCount = notifReceived.filter(r => r._type === 'imprest').length;
   const approvalBadgeCount = isAdmin
     ? (parseInt(notifAppCounts.total) || 0) + imprestPendingCount
     : (parseInt(notifEditCounts.pending) || 0) + notifReceived.length;
-  const notifBadgeCount = approvalBadgeCount + complianceUnread;
+  // Bell badge = everything the drawer surfaces that can need attention:
+  // approvals, unread compliance alerts, and upcoming calendar events.
+  const notifBadgeCount = approvalBadgeCount + complianceUnread + notifUpcoming.length;
 
   const handleLogout = async () => {
     await logout();
@@ -686,6 +713,7 @@ const Layout = () => {
                   setNotifTab(complianceUnread > 0 ? 'compliance' : isAdmin ? 'received' : 'sent');
                   fetchNotifApprovals();
                   fetchComplianceNotifications();
+                  fetchNotifExtras();
                 }}
                 className="relative flex h-9 w-9 items-center justify-center rounded-control text-mr-muted transition-colors duration-150 hover:bg-mr-surface-2 hover:text-mr-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue"
                 title="Approvals & notifications"
@@ -805,89 +833,57 @@ const Layout = () => {
           intro above and never fires while you are on /settings. */}
       <KycReminderModal />
 
-      {/* ── Notifications / Approvals Modal ── */}
-      {notifOpen && (
-        <div className="fixed inset-0 z-100 flex items-center justify-center p-4">
-          {/* Backdrop */}
-          <div
-            className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"
-            onClick={() => setNotifOpen(false)}
-          />
-
-          {/* Modal panel */}
-          <div className="relative flex w-full max-w-4xl flex-col overflow-hidden rounded-[26px] bg-white shadow-2xl shadow-slate-950/25 max-h-[90vh] animate-in fade-in zoom-in-95 duration-150">
+      {/* ── Notifications / Approvals Sheet ── */}
+      <Sheet open={notifOpen} onOpenChange={setNotifOpen}>
+        <SheetContent side="right" className="flex w-full flex-col gap-0 border-l-0 bg-white p-0 sm:max-w-xl">
             {/* Header */}
-            <div className="flex items-center justify-between bg-slate-950 px-4 py-3.5 sm:px-5 shrink-0">
+            <SheetHeader className="shrink-0 space-y-0 border-b border-slate-100 px-4 py-4 text-left sm:px-5">
               <div className="flex items-center gap-3">
                 <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 shadow-sm shadow-blue-200">
                   <Bell className="w-4 h-4 text-white" />
                 </div>
                 <div>
-                  <p className="text-sm font-semibold text-white">Notification centre</p>
-                  <p className="text-[11px] text-slate-400">
+                  <SheetTitle className="text-sm font-semibold text-slate-900">Notification centre</SheetTitle>
+                  <SheetDescription className="text-[11px] text-slate-500">
                     {currentSite?.name || 'No site'} · {notifBadgeCount} item{notifBadgeCount === 1 ? '' : 's'} need attention
-                  </p>
+                  </SheetDescription>
                 </div>
               </div>
-              <button
-                onClick={() => setNotifOpen(false)}
-                className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+            </SheetHeader>
 
-            {/* Tabs */}
-            <div className="flex items-center gap-1 border-b border-slate-100 bg-slate-50 px-3 py-2 shrink-0">
-              <button
-                onClick={() => setNotifTab('received')}
-                className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition-colors relative ${
-                  notifTab === 'received' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400 hover:text-slate-600'
-                }`}
-              >
-                <Inbox className="w-3.5 h-3.5" />
-                Received
-                {notifReceived.length > 0 && (
-                  <span className="inline-flex items-center justify-center min-w-4.5 h-4.5 px-1 text-[9px] font-bold bg-amber-100 text-amber-700 rounded-full">
-                    {notifReceived.length}
-                  </span>
-                )}
-              </button>
-              <button
-                onClick={() => setNotifTab('sent')}
-                className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition-colors relative ${
-                  notifTab === 'sent' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400 hover:text-slate-600'
-                }`}
-              >
-                <Send className="w-3.5 h-3.5" />
-                Sent
-                {(parseInt(notifEditCounts.pending) || 0) > 0 && (
-                  <span className="inline-flex items-center justify-center min-w-4.5 h-4.5 px-1 text-[9px] font-bold bg-blue-100 text-blue-700 rounded-full">
-                    {notifEditCounts.pending}
-                  </span>
-                )}
-              </button>
-              {complianceNotificationBase && (
+            {/* Tabs — one config array, scrollable so five tabs survive a
+                narrow drawer without wrapping. */}
+            <div className="flex items-center gap-1 overflow-x-auto border-b border-slate-100 bg-slate-50 px-3 py-2 shrink-0 [scrollbar-width:none]">
+              {[
+                { key: 'received', label: 'Received', Icon: Inbox, count: notifReceived.length, badge: 'bg-amber-100 text-amber-700' },
+                { key: 'sent', label: 'Sent', Icon: Send, count: notifSent.length, badge: 'bg-blue-100 text-blue-700' },
+                ...(complianceNotificationBase ? [{ key: 'compliance', label: 'Alerts', Icon: ShieldCheck, count: complianceNotifications.length, badge: 'bg-red-100 text-red-700' }] : []),
+                ...(canReadCompliance ? [{ key: 'upcoming', label: 'Upcoming', Icon: CalendarClock, count: notifUpcoming.length, badge: 'bg-cyan-100 text-cyan-700' }] : []),
+                { key: 'activity', label: 'Activity', Icon: Activity, count: notifActivity.length, badge: 'bg-slate-200 text-slate-600' },
+              ].map(({ key, label, Icon, count, badge }) => (
                 <button
-                  onClick={() => setNotifTab('compliance')}
-                  className={`relative flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${
-                    notifTab === 'compliance' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400 hover:text-slate-600'
+                  key={key}
+                  onClick={() => setNotifTab(key)}
+                  className={`flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${
+                    notifTab === key ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400 hover:text-slate-600'
                   }`}
                 >
-                  <ShieldCheck className="h-3.5 w-3.5" />
-                  Compliance
-                  {complianceUnread > 0 && (
-                    <span className="inline-flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-red-100 px-1 text-[9px] font-bold text-red-700">
-                      {complianceUnread > 99 ? '99+' : complianceUnread}
+                  <Icon className="h-3.5 w-3.5" />
+                  {label}
+                  {count > 0 && (
+                    <span className={`inline-flex h-4.5 min-w-4.5 items-center justify-center rounded-full px-1 text-[9px] font-bold ${badge}`}>
+                      {count > 99 ? '99+' : count}
                     </span>
                   )}
                 </button>
-              )}
+              ))}
             </div>
 
             {/* Content */}
             <div className="flex-1 overflow-y-auto">
-              {(notifTab === 'compliance' ? complianceNotifLoading : notifLoading) ? (
+              {(notifTab === 'compliance' ? complianceNotifLoading
+                : notifTab === 'upcoming' || notifTab === 'activity' ? notifExtrasLoading
+                : notifLoading) ? (
                 <div className="space-y-3 p-4">
                   {[...Array(5)].map((_, index) => (
                     <div key={index} className="flex items-start gap-3 rounded-xl px-1 py-2">
@@ -909,6 +905,88 @@ const Layout = () => {
                   onOpen={openComplianceNotification}
                   onMarkAll={markAllComplianceNotificationsRead}
                 />
+              ) : notifTab === 'upcoming' ? (
+                notifUpcoming.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center gap-3 py-16">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-cyan-200 bg-cyan-50">
+                      <CalendarClock className="h-6 w-6 text-cyan-500" />
+                    </div>
+                    <div className="text-center">
+                      <p className="text-sm font-semibold text-slate-700">Nothing coming up</p>
+                      <p className="mt-0.5 text-xs text-slate-400">Deadlines, hearings and inspections in the next 30 days appear here.</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-slate-100">
+                    {notifUpcoming.map((event) => {
+                      const meta = COMPLIANCE_EVENT_META[event.event_type] || COMPLIANCE_EVENT_META.COMPLIANCE;
+                      const EvIcon = meta.Icon;
+                      const date = complianceEventDate(event.event_date);
+                      const eventTime = calendarEventTime(event);
+                      return (
+                        <button
+                          key={`${event.event_type}-${event.id}`}
+                          type="button"
+                          onClick={() => { setNotifOpen(false); navigate(complianceEventRoute(event)); }}
+                          className="group flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-slate-50 sm:px-5"
+                        >
+                          <span className="flex h-10 w-10 shrink-0 flex-col items-center justify-center rounded-xl border border-slate-200 bg-white">
+                            <span className="text-[8px] font-bold uppercase tracking-[0.08em] text-slate-400">
+                              {date.toLocaleDateString('en-IN', { month: 'short' })}
+                            </span>
+                            <span className="-mt-0.5 text-sm font-semibold tabular-nums text-slate-800">
+                              {date.getDate()}
+                            </span>
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                              <span className={`flex h-4 w-4 items-center justify-center rounded ${meta.icon}`}>
+                                <EvIcon className="h-2.5 w-2.5" />
+                              </span>
+                              {meta.label}
+                              {eventTime && <span className="normal-case tracking-normal tabular-nums text-slate-400">· {eventTime}</span>}
+                            </span>
+                            <span className="mt-1 block truncate text-sm font-medium text-slate-800">{event.title}</span>
+                          </span>
+                          <ChevronRight className="h-4 w-4 shrink-0 text-slate-300 transition-transform group-hover:translate-x-0.5 group-hover:text-slate-500" aria-hidden="true" />
+                        </button>
+                      );
+                    })}
+                  </div>
+                )
+              ) : notifTab === 'activity' ? (
+                notifActivity.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center gap-3 py-16">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50">
+                      <Activity className="h-6 w-6 text-slate-400" />
+                    </div>
+                    <div className="text-center">
+                      <p className="text-sm font-semibold text-slate-700">No recent activity</p>
+                      <p className="mt-0.5 text-xs text-slate-400">The latest ledger entries for this site appear here.</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-slate-100">
+                    {notifActivity.map((txn, i) => {
+                      const credit = parseFloat(txn.credit) || 0;
+                      const debit = parseFloat(txn.debit) || 0;
+                      return (
+                        <div key={txn.id || i} className="flex items-center gap-3 px-4 py-3.5 transition-colors hover:bg-slate-50 sm:px-5">
+                          <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${credit > 0 ? 'border-emerald-200 bg-emerald-50 text-emerald-600' : 'border-rose-200 bg-rose-50 text-rose-600'}`}>
+                            <Activity className="h-4 w-4" strokeWidth={1.9} />
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm font-medium text-slate-800">{txn.particular || txn.description || 'Ledger entry'}</span>
+                            <span className="mt-0.5 block text-[11px] text-slate-400">{notifFmtDate(txn.date || txn.created_at)}</span>
+                          </span>
+                          <span className={`shrink-0 text-sm font-bold tabular-nums ${credit > 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                            {credit > 0 ? '+' : '−'}₹{notifFmt(credit || debit)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )
               ) : notifTab === 'received' ? (
                 notifReceived.length === 0 ? (
                   <div className="flex flex-col items-center justify-center gap-3 py-16">
@@ -1109,28 +1187,35 @@ const Layout = () => {
             {/* Footer */}
             <div className="shrink-0 border-t border-slate-100 px-4 py-3 flex items-center justify-between bg-slate-50/60">
               <p className="text-[11px] text-slate-400">
-                {notifTab === 'compliance'
-                  ? `${complianceNotifications.length} alert${complianceNotifications.length !== 1 ? 's' : ''} shown`
-                  : notifTab === 'received'
-                  ? `${notifReceived.length} item${notifReceived.length !== 1 ? 's' : ''} shown`
-                  : `${notifSent.length} item${notifSent.length !== 1 ? 's' : ''} shown`}
+                {(() => {
+                  const count = notifTab === 'compliance' ? complianceNotifications.length
+                    : notifTab === 'upcoming' ? notifUpcoming.length
+                    : notifTab === 'activity' ? notifActivity.length
+                    : notifTab === 'received' ? notifReceived.length
+                    : notifSent.length;
+                  return `${count} item${count !== 1 ? 's' : ''} shown`;
+                })()}
               </p>
               <Link
                 to={notifTab === 'compliance'
                   ? (canReadCompliance ? '/compliance/my-tasks' : '/legal/hearings')
+                  : notifTab === 'upcoming' ? '/compliance/calendar'
+                  : notifTab === 'activity' ? '/daybook'
                   : notifTab === 'received'
                   ? (isAdmin ? '/pending-approvals' : '/imprest')
                   : '/edit-approvals'}
                 onClick={() => setNotifOpen(false)}
                 className="inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:text-indigo-800 transition-colors"
               >
-                {notifTab === 'compliance' ? 'Open control centre' : 'View all'}
+                {notifTab === 'compliance' ? 'Open control centre'
+                  : notifTab === 'upcoming' ? 'Open calendar'
+                  : notifTab === 'activity' ? 'Open day book'
+                  : 'View all'}
                 <ChevronRight className="w-3.5 h-3.5" />
               </Link>
             </div>
-          </div>
-        </div>
-      )}
+        </SheetContent>
+      </Sheet>
       </div>
     </TooltipProvider>
   );

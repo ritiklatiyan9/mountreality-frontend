@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Loader2, Plus, Trash2, Upload } from 'lucide-react';
+import { FileText, Loader2, Plus, Trash2, Upload } from 'lucide-react';
 import api from '@/api/api';
 import BankAccountSelect from '@/components/BankAccountSelect';
 import { Button } from '@/components/ui/button';
@@ -67,15 +67,19 @@ export function LandDetailsSheet({ acquisition, open, onOpenChange, onSaved }) {
   );
 }
 
-export function AgreementSheet({ acquisition, agreement, open, onOpenChange, onSaved }) {
+export function AgreementSheet({ acquisition, agreement, open, onOpenChange, onSaved, onView }) {
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState({});
+  const [attachment, setAttachment] = useState(null);
   useEffect(() => {
-    if (open) setForm({
-      agreement_type: agreement?.agreement_type || 'Purchase Agreement', agreement_date: agreement?.agreement_date?.slice?.(0, 10) || '',
-      agreement_number: agreement?.agreement_number || '', agreement_status: agreement?.agreement_status === 'EXECUTED' ? 'DRAFT' : agreement?.agreement_status || 'DRAFT',
-      agreement_value: agreement?.agreement_value || acquisition?.total_amount || '', witness_parties: '', remarks: '', reason: '',
-    });
+    if (open) {
+      setAttachment(null);
+      setForm({
+        agreement_type: agreement?.agreement_type || 'Purchase Agreement', agreement_date: agreement?.agreement_date?.slice?.(0, 10) || '',
+        agreement_number: agreement?.agreement_number || '', agreement_status: agreement?.agreement_status === 'EXECUTED' ? 'DRAFT' : agreement?.agreement_status || 'DRAFT',
+        agreement_value: agreement?.agreement_value || acquisition?.total_amount || '', witness_parties: '', remarks: '', reason: '',
+      });
+    }
   }, [acquisition, agreement, open]);
   const set = (key, value) => setForm((current) => ({ ...current, [key]: value }));
   const submit = async (event) => {
@@ -83,11 +87,30 @@ export function AgreementSheet({ acquisition, agreement, open, onOpenChange, onS
     try {
       const payload = { ...form, witness_parties: form.witness_parties.split(',').map((item) => item.trim()).filter(Boolean) };
       const { data } = await api.post(`/land-acquisitions/${acquisition.id}/agreements`, payload);
-      toast.success('Agreement revision saved'); onOpenChange(false); onSaved?.(data);
+      let attachmentUploaded = false;
+      if (attachment) {
+        try {
+          const body = new FormData();
+          body.append('file', attachment);
+          body.append('title', form.agreement_number ? `Agreement ${form.agreement_number}` : attachment.name);
+          body.append('category', 'AGREEMENT');
+          body.append('document_type', 'AGREEMENT');
+          body.append('document_number', form.agreement_number || '');
+          body.append('issue_date', form.agreement_date || '');
+          body.append('review_notes', form.remarks || '');
+          body.append('confidentiality', 'INTERNAL');
+          await api.post(`/compliance-documents/LAND_ACQUISITION/${acquisition.id}`, body, { headers: { 'Content-Type': 'multipart/form-data' } });
+          attachmentUploaded = true;
+        } catch (attachmentError) {
+          toast.warning(apiMessage(attachmentError, 'Agreement was saved, but the PDF could not be uploaded'));
+        }
+      }
+      toast.success(attachmentUploaded ? 'Agreement revision and PDF saved' : 'Agreement revision saved'); onOpenChange(false); onSaved?.(data);
     } catch (error) { toast.error(apiMessage(error, 'Agreement could not be saved')); } finally { setBusy(false); }
   };
   return (
     <Frame open={open} onOpenChange={onOpenChange} title="Record agreement revision" description="Every save creates a traceable revision. Executed agreements are never silently overwritten." onSubmit={submit} busy={busy} submitLabel="Save agreement">
+      {agreement && onView && <div className="flex items-center justify-between gap-4 border border-mr-line bg-mr-surface-2 px-4 py-3"><div><p className="text-[12px] font-semibold text-mr-text">Saved agreement available</p><p className="mt-0.5 text-[11px] text-mr-muted">Review the current revision before recording another one.</p></div><Button type="button" variant="outline" size="sm" onClick={onView}>View current agreement</Button></div>}
       <Field label="Agreement type"><Input value={form.agreement_type || ''} onChange={(event) => set('agreement_type', event.target.value)} required /></Field>
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Status"><Select value={form.agreement_status || 'DRAFT'} onValueChange={(value) => set('agreement_status', value)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{['DRAFT', 'UNDER_REVIEW', 'EXECUTED', 'CANCELLED'].map((value) => <SelectItem key={value} value={value}>{readable(value)}</SelectItem>)}</SelectContent></Select></Field>
@@ -95,10 +118,69 @@ export function AgreementSheet({ acquisition, agreement, open, onOpenChange, onS
         <Field label="Agreement number"><Input value={form.agreement_number || ''} onChange={(event) => set('agreement_number', event.target.value)} /></Field>
         <Field label="Agreement value"><Input type="number" min="0" step="0.01" value={form.agreement_value || ''} onChange={(event) => set('agreement_value', event.target.value)} /></Field>
       </div>
+      <Field label="Agreement PDF" hint="Optional. It will be stored with this acquisition and shown on the Agreement page."><label className="flex h-10 cursor-pointer items-center rounded-control border border-mr-line px-3 text-[12px] text-mr-muted"><Upload className="mr-2 h-4 w-4" />{attachment?.name || 'Select agreement PDF'}<input type="file" className="sr-only" accept=".pdf,.doc,.docx" onChange={(event) => setAttachment(event.target.files?.[0] || null)} /></label></Field>
       <Field label="Witnesses / parties" hint="Comma-separated names; do not repeat the landowner identity."><Input value={form.witness_parties || ''} onChange={(event) => set('witness_parties', event.target.value)} /></Field>
       <Field label="Remarks"><Textarea rows={3} value={form.remarks || ''} onChange={(event) => set('remarks', event.target.value)} /></Field>
       <Field label="Reason / amendment note"><Input value={form.reason || ''} onChange={(event) => set('reason', event.target.value)} /></Field>
     </Frame>
+  );
+}
+
+const agreementParties = (value) => {
+  if (Array.isArray(value)) return value.filter(Boolean);
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) return parsed.filter(Boolean);
+  } catch {
+    // Older records may contain a comma-separated value rather than JSON.
+  }
+  return String(value).split(',').map((item) => item.trim()).filter(Boolean);
+};
+
+export function AgreementViewSheet({ acquisition, agreement, agreements = [], documents = [], open, onOpenChange, onEdit, onOpenDocument, onUpload }) {
+  if (!agreement) return null;
+  const parties = agreementParties(agreement.witness_parties);
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent className="flex w-full flex-col p-0 sm:max-w-xl">
+        <SheetHeader className="border-b border-mr-line px-6 py-5">
+          <SheetTitle>Agreement view</SheetTitle>
+          <SheetDescription>{acquisition?.acquisition_reference} · {acquisition?.landowner_name}</SheetDescription>
+        </SheetHeader>
+        <div className="flex-1 space-y-6 overflow-y-auto px-6 py-5">
+          <div className="grid gap-x-6 border-y border-mr-line sm:grid-cols-2">
+            {[
+              ['Status', readable(agreement.agreement_status)],
+              ['Revision', `Revision ${agreement.revision_number}`],
+              ['Type', agreement.agreement_type],
+              ['Date', agreement.agreement_date ? new Date(agreement.agreement_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Not recorded'],
+              ['Agreement number', agreement.agreement_number],
+              ['Agreement value', money(agreement.agreement_value)],
+              ['Created by', agreement.created_by_name],
+              ['Reviewed by', agreement.reviewed_by_name],
+            ].map(([label, value]) => <div key={label} className="border-b border-mr-line py-3"><p className="text-[11px] font-medium uppercase tracking-[0.08em] text-mr-faint">{label}</p><p className="mt-1 break-words text-[13px] font-medium text-mr-text">{value || 'Not recorded'}</p></div>)}
+          </div>
+          <div>
+            <p className="text-[12px] font-semibold text-mr-text">Witnesses / parties</p>
+            <p className="mt-2 text-[13px] text-mr-muted">{parties.length ? parties.join(', ') : 'Not recorded'}</p>
+          </div>
+          <div>
+            <p className="text-[12px] font-semibold text-mr-text">Remarks</p>
+            <p className="mt-2 whitespace-pre-wrap text-[13px] text-mr-muted">{agreement.remarks || 'No remarks recorded.'}</p>
+          </div>
+          <div>
+            <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-[12px] font-semibold text-mr-text">Agreement PDF</p>{!documents.length && onUpload && <Button type="button" variant="outline" size="sm" onClick={onUpload}><Upload className="mr-1.5 h-3.5 w-3.5" />Upload PDF</Button>}</div>
+            {documents.length ? <div className="mt-2 divide-y divide-mr-line border-y border-mr-line">{documents.map((document) => <button key={document.id} type="button" onClick={() => onOpenDocument?.(document)} className="flex w-full items-center justify-between gap-3 py-3 text-left hover:bg-mr-surface-2"><span className="flex min-w-0 items-center gap-2"><FileText className="h-4 w-4 shrink-0 text-mr-faint" /><span className="min-w-0"><span className="block truncate text-[13px] font-medium text-mr-text">{document.title || document.original_name || 'Agreement PDF'}</span><span className="block text-[11px] text-mr-muted">{document.original_name || 'Agreement document'}</span></span></span><span className="shrink-0 text-[11px] font-medium text-mr-blue">Open PDF</span></button>)}</div> : <p className="mt-2 text-[13px] text-mr-muted">No agreement PDF has been uploaded yet.</p>}
+          </div>
+          {agreements.length > 1 && <div><p className="text-[12px] font-semibold text-mr-text">Revision history</p><div className="mt-2 divide-y divide-mr-line border-y border-mr-line">{agreements.map((item) => <div key={item.id} className="grid grid-cols-[90px_1fr_110px] gap-3 py-3 text-[12px]"><span className="text-mr-muted">Revision {item.revision_number}</span><span className="font-medium text-mr-text">{readable(item.agreement_status)}</span><span className="text-right text-mr-muted">{item.agreement_date ? new Date(item.agreement_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : 'No date'}</span></div>)}</div></div>}
+        </div>
+        <SheetFooter className="sticky bottom-0 border-t border-mr-line bg-mr-surface px-6 py-4">
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
+          {onEdit && <Button type="button" onClick={onEdit}>Record new revision</Button>}
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
   );
 }
 
@@ -197,10 +279,16 @@ export function RecordPaymentSheet({ acquisition, schedule = [], open, onOpenCha
   );
 }
 
-export function DocumentUploadSheet({ acquisition, open, onOpenChange, onSaved }) {
+export function DocumentUploadSheet({ acquisition, open, onOpenChange, onSaved, initialCategory = 'LAND_RECORD' }) {
   const [busy, setBusy] = useState(false);
   const [file, setFile] = useState(null);
   const [form, setForm] = useState({ title: '', category: 'LAND_RECORD', document_number: '', issue_date: '', remarks: '' });
+  useEffect(() => {
+    if (open) {
+      setFile(null);
+      setForm({ title: '', category: initialCategory, document_number: '', issue_date: '', remarks: '' });
+    }
+  }, [initialCategory, open]);
   const submit = async (event) => {
     event.preventDefault(); if (!file) return toast.error('Select a document'); setBusy(true);
     try {

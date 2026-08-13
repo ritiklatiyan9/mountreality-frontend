@@ -89,8 +89,8 @@ export default function ConstructionInventoryCards({ siteId }) {
                     aria-label={`${progress}% of active construction work complete`}
                   >
                     <svg viewBox="0 0 42 42" className="h-full w-full -rotate-90" aria-hidden="true">
-                      <circle cx="21" cy="21" r="15.9" fill="none" stroke="rgba(16,17,20,0.08)" strokeWidth="2.4" />
-                      <circle cx="21" cy="21" r="15.9" fill="none" stroke="#101114" strokeWidth="2.4" strokeLinecap="round" pathLength="100" strokeDasharray={`${progress} ${100 - progress}`} />
+                      <circle cx="21" cy="21" r="15.9" fill="none" stroke="var(--color-mr-line-strong)" strokeWidth="2.4" />
+                      <circle cx="21" cy="21" r="15.9" fill="none" stroke="var(--color-mr-text)" strokeWidth="2.4" strokeLinecap="round" pathLength="100" strokeDasharray={`${progress} ${100 - progress}`} />
                     </svg>
                     <span className="absolute inset-0 flex flex-col items-center justify-center">
                       <span className="text-[26px] font-semibold tracking-[-0.04em] text-mr-text">{progress}%</span>
@@ -116,7 +116,7 @@ export default function ConstructionInventoryCards({ siteId }) {
                   </div>
                   <div className="mt-2 h-2 overflow-hidden rounded-full bg-mr-surface-2">
                     <div
-                      className={`h-full rounded-full transition-[width] duration-500 ${overBudget ? 'bg-mr-coral' : 'bg-mr-ink'}`}
+                      className={`h-full rounded-full transition-[width] duration-500 ${overBudget ? 'bg-mr-coral' : 'bg-mr-text'}`}
                       style={{ width: `${Math.min(spent, 100)}%` }}
                     />
                   </div>

@@ -1,39 +1,23 @@
-import { writePrintDocument } from './safePrint';
-// Unified premium receipt — the ONE receipt design shared by every module.
-// A4 portrait, single copy, typography-and-whitespace driven: no nested
-// bordered boxes, hairline horizontal rules between zones only, large
-// tabular-nums amount as the centerpiece, QR verification + signatures
-// anchored in the lower zone. Grayscale-safe.
 import QRCode from 'qrcode';
 import { amountInWords } from './cashReceipt';
 import { CUSTOMER_SIGN_CSS } from './receiptSignature';
+import { escapePrintText, writePrintDocument } from './safePrint';
+import { normalizeReceiptConfiguration, RECEIPT_FONT_STACKS } from './receiptConfiguration';
 
-const fmtINR = (v) => parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 0 });
-const up = (v) => String(v ?? '').toUpperCase();
+const fmtINR = (value) => Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+const up = (value) => String(value ?? '').toUpperCase();
+
+const printableRows = (rows, configuration) => rows
+  .filter((row) => row && (!row.field || configuration[`show_${row.field}`] !== false))
+  .filter((row) => row.value != null && String(row.value).trim() !== '' && String(row.value).trim() !== '—');
 
 /**
- * Opens a print window with the unified A4-portrait receipt.
- *
- * @param {object} opts
- * @param {string}  [opts.docTitle='Payment Receipt']  Document title under the masthead.
- * @param {object}  [opts.site]              { name, address, city, state } — issuing organization.
- * @param {string}  [opts.receiptNo]         e.g. 'ACK-31'.
- * @param {string}  [opts.date]              Pre-formatted receipt date string.
- * @param {string}  [opts.leadIn]            Optional line above the meta rows (e.g. settlement wording).
- * @param {Array}   [opts.rows]              Module-specific meta: [{ label, value }] — empty values skipped.
- * @param {number}  opts.amount              Absolute amount (₹).
- * @param {'in'|'out'} [opts.amountDirection='in']  Received vs paid/refunded — drives caption + default color.
- * @param {string}  [opts.amountLabel]       Caption override (e.g. 'Amount Refunded').
- * @param {string}  [opts.amountColor]       Color override for the big figure.
- * @param {string}  [opts.amountInWords]     Words override; defaults to amountInWords(amount).
- * @param {string}  [opts.verifyUrl]         QR is generated from this. Missing/failed → visible fallback + console.warn.
- * @param {object}  [opts.signatures]        { customerImg, authorityHtml, customerLabel, authorityLabel }
- *                                           customerImg/authorityHtml are pre-rendered HTML from
- *                                           customerSigImg(row) / authoritySigHtml(row, signerName).
- * @param {string}  [opts.extraNote]         Statutory/proviso paragraph rendered above the signature zone.
- * @param {string}  [opts.printedAt]         Pre-formatted print timestamp.
+ * Shared receipt engine for Plot Payments, Land Acquisition, and future modules.
+ * Module callers supply transaction facts; the selected Site supplies the
+ * stored layout, design, wording, and data-visibility rules.
  */
 export async function printUnifiedReceipt({
+  popup: suppliedPopup,
   docTitle = 'Payment Receipt',
   site = {},
   receiptNo = '',
@@ -49,366 +33,253 @@ export async function printUnifiedReceipt({
   signatures = {},
   extraNote = '',
   printedAt = '',
+  configuration: rawConfiguration,
 } = {}) {
-  const orgName = up(site.name || 'ALLOTMENT DIVISION');
-  const orgAddr = up([site.address, site.city, site.state].filter(Boolean).join(', ')) || 'ESTABLISHED REAL PROPERTY DIVISION';
-  const cap = amountLabel || (amountDirection === 'out' ? 'Amount Paid' : 'Amount Received');
-  const color = amountColor || (amountDirection === 'out' ? '#b91c1c' : '#047857');
-  const words = wordsOverride || amountInWords(amount);
-  const {
-    customerImg = '',
-    authorityHtml = '',
-    customerLabel = 'Signature of the Remitter',
-    authorityLabel = 'Authorized Signatory & Seal',
-  } = signatures;
+  // Open synchronously from the click event; waiting for QR generation first
+  // causes modern browsers to treat the receipt as an unsolicited popup.
+  const popup = suppliedPopup || window.open('', '_blank', 'width=1000,height=820');
+  if (!popup) throw new Error('Pop-up blocked. Allow pop-ups to print this receipt.');
+  writePrintDocument(popup, '<!doctype html><title>Preparing receipt…</title><body style="margin:0;display:grid;min-height:100vh;place-items:center;background:#0f172a;color:#fff;font:600 15px Arial,sans-serif">Preparing your receipt…</body>');
 
-  // ── QR: required design element; never silently absent ──
-  let qrDataUrl = null;
-  if (!verifyUrl) {
-    console.warn('Unified receipt: verifyUrl missing —', docTitle, receiptNo);
-  } else {
-    try {
-      qrDataUrl = await QRCode.toDataURL(verifyUrl, {
-        width: 640, margin: 2, errorCorrectionLevel: 'M',
-        color: { dark: '#000000', light: '#ffffff' },
-      });
-    } catch (err) {
-      console.warn('Unified receipt: QR generation failed —', receiptNo, err);
+  try {
+    const configuration = normalizeReceiptConfiguration(rawConfiguration);
+    const isA5 = configuration.paper_size === 'A5';
+    const compact = configuration.template === 'compact';
+    const modern = configuration.template === 'modern';
+    const executive = configuration.template === 'executive';
+    const pageWidth = isA5 ? 148 : 210;
+    const pageHeight = isA5 ? 210 : 297;
+    const textRatio = configuration.text_scale / 100;
+    const scaledPx = (size) => `${Math.round(size * textRatio * 100) / 100}px`;
+    const bodyFont = RECEIPT_FONT_STACKS[configuration.body_font] || RECEIPT_FONT_STACKS.inter;
+    const headingFont = RECEIPT_FONT_STACKS[configuration.heading_font] || RECEIPT_FONT_STACKS.georgia;
+    const orgName = up(configuration.header_title || site.name || 'ALLOTMENT DIVISION');
+    const orgAddress = up(
+      configuration.header_subtitle
+      || [site.address, site.city, site.state].filter(Boolean).join(', ')
+      || 'ESTABLISHED REAL PROPERTY DIVISION',
+    );
+    const caption = amountLabel || (amountDirection === 'out' ? 'Amount Paid' : 'Amount Received');
+    const receiptTitle = configuration.document_title || docTitle;
+    const receiptAmountLabel = configuration.amount_label || caption;
+    const accent = configuration.accent_color;
+    const figureColor = amountColor || accent;
+    const words = wordsOverride || amountInWords(amount);
+    const {
+      customerImg = '',
+      authorityHtml = '',
+      customerLabel = 'Signature of the Remitter',
+      authorityLabel = 'Authorized Signatory & Seal',
+    } = signatures;
+    const e = escapePrintText;
+
+    let qrDataUrl = '';
+    if (configuration.show_verification_qr && verifyUrl) {
+      try {
+        qrDataUrl = await QRCode.toDataURL(verifyUrl, {
+          width: 640,
+          margin: 2,
+          errorCorrectionLevel: 'M',
+          color: { dark: '#000000', light: '#ffffff' },
+        });
+      } catch (error) {
+        console.warn('Unified receipt QR generation failed:', receiptNo, error);
+      }
     }
-  }
-  const qrBlock = qrDataUrl
-    ? `<div class="qr"><img src="${qrDataUrl}" alt="Verify QR" /><div class="qr-cap">Scan to verify</div></div>`
-    : `<div class="qr"><div class="qr-void">Verification<br/>unavailable</div><div class="qr-cap">QR not issued</div></div>`;
 
-  const metaRows = rows
-    .filter((r) => r && r.value != null && String(r.value).trim() !== '' && String(r.value).trim() !== '—')
-    .map((r) => `<tr><th>${r.label}</th><td>${up(r.value)}</td></tr>`)
-    .join('');
+    const customRows = configuration.custom_fields
+      .filter((field) => field.enabled && (field.label || field.value))
+      .map((field) => ({ label: field.label || 'Custom field', value: field.value || '—' }));
+    const metaRows = printableRows([...rows, ...customRows], configuration)
+      .map((row) => `<tr><th>${e(row.label)}</th><td>${e(up(row.value))}</td></tr>`)
+      .join('');
+    const qrBlock = configuration.show_verification_qr
+      ? qrDataUrl
+        ? `<div class="qr"><img src="${qrDataUrl}" alt="Verification QR" /><div class="qr-cap">Scan to verify</div></div>`
+        : '<div class="qr"><div class="qr-void">Verification<br>not available</div><div class="qr-cap">QR not issued</div></div>'
+      : '';
+    const signatureBlock = configuration.show_signatures
+      ? `<div class="sig-box">${customerImg}<div class="sig-line">${e(customerLabel)}</div></div>
+         ${qrBlock}
+         <div class="sig-box">${authorityHtml}<div class="sig-line">${e(authorityLabel)}</div></div>`
+      : qrBlock;
+    const footerZone = signatureBlock ? `<div class="footer-zone">${signatureBlock}</div>` : '';
+    const printMeta = configuration.show_printed_at
+      ? `<div class="print-meta">${e(configuration.footer_note)}${printedAt ? ` &nbsp;&middot;&nbsp; Printed on <b>${e(printedAt)}</b>` : ''}</div>`
+      : `<div class="print-meta">${e(configuration.footer_note)}</div>`;
+    const receiptBlocks = {
+      header: `<header class="masthead"><h1>${e(orgName)}</h1><div class="addr">${e(orgAddress)}</div></header><hr class="rule-strong">`,
+      document: `<section class="title-strip"><div class="doc-title">${e(receiptTitle)}</div><div class="doc-meta"><div><span>Receipt no.</span><b>${e(receiptNo || '—')}</b></div><div><span>Date</span><b>${e(date || '—')}</b></div></div></section><hr class="rule-hair">`,
+      amount: `<section class="amount-zone"><div class="amount-cap">${e(receiptAmountLabel)}</div><div class="amount-big" style="color:${figureColor}">₹ ${e(fmtINR(Math.abs(Number(amount) || 0)))}/-</div>${configuration.show_amount_words ? `<div class="amount-words">Rupees ${e(words)} Only</div>` : ''}</section>`,
+      details: `<section class="meta-zone">${leadIn ? `<div class="lead-in">${e(leadIn)}</div>` : ''}${metaRows ? `<table class="details"><tbody>${metaRows}</tbody></table>` : ''}</section>`,
+      note: configuration.show_extra_note && extraNote ? `<hr class="rule-hair"><div class="extra-note">${e(extraNote)}</div>` : '',
+      signatures: footerZone,
+      footer: printMeta,
+    };
+    const receiptBody = configuration.component_order
+      .map((component) => receiptBlocks[component] || '')
+      .join('');
 
-  const html = `<!DOCTYPE html>
+    const html = `<!DOCTYPE html>
 <html>
 <head>
-  <title>${docTitle} — ${receiptNo}</title>
+  <title>${e(docTitle)} — ${e(receiptNo)}</title>
   <style>
-    @page { size: A4 portrait; margin: 0; }
+    @page { size: ${configuration.paper_size} portrait; margin: 0; }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      font-family: 'Segoe UI', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-family: ${bodyFont};
       color: #111827;
-      background: #e8ebef;
+      background: #dfe4ea;
       display: flex;
       justify-content: center;
-      padding: 8mm 0;
+      padding: 8mm 0 24mm;
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
     }
     .paper {
+      --accent: ${accent};
       position: relative;
-      background: #fff;
-      width: 210mm;
-      min-height: 297mm;
-      padding: 20mm 19mm 17mm;
-      box-shadow: 0 12px 28px -10px rgba(0, 0, 0, 0.25);
       display: flex;
       flex-direction: column;
+      width: ${pageWidth}mm;
+      min-height: ${pageHeight}mm;
+      padding: ${compact ? (isA5 ? '11mm 10mm 9mm' : '14mm 15mm 12mm') : (isA5 ? '14mm 12mm 11mm' : '20mm 19mm 17mm')};
+      background: #fff;
+      box-shadow: 0 16px 34px -12px rgba(15, 23, 42, .3);
+      overflow: hidden;
     }
-
-    /* ── Outer border frame: classic double hairline, grayscale-safe ── */
-    .frame {
-      position: absolute;
-      inset: 7mm;
-      border: 2px solid #111827;
-      pointer-events: none;
-    }
-    .frame::after {
+    .frame { position: absolute; inset: ${isA5 ? '5mm' : '7mm'}; pointer-events: none; }
+    .with-border .frame { border: 1.5px solid #111827; }
+    .template-classic.with-border .frame::after {
       content: '';
       position: absolute;
-      inset: 2.8mm;
-      border: 0.5px solid #111827;
+      inset: ${isA5 ? '1.8mm' : '2.8mm'};
+      border: .5px solid #64748b;
     }
-    /* ── Masthead ── */
-    .masthead { text-align: center; padding-bottom: 6mm; }
+    .template-modern::before {
+      content: '';
+      position: absolute;
+      inset: 0 0 auto;
+      height: ${isA5 ? '4mm' : '5mm'};
+      background: var(--accent);
+    }
+    .template-modern.with-border .frame { border-color: #cbd5e1; }
+    .template-compact.with-border .frame { border: .7px solid #94a3b8; }
+    .template-executive .masthead {
+      padding: ${compact ? '5mm' : (isA5 ? '6mm' : '8mm')};
+      border-bottom: ${isA5 ? '2mm' : '3mm'} solid var(--accent);
+      background: #0f172a;
+    }
+    .template-executive .masthead h1 { color: #fff; }
+    .template-executive .masthead .addr { color: #cbd5e1; }
+    .template-executive .rule-strong { display: none; }
+    .template-executive.with-border .frame { border-color: #334155; }
+    .template-minimal::before {
+      content: '';
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: ${isA5 ? '2.5mm' : '3.5mm'};
+      background: var(--accent);
+    }
+    .template-minimal .masthead { text-align: left; }
+    .template-minimal .amount-zone { border: 1px solid var(--accent); border-left-width: 1px; background: #fff; }
+    .template-minimal.with-border .frame { border-color: #e2e8f0; }
+    .template-heritage { color: #2f2923; background: #fffdf5; }
+    .template-heritage.with-border .frame { border: 1.5px solid #9a7b4f; }
+    .template-heritage.with-border .frame::after { content: ''; position: absolute; inset: ${isA5 ? '1.8mm' : '2.8mm'}; border: .5px solid #c9b38b; }
+    .template-heritage .rule-strong { border-color: #9a7b4f; }
+    .template-heritage .amount-zone { border-color: #d8c7a8; background: #fffaf0; }
+    .masthead { position: relative; text-align: center; padding-bottom: ${compact ? '3mm' : '6mm'}; }
     .masthead h1 {
-      font-family: Georgia, 'Times New Roman', serif;
-      font-size: 30px;
-      font-weight: 600;
-      letter-spacing: 5px;
+      font-family: ${headingFont};
+      font-size: ${isA5 ? (compact ? scaledPx(18) : scaledPx(21)) : (compact ? scaledPx(23) : scaledPx(30))};
+      font-weight: ${modern || executive ? '750' : '600'};
+      letter-spacing: ${compact ? '2px' : '4px'};
       text-transform: uppercase;
-      color: #111827;
+      color: ${modern ? 'var(--accent)' : '#111827'};
     }
     .masthead .addr {
-      font-size: 10px;
-      color: #4b5563;
+      margin-top: 2mm;
+      color: #64748b;
+      font-size: ${isA5 ? scaledPx(7) : scaledPx(9)};
+      font-weight: 650;
+      letter-spacing: ${compact ? '.7px' : '1.6px'};
       text-transform: uppercase;
-      letter-spacing: 2px;
-      font-weight: 600;
-      margin-top: 2.5mm;
     }
-    /* Strong accent rule under the masthead: heavy line + trailing hairline */
-    .rule-strong {
-      border: none;
-      border-top: 2.5px solid #111827;
-      border-bottom: 0.5px solid #111827;
-      height: 1.4mm;
-    }
-    .rule-hair { border: none; border-top: 0.5px solid #d1d5db; }
-
-    /* ── Title strip ── */
+    .rule-strong { border: 0; border-top: ${modern ? '1.5px solid var(--accent)' : '2px solid #111827'}; }
+    .rule-hair { border: 0; border-top: .5px solid #cbd5e1; }
     .title-strip {
       display: flex;
       justify-content: space-between;
       align-items: baseline;
-      padding: 5mm 0;
+      gap: 4mm;
+      padding: ${compact ? '3mm 0' : '5mm 0'};
     }
     .doc-title {
-      font-family: Georgia, 'Times New Roman', serif;
-      font-size: 16px;
-      letter-spacing: 5px;
+      font-family: ${headingFont};
+      color: #334155;
+      font-size: ${isA5 ? scaledPx(10) : scaledPx(15)};
+      font-weight: ${modern || executive ? '750' : '500'};
+      letter-spacing: ${compact ? '1.3px' : '3px'};
       text-transform: uppercase;
-      color: #374151;
     }
-    .doc-meta { display: flex; gap: 12mm; }
-    .doc-meta span {
-      font-size: 8.5px;
-      text-transform: uppercase;
-      letter-spacing: 1.2px;
-      color: #6b7280;
-      font-weight: 600;
-      margin-right: 2.5mm;
-    }
-    .doc-meta b { font-size: 13px; color: #111827; font-variant-numeric: tabular-nums; }
-
-    /* ── Amount centerpiece: its own bordered panel ── */
+    .doc-meta { display: flex; gap: ${isA5 ? '4mm' : '10mm'}; white-space: nowrap; }
+    .doc-meta span { margin-right: 1mm; color: #64748b; font-size: ${isA5 ? scaledPx(6) : scaledPx(8)}; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; }
+    .doc-meta b { color: #111827; font-size: ${isA5 ? scaledPx(8) : scaledPx(12)}; font-variant-numeric: tabular-nums; }
     .amount-zone {
+      margin-top: ${compact ? '4mm' : '8mm'};
+      padding: ${compact ? '4mm' : '7mm'} 5mm;
+      border: ${modern ? '0' : '.5px solid #94a3b8'};
+      border-left: ${modern ? '3px solid var(--accent)' : ''};
+      background: color-mix(in srgb, var(--accent) 7%, white);
       text-align: center;
-      margin-top: 9mm;
-      padding: 7mm 8mm 6.5mm;
-      border: 0.5px solid #9ca3af;
-      background: #f9fafb;
     }
-    .amount-cap {
-      font-size: 10px;
-      letter-spacing: 3px;
-      text-transform: uppercase;
-      color: #6b7280;
-      font-weight: 700;
-    }
-    .amount-big {
-      font-size: 54px;
-      font-weight: 700;
-      letter-spacing: 1px;
-      line-height: 1.15;
-      margin-top: 3mm;
-      font-variant-numeric: tabular-nums;
-    }
-    .amount-words {
-      font-family: Georgia, 'Times New Roman', serif;
-      font-style: italic;
-      font-size: 14px;
-      color: #374151;
-      margin-top: 3mm;
-    }
-
-    /* ── Meta: formal bordered detail table, hairline cell borders ── */
-    .meta-zone { flex: 1; padding: 8mm 0 6mm; }
-    .lead-in {
-      font-family: Georgia, 'Times New Roman', serif;
-      font-size: 12px;
-      color: #374151;
-      margin-bottom: 4mm;
-    }
+    .amount-cap { color: #64748b; font-size: ${isA5 ? scaledPx(7) : scaledPx(9)}; font-weight: 750; letter-spacing: 2px; text-transform: uppercase; }
+    .amount-big { margin-top: ${compact ? '1.5mm' : '3mm'}; font-family: ${headingFont}; font-size: ${isA5 ? (compact ? scaledPx(28) : scaledPx(34)) : (compact ? scaledPx(40) : scaledPx(53))}; font-weight: 750; line-height: 1.1; font-variant-numeric: tabular-nums; }
+    .amount-words { margin-top: 2mm; color: #475569; font: italic ${isA5 ? scaledPx(9) : scaledPx(13)} ${headingFont}; }
+    .meta-zone { padding: ${compact ? '4mm 0' : '7mm 0 5mm'}; }
+    .lead-in { margin-bottom: 3mm; color: #475569; font: ${isA5 ? scaledPx(8) : scaledPx(11)} ${headingFont}; }
     table.details { width: 100%; border-collapse: collapse; }
-    table.details th, table.details td {
-      border: 0.5px solid #cbd5e1;
-      padding: 2.8mm 4.5mm;
-      text-align: left;
-      line-height: 1.35;
-    }
-    table.details th {
-      width: 34%;
-      background: #f8fafc;
-      font-size: 8.5px;
-      text-transform: uppercase;
-      letter-spacing: 1.2px;
-      color: #6b7280;
-      font-weight: 600;
-    }
-    table.details td {
-      font-size: 12px;
-      font-weight: 600;
-      color: #111827;
-      word-break: break-word;
-      font-variant-numeric: tabular-nums;
-    }
-
-    /* ── Statutory / proviso ── */
-    .extra-note {
-      font-family: Georgia, 'Times New Roman', serif;
-      font-style: italic;
-      font-size: 9.5px;
-      color: #6b7280;
-      text-align: center;
-      line-height: 1.7;
-      padding: 5mm 12mm 0;
-    }
-
-    /* ── Lower zone: signatures flanking the QR ── */
-    .footer-zone {
-      margin-top: auto;
-      padding-top: 9mm;
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-end;
-      gap: 10mm;
-    }
-    .sig-box {
-      width: 58mm;
-      min-height: 20mm;
-      text-align: center;
-      display: flex;
-      flex-direction: column;
-      justify-content: flex-end;
-    }
-    .sig-line {
-      border-top: 0.5px solid #111827;
-      padding-top: 2mm;
-      font-size: 8.5px;
-      font-weight: 700;
-      color: #4b5563;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-    }
-    .qr { display: flex; flex-direction: column; align-items: center; }
-    .qr img { display: block; width: 28mm; height: 28mm; image-rendering: pixelated; image-rendering: crisp-edges; }
-    .qr-void {
-      width: 28mm;
-      height: 28mm;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      text-align: center;
-      font-size: 8px;
-      font-weight: 600;
-      letter-spacing: 0.8px;
-      text-transform: uppercase;
-      color: #9ca3af;
-      line-height: 1.6;
-      border: 0.5px dashed #d1d5db;
-    }
-    .qr-cap {
-      font-size: 8px;
-      color: #374151;
-      text-transform: uppercase;
-      letter-spacing: 1.2px;
-      font-weight: 700;
-      margin-top: 2mm;
-    }
+    table.details th, table.details td { border: .5px solid #cbd5e1; padding: ${compact ? '1.7mm 2.7mm' : (isA5 ? '2mm 3mm' : '2.8mm 4.5mm')}; text-align: left; line-height: 1.3; }
+    table.details th { width: 34%; background: #f8fafc; color: #64748b; font-size: ${isA5 ? scaledPx(6.5) : scaledPx(8.5)}; font-weight: 650; letter-spacing: .65px; text-transform: uppercase; }
+    table.details td { color: #111827; font-size: ${isA5 ? scaledPx(8) : scaledPx(11)}; font-weight: 650; word-break: break-word; font-variant-numeric: tabular-nums; }
+    .extra-note { padding: 4mm 7mm 0; color: #64748b; font: italic ${isA5 ? scaledPx(7) : scaledPx(9)}/1.55 ${headingFont}; text-align: center; }
+    .footer-zone { display: flex; justify-content: space-between; align-items: flex-end; gap: ${isA5 ? '4mm' : '9mm'}; padding-top: ${compact ? '4mm' : '7mm'}; }
+    .sig-box { display: flex; flex: 1; min-width: 0; min-height: ${isA5 ? '13mm' : '19mm'}; flex-direction: column; justify-content: flex-end; text-align: center; }
+    .sig-line { border-top: .5px solid #111827; padding-top: 1.5mm; color: #475569; font-size: ${isA5 ? scaledPx(6) : scaledPx(8)}; font-weight: 750; letter-spacing: .55px; text-transform: uppercase; }
+    .qr { display: flex; shrink: 0; flex-direction: column; align-items: center; }
+    .qr img, .qr-void { width: ${isA5 ? '19mm' : '27mm'}; height: ${isA5 ? '19mm' : '27mm'}; }
+    .qr img { display: block; image-rendering: pixelated; }
+    .qr-void { display: grid; place-items: center; border: .5px dashed #cbd5e1; color: #94a3b8; font-size: ${isA5 ? scaledPx(5.5) : scaledPx(7.5)}; font-weight: 650; line-height: 1.5; text-align: center; text-transform: uppercase; }
+    .qr-cap { margin-top: 1.2mm; color: #475569; font-size: ${isA5 ? scaledPx(5) : scaledPx(7)}; font-weight: 700; letter-spacing: .7px; text-transform: uppercase; }
     ${CUSTOMER_SIGN_CSS}
-    .digital-signature {
-      font-family: 'Segoe Script', 'Brush Script MT', cursive;
-      font-size: 24px;
-      font-weight: 700;
-      color: #1a237e;
-      line-height: 1;
-      height: 10mm;
-      display: flex;
-      align-items: flex-end;
-      justify-content: center;
-      margin-bottom: 1px;
-    }
-    .print-meta {
-      text-align: center;
-      font-size: 8px;
-      color: #9ca3af;
-      letter-spacing: 0.5px;
-      margin-top: 7mm;
-      padding-top: 2.5mm;
-      border-top: 0.5px dashed #d1d5db;
-    }
-    .print-meta b { color: #4b5563; font-weight: 600; }
-
+    .digital-signature { display: flex; height: ${isA5 ? '7mm' : '10mm'}; align-items: flex-end; justify-content: center; margin-bottom: 1px; color: #1e3a8a; font: 700 ${isA5 ? scaledPx(17) : scaledPx(23)}/1 'Segoe Script', 'Brush Script MT', cursive; }
+    .print-meta { margin-top: ${compact ? '3mm' : '5mm'}; padding-top: 2mm; border-top: .5px dashed #d1d5db; color: #94a3b8; font-size: ${isA5 ? scaledPx(5.5) : scaledPx(7.5)}; letter-spacing: .25px; line-height: 1.4; text-align: center; }
+    .print-meta b { color: #475569; }
+    .print-actions { position: fixed; right: 0; bottom: 22px; left: 0; z-index: 10; text-align: center; }
+    .print-actions button { margin: 0 4px; border-radius: 9px; padding: 11px 30px; border: 1px solid #cbd5e1; background: #fff; color: #334155; font-size: 13px; font-weight: 750; cursor: pointer; box-shadow: 0 8px 18px rgba(15, 23, 42, .14); }
+    .print-actions .print { border-color: ${accent}; background: ${accent}; color: #fff; }
     @media print {
       body { background: #fff; padding: 0; }
-      .paper {
-        box-shadow: none;
-        width: 210mm;
-        height: 297mm;
-        min-height: 0;
-        overflow: hidden;
-        page-break-inside: avoid;
-        page-break-after: avoid;
-      }
-      .no-print { display: none !important; }
+      .paper { width: ${pageWidth}mm; height: ${pageHeight}mm; min-height: 0; box-shadow: none; page-break-after: avoid; page-break-inside: avoid; }
+      .print-actions { display: none !important; }
     }
   </style>
 </head>
 <body>
-  <div class="paper">
+  <main class="paper template-${configuration.template}${configuration.show_border ? ' with-border' : ''}">
     <div class="frame"></div>
-    <div class="masthead">
-      <h1>${orgName}</h1>
-      <div class="addr">${orgAddr}</div>
-    </div>
-    <hr class="rule-strong" />
-    <div class="title-strip">
-      <div class="doc-title">${docTitle}</div>
-      <div class="doc-meta">
-        <div><span>Receipt No.</span><b>${receiptNo || '—'}</b></div>
-        <div><span>Date</span><b>${date || '—'}</b></div>
-      </div>
-    </div>
-    <hr class="rule-hair" />
-
-    <div class="amount-zone">
-      <div class="amount-cap">${cap}</div>
-      <div class="amount-big" style="color:${color}">₹ ${fmtINR(amount)}/-</div>
-      <div class="amount-words">Rupees ${words} Only</div>
-    </div>
-
-    <div class="meta-zone">
-      ${leadIn ? `<div class="lead-in">${leadIn}</div>` : ''}
-      <table class="details">${metaRows}</table>
-    </div>
-
-    ${extraNote ? `<hr class="rule-hair" /><div class="extra-note">${extraNote}</div>` : ''}
-
-    <div class="footer-zone">
-      <div class="sig-box">
-        ${customerImg}
-        <div class="sig-line">${customerLabel}</div>
-      </div>
-      ${qrBlock}
-      <div class="sig-box">
-        ${authorityHtml}
-        <div class="sig-line">${authorityLabel}</div>
-      </div>
-    </div>
-    <div class="print-meta">Computer-generated receipt &nbsp;&middot;&nbsp; Printed on <b>${printedAt}</b></div>
-  </div>
-
-  <script>
-    // Print only after every image (QR + signatures) has decoded, so none print blank.
-    async function printWhenReady() {
-      try {
-        await Promise.all(Array.from(document.images).map(function (img) {
-          return img.complete ? Promise.resolve() : img.decode().catch(function () {});
-        }));
-      } catch (e) {}
-      window.print();
-    }
-  </script>
-  <div class="no-print" style="position:fixed; bottom: 30px; left:0; right:0; text-align:center; z-index:1000;">
-    <button onclick="printWhenReady()" style="padding:12px 50px; font-size:15px; font-weight:700; background:#0f172a; color:#fff; border:none; border-radius:10px; cursor:pointer; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.2);">
-      PRINT (A4)
-    </button>
-    <button onclick="window.close()" style="padding:12px 50px; font-size:15px; font-weight:700; background:#fff; color:#475569; border:1px solid #e2e8f0; border-radius:10px; cursor:pointer; margin-left:15px;">
-      CLOSE
-    </button>
-  </div>
+    ${receiptBody}
+  </main>
+  <div class="print-actions"><button class="print" type="button">Print (${configuration.paper_size})</button><button class="close" type="button">Close</button></div>
 </body>
 </html>`;
 
-  const w = window.open('', '_blank', 'width=1000,height=750');
-  writePrintDocument(w, html);
-  w.document.close();
+    writePrintDocument(popup, html);
+    return popup;
+  } catch (error) {
+    writePrintDocument(popup, `<!doctype html><title>Receipt error</title><body style="padding:40px;font:15px Arial,sans-serif;color:#991b1b"><h1 style="font-size:22px">Receipt could not be prepared</h1><p>${escapePrintText(error?.message || 'Unknown receipt error')}</p><button type="button">Close</button></body>`);
+    throw error;
+  }
 }

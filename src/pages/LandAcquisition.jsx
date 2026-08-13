@@ -95,6 +95,15 @@ export default function LandAcquisition() {
   };
   const refresh = useCallback(() => setReloadKey((key) => key + 1), []);
   const openAcquisition = (id) => navigate(`/land-acquisition/${id}`);
+  const openActivity = (item) => {
+    if (!item?.entity_id) return;
+    const action = String(item.action || '').toUpperCase();
+    const tab = action.includes('PAYMENT') ? 'transactions'
+      : action.includes('AGREEMENT') ? 'agreement'
+        : action.includes('FINANCIAL') || action.includes('TERMS') ? 'financials'
+          : action.includes('LAND') ? 'land' : 'activity';
+    navigate(`/land-acquisition/${item.entity_id}${tab === 'activity' ? '' : `?tab=${tab}`}`);
+  };
   const metrics = useMemo(() => {
     const summary = data.summary || {};
     return [
@@ -160,7 +169,7 @@ export default function LandAcquisition() {
               </div>
               <section>
                 <SectionHead title="Recent activity" description="Payments, agreement revisions and lifecycle changes at this Site." />
-                <AcquisitionActivityTimeline items={data.recent_activity} />
+                <AcquisitionActivityTimeline items={data.recent_activity} onOpen={openActivity} />
               </section>
             </div>
           )}

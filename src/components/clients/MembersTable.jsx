@@ -19,7 +19,7 @@ export default function MembersTable({
     <div className="hidden md:block">
       <Table
         wrapperClassName="max-h-[calc(100vh-300px)] border-b border-mr-line"
-        className="mr-dark-table min-w-[1000px] border-separate border-spacing-0 text-[13px]"
+        className="mr-dark-table min-w-[850px] border-separate border-spacing-0 text-[13px]"
       >
         <TableHeader>
           <TableRow className="hover:bg-transparent">
@@ -47,7 +47,6 @@ export default function MembersTable({
               </button>
             </TableHead>
             <TableHead className={`${HEAD} min-w-[220px]`}>Member</TableHead>
-            <TableHead className={`${HEAD} min-w-[150px]`}>Father name</TableHead>
             <TableHead className={`${HEAD} w-32`}>Type</TableHead>
             <TableHead className={`${HEAD} min-w-[140px]`}>Phone</TableHead>
             <TableHead className={`${HEAD} min-w-[110px]`}>City</TableHead>
@@ -81,7 +80,6 @@ export default function MembersTable({
                   </span>
                 </span>
               </TableCell>
-              <TableCell className={`${CELL} text-mr-muted`}>{m.father_name || '—'}</TableCell>
               <TableCell className={CELL}><TypeBadge type={m.member_type} /></TableCell>
               <TableCell className={CELL}>
                 {m.phone ? (
