@@ -14,7 +14,7 @@ const MODULE_LABEL = {
   plot_commission_payments: 'Commission payment',
   day_book: 'Day book',
   firm_transactions: 'Firm txn',
-  plot_payments: 'Plot payment',
+  plot_payments: 'Project payment',
   expenses: 'Expense',
   vendor_payments: 'Vendor',
   plot_installment_payments: 'Installment',

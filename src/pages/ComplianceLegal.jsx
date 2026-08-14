@@ -31,8 +31,8 @@ import {
   AlertOctagon, AlertTriangle, ArrowLeft, ArrowRight, Building2, CalendarDays,
   CalendarRange, CheckCircle2, ChevronLeft, ChevronRight, ClipboardCheck,
   Clock3, Download, FileClock, FileSpreadsheet, Files, Filter, Gavel, Inbox, Landmark,
-  LayoutDashboard, ListChecks, Loader2, Plus, RefreshCw, Scale, Search, Settings2,
-  ShieldAlert, ShieldCheck, Sparkles, Upload, UserRound, XCircle,
+  LayoutDashboard, ListChecks, Loader2, Pencil, Plus, RefreshCw, Scale, Search, Settings2,
+  ShieldAlert, ShieldCheck, Sparkles, Tags, Upload, UserRound, XCircle,
 } from 'lucide-react';
 import {
   COMPLIANCE_TYPES, fmtDate, isoDate, labelize, money, RISK_OPTIONS, RISK_STYLE,
@@ -127,6 +127,7 @@ const MODULE_NAV = [
   ['inspections', '/legal/inspections', 'Inspections', CalendarRange, 'compliance'],
   ['templates', '/compliance/templates', 'Templates', Files, 'compliance_templates'],
   ['reports', '/compliance/reports', 'Reports', FileSpreadsheet, 'compliance'],
+  ['categories', '/compliance/categories', 'Categories', Tags, 'compliance_settings'],
   ['authorities', '/compliance/authorities', 'Authorities', Landmark, 'compliance_settings'],
   ['settings', '/compliance/settings', 'Settings', Settings2, 'compliance_settings'],
 ];
@@ -155,6 +156,7 @@ function DashboardView({ siteId }) {
   const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState([]);
   const [authorities, setAuthorities] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [filters, setFilters] = useState({
     state: '', category: '', authority_id: '', responsible_user_id: '',
     risk: '', status: '', from: '', to: '',
@@ -163,14 +165,16 @@ function DashboardView({ siteId }) {
     setLoading(true);
     try {
       const params = Object.fromEntries(Object.entries({ site_id: siteId, ...filters }).filter(([, value]) => value));
-      const [dashboard, people, master] = await Promise.all([
+      const [dashboard, people, master, categoryMaster] = await Promise.all([
         api.get('/compliance/dashboard', { params }),
         api.get('/compliance/users', { params: siteId ? { site_id: siteId } : {} }),
         api.get('/compliance/authorities'),
+        api.get('/compliance/categories', { params: { active: true } }),
       ]);
       setData(dashboard.data);
       setUsers(people.data.users || []);
       setAuthorities(master.data.authorities || []);
+      setCategories(categoryMaster.data.categories || []);
     } catch (error) {
       toast.error(error.response?.data?.message || 'Could not load compliance dashboard');
     } finally { setLoading(false); }
@@ -198,7 +202,7 @@ function DashboardView({ siteId }) {
       <Panel className="p-4">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
           <Input aria-label="State filter" placeholder="State" value={filters.state} onChange={(event) => setFilters({ ...filters, state: event.target.value })} />
-          <Input aria-label="Category filter" placeholder="Category" value={filters.category} onChange={(event) => setFilters({ ...filters, category: event.target.value })} />
+          <NativeSelect aria-label="Category filter" value={filters.category} onChange={(event) => setFilters({ ...filters, category: event.target.value })}><option value="">All categories</option>{categories.map((row) => <option key={row.id} value={row.code}>{row.name}</option>)}</NativeSelect>
           <NativeSelect aria-label="Authority filter" value={filters.authority_id} onChange={(event) => setFilters({ ...filters, authority_id: event.target.value })}><option value="">All authorities</option>{authorities.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</NativeSelect>
           <NativeSelect aria-label="Responsible employee filter" value={filters.responsible_user_id} onChange={(event) => setFilters({ ...filters, responsible_user_id: event.target.value })}><option value="">All employees</option>{users.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</NativeSelect>
           <NativeSelect aria-label="Risk filter" value={filters.risk} onChange={(event) => setFilters({ ...filters, risk: event.target.value })}><option value="">All risks</option>{RISK_OPTIONS.map((value) => <option key={value} value={value}>{labelize(value)}</option>)}</NativeSelect>
@@ -255,13 +259,17 @@ function DashboardView({ siteId }) {
   );
 }
 
-function ComplianceForm({ open, onOpenChange, siteId, authorities, users, onSaved }) {
-  const empty = { title: '', category: 'PROJECT_APPROVAL', compliance_type: 'ONE_TIME_APPROVAL', current_due_date: '', priority: 'MEDIUM', risk_level: 'MEDIUM', authority_id: '', assigned_to: '', description: '', approval_required: false };
+function ComplianceForm({ open, onOpenChange, siteId, authorities, categories, users, onSaved }) {
+  const empty = { title: '', category: '', compliance_type: 'ONE_TIME_APPROVAL', current_due_date: '', priority: 'MEDIUM', risk_level: 'MEDIUM', authority_id: '', assigned_to: '', description: '', approval_required: false };
   const [form, setForm] = useState(empty);
   const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    if (open && !form.category && categories[0]?.code) setForm((current) => ({ ...current, category: categories[0].code }));
+  }, [categories, form.category, open]);
   const submit = async (event) => {
     event.preventDefault();
     if (!form.title.trim()) return toast.error('Title is required');
+    if (!form.category) return toast.error('Select a compliance category');
     setSaving(true);
     try {
       await api.post('/compliance/items', {
@@ -281,7 +289,8 @@ function ComplianceForm({ open, onOpenChange, siteId, authorities, users, onSave
       <form onSubmit={submit} className="space-y-4">
         <div><Label>Title</Label><Input className="mt-1.5" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Quarterly project progress filing" /></div>
         <div className="grid gap-4 sm:grid-cols-2">
-          <div><Label>Compliance type</Label><NativeSelect className="mt-1.5 w-full" value={form.compliance_type} onChange={(e) => setForm({ ...form, compliance_type: e.target.value, category: e.target.value })}>{COMPLIANCE_TYPES.map((v) => <option key={v} value={v}>{labelize(v)}</option>)}</NativeSelect></div>
+          <div><div className="flex items-center justify-between"><Label>Category</Label><Link to="/compliance/categories" className="text-[10px] font-semibold text-blue-600 hover:underline">Manage</Link></div><NativeSelect className="mt-1.5 w-full" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}><option value="" disabled>Select category</option>{categories.map((v) => <option key={v.id} value={v.code}>{v.name}</option>)}</NativeSelect></div>
+          <div><Label>Compliance type</Label><NativeSelect className="mt-1.5 w-full" value={form.compliance_type} onChange={(e) => setForm({ ...form, compliance_type: e.target.value })}>{COMPLIANCE_TYPES.map((v) => <option key={v} value={v}>{labelize(v)}</option>)}</NativeSelect></div>
           <div><Label>Current due date</Label><Input className="mt-1.5" type="date" value={form.current_due_date} onChange={(e) => setForm({ ...form, current_due_date: e.target.value })} /></div>
           <div><Label>Authority</Label><NativeSelect className="mt-1.5 w-full" value={form.authority_id} onChange={(e) => setForm({ ...form, authority_id: e.target.value })}><option value="">Not specified</option>{authorities.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}</NativeSelect></div>
           <div><Label>Responsible person</Label><NativeSelect className="mt-1.5 w-full" value={form.assigned_to} onChange={(e) => setForm({ ...form, assigned_to: e.target.value })}><option value="">Unassigned</option>{users.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}</NativeSelect></div>
@@ -312,18 +321,20 @@ function RegisterView({ siteId }) {
   const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
   const [authorities, setAuthorities] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [users, setUsers] = useState([]);
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const params = { site_id: siteId, page, limit: 30, q: search || undefined, status: status === 'all' ? undefined : status, risk: risk === 'all' ? undefined : risk, overdue: overdue || undefined, from: from || undefined, to: to || undefined };
-      const [records, master, people] = await Promise.all([
+      const [records, master, categoryMaster, people] = await Promise.all([
         api.get('/compliance/items', { params }),
         api.get('/compliance/authorities'),
+        api.get('/compliance/categories', { params: { active: true } }),
         api.get('/compliance/users', { params: { site_id: siteId } }),
       ]);
       setItems(records.data.items || []); setPagination(records.data.pagination || {});
-      setAuthorities(master.data.authorities || []); setUsers(people.data.users || []);
+      setAuthorities(master.data.authorities || []); setCategories(categoryMaster.data.categories || []); setUsers(people.data.users || []);
     } catch (error) { toast.error(error.response?.data?.message || 'Could not load compliance register'); }
     finally { setLoading(false); }
   }, [siteId, page, search, status, risk, overdue, from, to]);
@@ -342,7 +353,7 @@ function RegisterView({ siteId }) {
         <>
           <Table><TableHeader><TableRow><TableHead>Compliance</TableHead><TableHead>Due date</TableHead><TableHead>Owner</TableHead><TableHead>Status</TableHead><TableHead>Risk</TableHead><TableHead className="text-right">Impact</TableHead></TableRow></TableHeader><TableBody>
             {items.map((item) => <TableRow key={item.id} className="cursor-pointer" onClick={() => navigate(`/compliance/register/${item.id}`)}>
-              <TableCell><p className="max-w-md truncate text-xs font-semibold text-slate-800">{item.title}</p><p className="mt-0.5 text-[10px] text-slate-400">{item.compliance_code} · {labelize(item.compliance_type)} · {item.authority_name || 'No authority'}</p></TableCell>
+              <TableCell><p className="max-w-md truncate text-xs font-semibold text-slate-800">{item.title}</p><p className="mt-0.5 text-[10px] text-slate-400">{item.compliance_code} · {labelize(item.category)} · {labelize(item.compliance_type)} · {item.authority_name || 'No authority'}</p></TableCell>
               <TableCell><p className={cn('text-xs font-semibold', item.days_remaining < 0 ? 'text-red-600' : 'text-slate-700')}>{fmtDate(item.current_due_date)}</p><p className="text-[10px] text-slate-400">{item.days_remaining < 0 ? `${Math.abs(item.days_remaining)} days overdue` : item.days_remaining === null ? 'No deadline' : `${item.days_remaining} days remaining`}</p></TableCell>
               <TableCell><p className="text-xs text-slate-700">{item.assigned_to_name || 'Unassigned'}</p><p className="text-[10px] text-slate-400">{item.site_name || 'Organisation-wide'}</p></TableCell>
               <TableCell>{pill(item.status, STATUS_STYLE)}</TableCell><TableCell>{pill(item.risk_level, RISK_STYLE)}</TableCell>
@@ -352,7 +363,7 @@ function RegisterView({ siteId }) {
           <div className="flex items-center justify-between border-t border-slate-100 px-4 py-3 text-xs text-slate-500"><span>{pagination.total || 0} records</span><div className="flex gap-2"><Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</Button><Button variant="outline" size="sm" disabled={page >= (pagination.pages || 1)} onClick={() => setPage(page + 1)}>Next</Button></div></div>
         </>
       ) : <Empty title="No compliance obligations match" copy="Clear the filters or create a new obligation for this site." />}
-      <ComplianceForm open={createOpen} onOpenChange={setCreateOpen} siteId={siteId} authorities={authorities} users={users} onSaved={load} />
+      <ComplianceForm open={createOpen} onOpenChange={setCreateOpen} siteId={siteId} authorities={authorities} categories={categories} users={users} onSaved={load} />
     </Panel>
   );
 }
@@ -398,12 +409,14 @@ function CalendarView({ siteId }) {
   const byDay = (day) => visibleEvents.filter((event) => isSameDay(complianceEventDate(event.event_date), day));
   const attentionCount = events.filter((event) => event.risk_level === 'CRITICAL' || event.status === 'OVERDUE').length;
   const nextSevenDays = events.filter((event) => {
-    const eventDate = new Date(event.event_date);
-    return eventDate >= new Date() && eventDate <= addDays(new Date(), 7);
+    const eventDate = complianceEventDate(event.event_date);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return eventDate >= today && eventDate <= addDays(today, 7);
   }).length;
   const openEvent = (event) => navigate(complianceEventRoute(event));
   const exportIcs = () => {
-    const body = events.map((event) => `BEGIN:VEVENT\nUID:${event.event_type}-${event.id}@mountreality\nDTSTART;VALUE=DATE:${isoDate(event.event_date).replaceAll('-', '')}\nSUMMARY:${String(event.title).replaceAll('\n', ' ')}\nDESCRIPTION:${event.event_type}\nEND:VEVENT`).join('\n');
+    const body = events.map((event) => `BEGIN:VEVENT\nUID:${event.event_type}-${event.id}@mountreality\nDTSTART;VALUE=DATE:${isoDate(complianceEventDate(event.event_date)).replaceAll('-', '')}\nSUMMARY:${String(event.title).replaceAll('\n', ' ')}\nDESCRIPTION:${event.event_type}\nEND:VEVENT`).join('\n');
     const blob = new Blob([`BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//MountReality//Compliance//EN\n${body}\nEND:VCALENDAR`], { type: 'text/calendar' });
     const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `mountreality-compliance-${isoDate()}.ics`; link.click(); URL.revokeObjectURL(link.href);
   };
@@ -414,7 +427,8 @@ function CalendarView({ siteId }) {
         const meta = COMPLIANCE_EVENT_META[event.event_type] || COMPLIANCE_EVENT_META.COMPLIANCE;
         const EventIcon = meta.Icon;
         const eventTime = calendarEventTime(event);
-        return <TableRow key={`${event.event_type}-${event.id}`} onClick={() => openEvent(event)} className="group cursor-pointer border-mr-line transition-colors hover:bg-mr-blue-soft/35"><TableCell className="pl-5"><div className="flex items-center gap-2.5"><span className="flex h-9 w-9 shrink-0 flex-col items-center justify-center border border-mr-line bg-mr-surface text-mr-text"><span className="text-[9px] font-bold uppercase text-mr-faint">{format(new Date(event.event_date), 'MMM')}</span><span className="-mt-0.5 text-sm font-bold tabular-nums">{format(new Date(event.event_date), 'd')}</span></span><div><p className="text-xs font-semibold text-mr-text">{format(new Date(event.event_date), 'EEE')}</p><p className="text-[10px] text-mr-faint">{format(new Date(event.event_date), 'yyyy')}</p>{eventTime && <p className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-semibold tabular-nums text-mr-blue"><Clock3 className="h-3 w-3" />{eventTime}</p>}</div></div></TableCell><TableCell><div className="flex min-w-[245px] items-start gap-2.5"><span className={cn('mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg', meta.icon)}><EventIcon className="h-3.5 w-3.5" /></span><div className="min-w-0"><p className="max-w-md truncate text-xs font-bold text-mr-text group-hover:text-mr-blue">{event.title}</p><p className="mt-0.5 text-[10px] font-medium text-mr-faint">{meta.label} · {event.site_name || 'Organisation-wide'}</p></div></div></TableCell><TableCell className="hidden md:table-cell"><span className="text-xs font-medium text-mr-muted">{event.site_name || 'Organisation-wide'}</span></TableCell><TableCell className="hidden lg:table-cell"><div className="flex items-center gap-2">{pill(event.status, STATUS_STYLE)}{pill(event.risk_level, RISK_STYLE)}</div></TableCell><TableCell className="pr-5 text-right"><ArrowRight className="ml-auto h-4 w-4 text-mr-faint transition group-hover:translate-x-0.5 group-hover:text-mr-blue" /></TableCell></TableRow>;
+        const eventDate = complianceEventDate(event.event_date);
+        return <TableRow key={`${event.event_type}-${event.id}`} onClick={() => openEvent(event)} className="group cursor-pointer border-mr-line transition-colors hover:bg-mr-blue-soft/35"><TableCell className="pl-5"><div className="flex items-center gap-2.5"><span className="flex h-9 w-9 shrink-0 flex-col items-center justify-center border border-mr-line bg-mr-surface text-mr-text"><span className="text-[9px] font-bold uppercase text-mr-faint">{format(eventDate, 'MMM')}</span><span className="-mt-0.5 text-sm font-bold tabular-nums">{format(eventDate, 'd')}</span></span><div><p className="text-xs font-semibold text-mr-text">{format(eventDate, 'EEE')}</p><p className="text-[10px] text-mr-faint">{format(eventDate, 'yyyy')}</p>{eventTime && <p className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-semibold tabular-nums text-mr-blue"><Clock3 className="h-3 w-3" />{eventTime}</p>}</div></div></TableCell><TableCell><div className="flex min-w-[245px] items-start gap-2.5"><span className={cn('mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg', meta.icon)}><EventIcon className="h-3.5 w-3.5" /></span><div className="min-w-0"><p className="max-w-md truncate text-xs font-bold text-mr-text group-hover:text-mr-blue">{event.title}</p><p className="mt-0.5 text-[10px] font-medium text-mr-faint">{meta.label} · {event.site_name || 'Organisation-wide'}</p></div></div></TableCell><TableCell className="hidden md:table-cell"><span className="text-xs font-medium text-mr-muted">{event.site_name || 'Organisation-wide'}</span></TableCell><TableCell className="hidden lg:table-cell"><div className="flex items-center gap-2">{pill(event.status, STATUS_STYLE)}{pill(event.risk_level, RISK_STYLE)}</div></TableCell><TableCell className="pr-5 text-right"><ArrowRight className="ml-auto h-4 w-4 text-mr-faint transition group-hover:translate-x-0.5 group-hover:text-mr-blue" /></TableCell></TableRow>;
       })}</TableBody></Table></div>
     </section>
   ) : <Empty title="No scheduled activity matches this filter" copy="Choose another activity filter or move to a different date range." />;
@@ -422,7 +436,8 @@ function CalendarView({ siteId }) {
     const meta = COMPLIANCE_EVENT_META[event.event_type] || COMPLIANCE_EVENT_META.COMPLIANCE;
     const EventIcon = meta.Icon;
     const eventTime = calendarEventTime(event);
-    return <button type="button" key={`${event.event_type}-${event.id}`} onClick={() => openEvent(event)} className="grid w-full gap-3 px-5 py-4 text-left transition hover:bg-mr-surface-2/65 sm:grid-cols-[92px_28px_minmax(0,1fr)_auto] sm:items-center"><div><p className="text-xs font-bold text-mr-text">{format(new Date(event.event_date), 'dd MMM')}</p><p className="mt-0.5 text-[10px] text-mr-faint">{format(new Date(event.event_date), 'EEEE')}</p>{eventTime && <p className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold tabular-nums text-mr-blue"><Clock3 className="h-3 w-3" />{eventTime}</p>}</div><span className={cn('flex h-7 w-7 items-center justify-center rounded-full', meta.icon)}><EventIcon className="h-3.5 w-3.5" /></span><div className="min-w-0"><p className="truncate text-sm font-bold text-mr-text">{event.title}</p><p className="mt-0.5 text-[10px] text-mr-faint">{meta.label} · {event.site_name || 'Organisation-wide'} · {labelize(event.status)}</p></div>{pill(event.risk_level, RISK_STYLE)}</button>;
+    const eventDate = complianceEventDate(event.event_date);
+    return <button type="button" key={`${event.event_type}-${event.id}`} onClick={() => openEvent(event)} className="grid w-full gap-3 px-5 py-4 text-left transition hover:bg-mr-surface-2/65 sm:grid-cols-[92px_28px_minmax(0,1fr)_auto] sm:items-center"><div><p className="text-xs font-bold text-mr-text">{format(eventDate, 'dd MMM')}</p><p className="mt-0.5 text-[10px] text-mr-faint">{format(eventDate, 'EEEE')}</p>{eventTime && <p className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold tabular-nums text-mr-blue"><Clock3 className="h-3 w-3" />{eventTime}</p>}</div><span className={cn('flex h-7 w-7 items-center justify-center rounded-full', meta.icon)}><EventIcon className="h-3.5 w-3.5" /></span><div className="min-w-0"><p className="truncate text-sm font-bold text-mr-text">{event.title}</p><p className="mt-0.5 text-[10px] text-mr-faint">{meta.label} · {event.site_name || 'Organisation-wide'} · {labelize(event.status)}</p></div>{pill(event.risk_level, RISK_STYLE)}</button>;
   })}</div> : <Empty title="No events in this period" />;
   return (
     <Panel>
@@ -527,19 +542,21 @@ function EntityRegister({ kind, siteId }) {
 
 function TemplatesView({ siteId }) {
   const [rows, setRows] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
-  const initial = { name: '', category: 'RERA_COMPLIANCE', compliance_type: 'RECURRING_FILING', frequency: 'QUARTERLY', start_date: isoDate(), end_date: '', applicable_site_ids: siteId ? [siteId] : [], default_risk: 'MEDIUM', default_reminder_days: '30,15,7,1,0', due_type: 'DAYS_AFTER_QUARTER_END', due_days: 15, approval_required: true };
+  const initial = { name: '', category: '', compliance_type: 'RECURRING_FILING', frequency: 'QUARTERLY', start_date: isoDate(), end_date: '', applicable_site_ids: siteId ? [siteId] : [], default_risk: 'MEDIUM', default_reminder_days: '30,15,7,1,0', due_type: 'DAYS_AFTER_QUARTER_END', due_days: 15, approval_required: true };
   const [form, setForm] = useState(initial);
   const [saving, setSaving] = useState(false);
-  const load = useCallback(async () => { setLoading(true); try { const { data } = await api.get('/compliance/templates'); setRows(data.templates || []); } catch (error) { toast.error(error.response?.data?.message || 'Could not load templates'); } finally { setLoading(false); } }, []);
+  const load = useCallback(async () => { setLoading(true); try { const [templates, categoryMaster] = await Promise.all([api.get('/compliance/templates'), api.get('/compliance/categories', { params: { active: true } })]); const available = categoryMaster.data.categories || []; setRows(templates.data.templates || []); setCategories(available); setForm((current) => ({ ...current, category: current.category || available[0]?.code || '' })); } catch (error) { toast.error(error.response?.data?.message || 'Could not load templates'); } finally { setLoading(false); } }, []);
   useEffect(() => { load(); }, [load]);
   useEffect(() => { setForm((cur) => ({ ...cur, applicable_site_ids: siteId ? [siteId] : [] })); }, [siteId]);
   const create = async (event) => {
     event.preventDefault(); setSaving(true);
+    if (!form.category) { setSaving(false); return toast.error('Select a compliance category'); }
     try {
       await api.post('/compliance/templates', { ...form, due_date_rule: { type: form.due_type, days: Number(form.due_days) || 0 }, default_reminder_days: form.default_reminder_days.split(',').map(Number), required_checklist: [{ title: 'Prepare required documents', is_mandatory: true }, { title: 'Obtain submission acknowledgement', is_mandatory: true, required_document_type: 'ACKNOWLEDGEMENT' }] });
-      toast.success('Compliance template created'); setOpen(false); setForm(initial); load();
+      toast.success('Compliance template created'); setOpen(false); setForm({ ...initial, category: categories[0]?.code || '' }); load();
     } catch (error) { toast.error(error.response?.data?.message || 'Could not create template'); } finally { setSaving(false); }
   };
   const apply = async (template) => {
@@ -574,8 +591,58 @@ function TemplatesView({ siteId }) {
     } catch (error) { toast.error(error.response?.data?.message || 'Template import file is invalid'); }
   };
   return <Panel><div className="flex flex-col justify-between gap-3 border-b border-slate-100 p-5 sm:flex-row sm:items-center"><div><h2 className="text-sm font-bold text-slate-900">Configurable compliance templates</h2><p className="mt-1 text-xs text-slate-500">No legal dates are hard-coded; administrators define applicability and due rules.</p></div><div className="flex flex-wrap gap-2"><Button variant="outline" className="rounded-xl text-xs" onClick={exportAll}><Download className="mr-1.5 h-4 w-4" />Export</Button><label className="inline-flex h-9 cursor-pointer items-center rounded-xl border border-slate-200 bg-white px-3 text-xs font-medium hover:bg-slate-50"><Upload className="mr-1.5 h-4 w-4" />Import<input type="file" accept=".json,application/json" className="hidden" onChange={importFile} /></label><Button className="rounded-xl text-xs" onClick={() => setOpen(true)}><Plus className="mr-1.5 h-4 w-4" />New template</Button></div></div>
-    {loading ? <div className="space-y-1 p-5">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)}</div> : rows.length ? <div className="divide-y divide-slate-100">{rows.map((row) => <div key={row.id} className={cn('grid gap-4 px-5 py-4 transition hover:bg-slate-50 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center', !row.is_active && 'bg-slate-50/70 opacity-70')}><div className="flex min-w-0 items-start gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-700"><ListChecks className="h-4 w-4" /></span><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="text-sm font-bold text-slate-900">{row.name}</h3>{pill(row.default_risk, RISK_STYLE)}{pill(row.is_active ? 'ACTIVE' : 'INACTIVE', STATUS_STYLE)}</div><p className="mt-1 text-[11px] text-slate-500">{labelize(row.frequency)} · {row.authority_name || 'Any authority'} · {labelize(row.compliance_type)}</p><p className="mt-1 line-clamp-1 text-[11px] text-slate-400">{row.description || 'Reusable compliance workflow'}</p></div></div><div className="flex flex-wrap gap-2 lg:justify-end"><Button size="sm" className="text-xs" onClick={() => apply(row)} disabled={!siteId || !row.is_active}>Apply</Button><Button size="sm" variant="outline" className="text-xs" onClick={() => duplicate(row)}>Duplicate</Button><Button size="sm" variant="ghost" className="text-xs" onClick={() => toggleActive(row)}>{row.is_active ? 'Deactivate' : 'Activate'}</Button></div></div>)}</div> : <Empty title="No templates configured" />}
-    <Dialog open={open} onOpenChange={setOpen}><DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>New compliance template</DialogTitle><DialogDescription>Define recurrence and due-date calculation without hard-coding a state rule.</DialogDescription></DialogHeader><form className="space-y-4" onSubmit={create}><div><Label>Template name</Label><Input className="mt-1.5" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div><div className="grid gap-4 sm:grid-cols-2"><div><Label>Frequency</Label><NativeSelect className="mt-1.5 w-full" value={form.frequency} onChange={(e) => setForm({ ...form, frequency: e.target.value })}>{FREQUENCIES.map((v) => <option key={v}>{labelize(v)}</option>)}</NativeSelect></div><div><Label>Risk</Label><NativeSelect className="mt-1.5 w-full" value={form.default_risk} onChange={(e) => setForm({ ...form, default_risk: e.target.value })}>{RISK_OPTIONS.map((v) => <option key={v}>{labelize(v)}</option>)}</NativeSelect></div><div><Label>Start date</Label><Input className="mt-1.5" type="date" value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })} /></div><div><Label>End date (optional)</Label><Input className="mt-1.5" type="date" value={form.end_date} onChange={(e) => setForm({ ...form, end_date: e.target.value })} /></div><div><Label>Due-date rule</Label><NativeSelect className="mt-1.5 w-full" value={form.due_type} onChange={(e) => setForm({ ...form, due_type: e.target.value })}><option>DAYS_AFTER_MONTH_END</option><option>DAYS_AFTER_QUARTER_END</option><option>DAYS_AFTER_FINANCIAL_YEAR_END</option><option>FIXED_DAY_OF_MONTH</option><option>DAYS_AFTER_EVENT</option><option>MANUAL</option></NativeSelect></div><div><Label>Days / fixed day</Label><Input className="mt-1.5" type="number" value={form.due_days} onChange={(e) => setForm({ ...form, due_days: e.target.value })} /></div></div><div><Label>Reminder days</Label><Input className="mt-1.5" value={form.default_reminder_days} onChange={(e) => setForm({ ...form, default_reminder_days: e.target.value })} placeholder="30,15,7,1,0" /></div><DialogFooter><Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button disabled={saving}>{saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Create template</Button></DialogFooter></form></DialogContent></Dialog>
+    {loading ? <div className="space-y-1 p-5">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)}</div> : rows.length ? <div className="divide-y divide-slate-100">{rows.map((row) => <div key={row.id} className={cn('grid gap-4 px-5 py-4 transition hover:bg-slate-50 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center', !row.is_active && 'bg-slate-50/70 opacity-70')}><div className="flex min-w-0 items-start gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-700"><ListChecks className="h-4 w-4" /></span><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="text-sm font-bold text-slate-900">{row.name}</h3>{pill(row.default_risk, RISK_STYLE)}{pill(row.is_active ? 'ACTIVE' : 'INACTIVE', STATUS_STYLE)}</div><p className="mt-1 text-[11px] text-slate-500">{labelize(row.category)} · {labelize(row.frequency)} · {row.authority_name || 'Any authority'} · {labelize(row.compliance_type)}</p><p className="mt-1 line-clamp-1 text-[11px] text-slate-400">{row.description || 'Reusable compliance workflow'}</p></div></div><div className="flex flex-wrap gap-2 lg:justify-end"><Button size="sm" className="text-xs" onClick={() => apply(row)} disabled={!siteId || !row.is_active}>Apply</Button><Button size="sm" variant="outline" className="text-xs" onClick={() => duplicate(row)}>Duplicate</Button><Button size="sm" variant="ghost" className="text-xs" onClick={() => toggleActive(row)}>{row.is_active ? 'Deactivate' : 'Activate'}</Button></div></div>)}</div> : <Empty title="No templates configured" />}
+    <Dialog open={open} onOpenChange={setOpen}><DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>New compliance template</DialogTitle><DialogDescription>Define recurrence and due-date calculation without hard-coding a state rule.</DialogDescription></DialogHeader><form className="space-y-4" onSubmit={create}><div><Label>Template name</Label><Input className="mt-1.5" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div><div className="grid gap-4 sm:grid-cols-2"><div><Label>Category</Label><NativeSelect className="mt-1.5 w-full" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}><option value="" disabled>Select category</option>{categories.map((v) => <option key={v.id} value={v.code}>{v.name}</option>)}</NativeSelect></div><div><Label>Compliance type</Label><NativeSelect className="mt-1.5 w-full" value={form.compliance_type} onChange={(e) => setForm({ ...form, compliance_type: e.target.value })}>{COMPLIANCE_TYPES.map((v) => <option key={v} value={v}>{labelize(v)}</option>)}</NativeSelect></div><div><Label>Frequency</Label><NativeSelect className="mt-1.5 w-full" value={form.frequency} onChange={(e) => setForm({ ...form, frequency: e.target.value })}>{FREQUENCIES.map((v) => <option key={v}>{labelize(v)}</option>)}</NativeSelect></div><div><Label>Risk</Label><NativeSelect className="mt-1.5 w-full" value={form.default_risk} onChange={(e) => setForm({ ...form, default_risk: e.target.value })}>{RISK_OPTIONS.map((v) => <option key={v}>{labelize(v)}</option>)}</NativeSelect></div><div><Label>Start date</Label><Input className="mt-1.5" type="date" value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })} /></div><div><Label>End date (optional)</Label><Input className="mt-1.5" type="date" value={form.end_date} onChange={(e) => setForm({ ...form, end_date: e.target.value })} /></div><div><Label>Due-date rule</Label><NativeSelect className="mt-1.5 w-full" value={form.due_type} onChange={(e) => setForm({ ...form, due_type: e.target.value })}><option>DAYS_AFTER_MONTH_END</option><option>DAYS_AFTER_QUARTER_END</option><option>DAYS_AFTER_FINANCIAL_YEAR_END</option><option>FIXED_DAY_OF_MONTH</option><option>DAYS_AFTER_EVENT</option><option>MANUAL</option></NativeSelect></div><div><Label>Days / fixed day</Label><Input className="mt-1.5" type="number" value={form.due_days} onChange={(e) => setForm({ ...form, due_days: e.target.value })} /></div></div><div><Label>Reminder days</Label><Input className="mt-1.5" value={form.default_reminder_days} onChange={(e) => setForm({ ...form, default_reminder_days: e.target.value })} placeholder="30,15,7,1,0" /></div><DialogFooter><Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button disabled={saving}>{saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Create template</Button></DialogFooter></form></DialogContent></Dialog>
+  </Panel>;
+}
+
+function CategoriesView() {
+  const { hasPermission } = useAuth();
+  const canCreate = hasPermission('compliance_settings', 'write');
+  const canUpdate = hasPermission('compliance_settings', 'update');
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [dialog, setDialog] = useState({ open: false, record: null });
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({ name: '', code: '', description: '', sort_order: 0, is_active: true });
+  const load = useCallback(async () => {
+    setLoading(true);
+    try { const { data } = await api.get('/compliance/categories'); setRows(data.categories || []); }
+    catch (error) { toast.error(error.response?.data?.message || 'Could not load compliance categories'); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  const openForm = (record = null) => {
+    setForm(record ? { name: record.name, code: record.code, description: record.description || '', sort_order: record.sort_order || 0, is_active: record.is_active } : { name: '', code: '', description: '', sort_order: (rows.length + 1) * 10, is_active: true });
+    setDialog({ open: true, record });
+  };
+  const save = async (event) => {
+    event.preventDefault();
+    if (!form.name.trim()) return toast.error('Category name is required');
+    setSaving(true);
+    try {
+      if (dialog.record) await api.patch(`/compliance/categories/${dialog.record.id}`, form);
+      else await api.post('/compliance/categories', form);
+      toast.success(dialog.record ? 'Compliance category updated' : 'Compliance category created');
+      setDialog({ open: false, record: null });
+      load();
+    } catch (error) { toast.error(error.response?.data?.message || 'Could not save compliance category'); }
+    finally { setSaving(false); }
+  };
+  const toggle = async (row) => {
+    try { await api.patch(`/compliance/categories/${row.id}`, { is_active: !row.is_active }); toast.success(row.is_active ? 'Category deactivated' : 'Category activated'); load(); }
+    catch (error) { toast.error(error.response?.data?.message || 'Could not update category'); }
+  };
+  const activeCount = rows.filter((row) => row.is_active).length;
+  const usageCount = rows.reduce((total, row) => total + Number(row.compliance_count || 0), 0);
+  return <Panel>
+    <div className="flex flex-col gap-4 border-b border-slate-100 p-5 sm:flex-row sm:items-center sm:justify-between">
+      <div><h2 className="text-sm font-bold text-slate-900">Compliance category master</h2><p className="mt-1 max-w-2xl text-xs leading-5 text-slate-500">Create one taxonomy for your organisation. Categories populate obligation, template and reporting dropdowns across every Indian state.</p></div>
+      {canCreate && <Button className="rounded-xl text-xs" onClick={() => openForm()}><Plus className="mr-1.5 h-4 w-4" />Add category</Button>}
+    </div>
+    <div className="flex flex-wrap gap-x-8 gap-y-2 border-b border-slate-100 px-5 py-3 text-xs"><span className="text-slate-500"><strong className="mr-1 text-slate-900">{activeCount}</strong> active</span><span className="text-slate-500"><strong className="mr-1 text-slate-900">{rows.length - activeCount}</strong> inactive</span><span className="text-slate-500"><strong className="mr-1 text-slate-900">{usageCount}</strong> obligations classified</span></div>
+    {loading ? <div className="space-y-2 p-5">{Array.from({ length: 7 }).map((_, index) => <Skeleton key={index} className="h-14 rounded-xl" />)}</div> : rows.length ? <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Category</TableHead><TableHead>Code</TableHead><TableHead className="text-right">Obligations</TableHead><TableHead className="text-right">Templates</TableHead><TableHead>Status</TableHead><TableHead className="w-44 text-right">Actions</TableHead></TableRow></TableHeader><TableBody>{rows.map((row) => <TableRow key={row.id} className={!row.is_active ? 'bg-slate-50/70 text-slate-500' : ''}><TableCell><p className="text-xs font-semibold text-slate-800">{row.name}</p><p className="mt-0.5 max-w-md truncate text-[10px] text-slate-400">{row.description || 'No description'}</p></TableCell><TableCell><code className="text-[10px] font-semibold text-slate-500">{row.code}</code></TableCell><TableCell className="text-right text-xs font-semibold tabular-nums">{row.compliance_count || 0}</TableCell><TableCell className="text-right text-xs font-semibold tabular-nums">{row.template_count || 0}</TableCell><TableCell>{pill(row.is_active ? 'ACTIVE' : 'INACTIVE', STATUS_STYLE)}</TableCell><TableCell className="text-right"><div className="inline-flex gap-1">{canUpdate && <Button size="sm" variant="ghost" className="text-xs" onClick={() => openForm(row)}><Pencil className="mr-1.5 h-3.5 w-3.5" />Edit</Button>}{canUpdate && <Button size="sm" variant="ghost" className="text-xs" onClick={() => toggle(row)}>{row.is_active ? 'Deactivate' : 'Activate'}</Button>}</div></TableCell></TableRow>)}</TableBody></Table></div> : <Empty title="No categories configured" copy="Add a category to begin classifying compliance obligations." />}
+    <Dialog open={dialog.open} onOpenChange={(open) => setDialog((current) => ({ ...current, open }))}><DialogContent><DialogHeader><DialogTitle>{dialog.record ? 'Edit compliance category' : 'Add compliance category'}</DialogTitle><DialogDescription>Use a nationwide business classification. State and authority applicability is configured separately.</DialogDescription></DialogHeader><form className="space-y-4" onSubmit={save}><div><Label>Category name</Label><Input className="mt-1.5" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Environment & pollution" /></div><div><Label>Code</Label><Input className="mt-1.5 font-mono text-xs uppercase" value={form.code} onChange={(event) => setForm({ ...form, code: event.target.value.toUpperCase().replace(/[^A-Z0-9]+/g, '_') })} placeholder="Generated from the name" /><p className="mt-1 text-[10px] text-slate-400">Stable internal key. Renaming it also updates existing obligations and templates.</p></div><div><Label>Description</Label><Textarea className="mt-1.5" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} rows={3} /></div><div className="grid gap-4 sm:grid-cols-2"><div><Label>Display order</Label><Input className="mt-1.5" type="number" value={form.sort_order} onChange={(event) => setForm({ ...form, sort_order: event.target.value })} /></div><label className="flex items-center justify-between self-end rounded-xl border border-slate-200 px-3 py-2.5 text-xs font-medium text-slate-700"><span>Available in dropdowns</span><Switch checked={form.is_active} onCheckedChange={(value) => setForm({ ...form, is_active: value })} /></label></div><DialogFooter><Button type="button" variant="outline" onClick={() => setDialog({ open: false, record: null })}>Cancel</Button><Button disabled={saving}>{saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{dialog.record ? 'Save changes' : 'Add category'}</Button></DialogFooter></form></DialogContent></Dialog>
   </Panel>;
 }
 
@@ -778,6 +845,7 @@ const VIEW_META = {
   hearings: ['Legal hearings', 'A focused calendar of court, tribunal and authority hearing dates.', Gavel],
   documents: ['Document expiry', 'Monitor compliance evidence, certificates and approvals approaching expiry.', FileClock],
   reports: ['Compliance reports', 'Filter and export management and audit-ready compliance data.', FileSpreadsheet],
+  categories: ['Compliance categories', 'Maintain a nationwide, organisation-specific taxonomy used by obligation and template dropdowns.', Tags],
   settings: ['Compliance settings', 'Configure approvals, notifications, escalation and audit controls.', Settings2],
 };
 
@@ -791,7 +859,8 @@ export default function ComplianceLegal() {
       : path.includes('/licences') ? 'licences'
         : path.includes('/documents') ? 'documents'
         : path.includes('/templates') || path.includes('/filings') ? 'templates'
-          : path.includes('/authorities') ? 'authorities'
+          : path.includes('/categories') ? 'categories'
+            : path.includes('/authorities') ? 'authorities'
             : path.includes('/legal/cases') ? 'cases'
               : path.includes('/legal/notices') ? 'notices'
                 : path.includes('/legal/hearings') ? 'hearings'
@@ -800,17 +869,17 @@ export default function ComplianceLegal() {
                     : path.includes('/settings') ? 'settings'
                       : 'dashboard';
   const [title, copy, Icon] = VIEW_META[view];
-  if (!currentSite && !['authorities','settings','templates'].includes(view)) return <Empty title="Select a site" copy="Compliance records and legal matters are isolated by organisation and project site." />;
+  if (!currentSite && !['authorities','categories','settings','templates'].includes(view)) return <Empty title="Select a site" copy="Compliance records and legal matters are isolated by organisation and project site." />;
   const siteId = currentSite?.id;
   return (
     <div className="-mx-4 -mt-4 min-h-[calc(100dvh-4rem)] bg-mr-canvas md:-mx-6 md:-mt-6">
       <div className="bg-gradient-to-r from-mr-surface via-mr-surface to-mr-blue-soft/60">
-        <div className="mx-auto w-full max-w-[1720px] px-4 pt-5 md:px-6 md:pt-6">
+        <div className="w-full px-3 pt-3 md:px-4 md:pt-4">
           <Head eyebrow={`${currentSite?.name || 'Organisation'} · Compliance & legal`} title={title} copy={copy} icon={Icon} actions={<><Link to="/compliance/calendar"><Button variant="outline"><CalendarDays className="mr-2 h-4 w-4" />Calendar</Button></Link><Link to="/compliance/register"><Button className="bg-slate-950 text-white hover:bg-slate-800"><ClipboardCheck className="mr-2 h-4 w-4" />Open register</Button></Link></>} />
           <ModuleNav active={view} />
         </div>
       </div>
-      <div className="mx-auto w-full max-w-[1720px] px-4 py-5 md:px-6 md:py-6">
+      <div className="w-full px-3 py-3 md:px-4 md:py-4">
         {view === 'dashboard' && <DashboardView siteId={siteId} />}
         {view === 'tasks' && <MyTasksView />}
         {view === 'calendar' && <CalendarView siteId={siteId} />}
@@ -822,6 +891,7 @@ export default function ComplianceLegal() {
         {view === 'inspections' && <EntityRegister kind="inspections" siteId={siteId} />}
         {view === 'hearings' && <HearingsView siteId={siteId} />}
         {view === 'templates' && <TemplatesView siteId={siteId} />}
+        {view === 'categories' && <CategoriesView />}
         {view === 'authorities' && <AuthoritiesView />}
         {view === 'reports' && <ReportsView siteId={siteId} legalMode={path.startsWith('/legal/')} />}
         {view === 'settings' && <SettingsView />}

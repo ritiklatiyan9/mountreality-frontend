@@ -225,8 +225,6 @@ export const GET_EXPENSES_PAGE_DATA = gql`
         original_id
         site_id
         date
-        from_entity
-        to_entity
         payment_mode
         debit
         credit
@@ -292,6 +290,7 @@ export const GET_PLOT_PAGE_DATA = gql`
       plots {
         id
         site_id
+        property_type
         plot_no
         block
         buyer_name
@@ -371,6 +370,7 @@ export const GET_PLOT_PAYMENT_DETAIL = gql`
       plot {
         id
         site_id
+        property_type
         plot_no
         block
         buyer_name

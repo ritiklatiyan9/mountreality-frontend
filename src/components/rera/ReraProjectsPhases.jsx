@@ -1,5 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Building2, Loader2, Pencil, Plus } from 'lucide-react';
+import {
+  ArrowRight,
+  Building2,
+  CalendarClock,
+  Check,
+  ChevronRight,
+  CircleDot,
+  FileCheck2,
+  Loader2,
+  Pencil,
+  Plus,
+  Search,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import api from '@/api/api';
 import { Button } from '@/components/ui/button';
@@ -35,7 +47,6 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
-import { SectionHead } from '@/components/ui/page';
 import { useSitePolicy } from '@/hooks/useSitePolicy';
 import {
   CompactEmpty,
@@ -78,6 +89,60 @@ const PROJECT_STATUSES = [
   'REVOKED',
 ];
 const PHASE_STATUSES = PROJECT_STATUSES;
+
+const REGULATORY_JOURNEY = [
+  { label: 'Draft', description: 'Project identity recorded' },
+  { label: 'Application', description: 'Application being prepared' },
+  { label: 'Filed', description: 'Submission recorded' },
+  { label: 'Registered', description: 'Registration details recorded' },
+];
+
+const STATUS_STAGE = Object.freeze({
+  DRAFT: 0,
+  APPLICABILITY_UNDER_REVIEW: 0,
+  EXEMPTION_UNDER_REVIEW: 0,
+  APPLICATION_IN_PREPARATION: 1,
+  FILED: 2,
+  REGISTERED: 3,
+  AMENDMENT_PENDING: 3,
+  EXTENSION_PENDING: 3,
+  COMPLETED: 3,
+  EXPIRED: 3,
+  LAPSED: 2,
+  REVOKED: 3,
+});
+
+const PRIMARY_STATUS_ACTION = Object.freeze({
+  DRAFT: { target: 'APPLICATION_IN_PREPARATION', label: 'Start application' },
+  APPLICABILITY_UNDER_REVIEW: { target: 'APPLICATION_IN_PREPARATION', label: 'Prepare application' },
+  EXEMPTION_UNDER_REVIEW: { target: 'APPLICATION_IN_PREPARATION', label: 'Prepare application' },
+  APPLICATION_IN_PREPARATION: { target: 'FILED', label: 'Mark as filed' },
+  FILED: { target: 'REGISTERED', label: 'Record registration' },
+  AMENDMENT_PENDING: { target: 'REGISTERED', label: 'Record amendment outcome' },
+  EXTENSION_PENDING: { target: 'REGISTERED', label: 'Record extension outcome' },
+  EXPIRED: { target: 'EXTENSION_PENDING', label: 'Start extension' },
+  LAPSED: { target: 'APPLICATION_IN_PREPARATION', label: 'Restart application' },
+});
+
+const ALLOWED_STATUS_TRANSITIONS = Object.freeze({
+  DRAFT: ['APPLICABILITY_UNDER_REVIEW', 'EXEMPTION_UNDER_REVIEW', 'APPLICATION_IN_PREPARATION', 'FILED'],
+  APPLICABILITY_UNDER_REVIEW: ['DRAFT', 'EXEMPTION_UNDER_REVIEW', 'APPLICATION_IN_PREPARATION'],
+  EXEMPTION_UNDER_REVIEW: ['DRAFT', 'APPLICABILITY_UNDER_REVIEW', 'APPLICATION_IN_PREPARATION'],
+  APPLICATION_IN_PREPARATION: ['DRAFT', 'APPLICABILITY_UNDER_REVIEW', 'FILED'],
+  FILED: ['APPLICATION_IN_PREPARATION', 'REGISTERED', 'LAPSED'],
+  REGISTERED: ['AMENDMENT_PENDING', 'EXTENSION_PENDING', 'EXPIRED', 'LAPSED', 'REVOKED', 'COMPLETED'],
+  AMENDMENT_PENDING: ['REGISTERED', 'EXTENSION_PENDING', 'EXPIRED', 'LAPSED', 'REVOKED'],
+  EXTENSION_PENDING: ['REGISTERED', 'AMENDMENT_PENDING', 'EXPIRED', 'LAPSED', 'REVOKED'],
+  EXPIRED: ['EXTENSION_PENDING', 'LAPSED', 'REVOKED', 'COMPLETED'],
+  LAPSED: ['APPLICATION_IN_PREPARATION', 'EXTENSION_PENDING', 'REVOKED'],
+  REVOKED: [],
+  COMPLETED: [],
+});
+
+const availableStatusOptions = (currentStatus) => {
+  const current = String(currentStatus || 'DRAFT').toUpperCase();
+  return [current, ...(ALLOWED_STATUS_TRANSITIONS[current] || [])];
+};
 
 const emptyProject = {
   name: '',
@@ -161,11 +226,23 @@ const phaseToForm = (phase) => ({
   notes: firstValue(phase, ['notes'], ''),
 });
 
-const regulatoryValidationError = (form) => {
+const isHttpReference = (value) => {
+  try {
+    const url = new URL(String(value || '').trim());
+    return ['http:', 'https:'].includes(url.protocol);
+  } catch {
+    return false;
+  }
+};
+
+const regulatoryValidationError = (form, { requireSourceUrl = false } = {}) => {
   if (form.regulatory_status === 'REGISTERED'
     && (!(form.authority_id || form.authority_code?.trim() || form.authority_name?.trim())
       || !form.registration_number.trim() || !form.registration_date)) {
     return 'Registered status requires an authority, registration number, and registration date';
+  }
+  if (form.regulatory_status === 'REGISTERED' && requireSourceUrl && !isHttpReference(form.source_reference)) {
+    return 'Registered project status requires an official http(s) source URL';
   }
   if (form.regulatory_status === 'EXPIRED' && !form.registration_expiry_date) {
     return 'Expired status requires a registration expiry date';
@@ -194,6 +271,10 @@ export default function ReraProjectsPhases({
   isReraWorkspace = false,
 }) {
   const { getFieldPolicy } = useSitePolicy();
+  const projectStatusPolicy = getFieldPolicy('rera_projects.regulatory_status') || {};
+  const phaseStatusPolicy = getFieldPolicy('rera_phases.regulatory_status') || {};
+  const canUpdateProjectStatus = canUpdate && projectStatusPolicy.visible !== false && projectStatusPolicy.readOnly !== true;
+  const canUpdatePhaseStatus = canUpdate && phaseStatusPolicy.visible !== false && phaseStatusPolicy.readOnly !== true;
   const projectPlural = `${projectTerm}s`;
   const projectRows = asList(projects);
   const selectedProjectId = recordId(selectedProject);
@@ -207,7 +288,19 @@ export default function ReraProjectsPhases({
   const [projectForm, setProjectForm] = useState(emptyProject);
   const [phaseDialog, setPhaseDialog] = useState({ open: false, record: null });
   const [phaseForm, setPhaseForm] = useState(emptyPhase);
+  const [statusDialog, setStatusDialog] = useState({ open: false, type: 'project', record: null, form: null });
   const [detail, setDetail] = useState(null);
+  const [projectSearch, setProjectSearch] = useState('');
+  const filteredProjects = useMemo(() => {
+    const query = projectSearch.trim().toLowerCase();
+    if (!query) return projectRows;
+    return projectRows.filter((project) => [
+      firstValue(project, ['name', 'project_name']),
+      firstValue(project, ['project_code', 'code', 'internal_code']),
+      firstValue(project, ['registration_number', 'rera_number']),
+      firstValue(project, ['authority', 'authority_name']),
+    ].some((value) => String(value || '').toLowerCase().includes(query)));
+  }, [projectRows, projectSearch]);
 
   const openProject = (project = null) => {
     setProjectForm(project ? projectToForm(project) : emptyProject);
@@ -217,6 +310,16 @@ export default function ReraProjectsPhases({
   const openPhase = (phase = null) => {
     setPhaseForm(phase ? phaseToForm(phase) : emptyPhase);
     setPhaseDialog({ open: true, record: phase });
+  };
+
+  const openStatusUpdate = (type, record, targetStatus) => {
+    const form = type === 'phase' ? phaseToForm(record) : projectToForm(record);
+    setStatusDialog({
+      open: true,
+      type,
+      record,
+      form: { ...form, regulatory_status: targetStatus },
+    });
   };
 
   useEffect(() => {
@@ -232,7 +335,7 @@ export default function ReraProjectsPhases({
     if (!projectForm.project_code.trim()) return toast.error('Enter an internal project code');
     if (!projectForm.project_shape) return toast.error('Select a project shape');
     if (!projectForm.development_basis) return toast.error('Select a development basis');
-    const validationError = isReraWorkspace ? regulatoryValidationError(projectForm) : null;
+    const validationError = isReraWorkspace ? regulatoryValidationError(projectForm, { requireSourceUrl: true }) : null;
     if (validationError) return toast.error(validationError);
 
     setBusy(true);
@@ -286,107 +389,107 @@ export default function ReraProjectsPhases({
     }
   };
 
+  const saveStatus = async (event) => {
+    event.preventDefault();
+    const { type, record, form } = statusDialog;
+    const id = recordId(record);
+    if (!id || !form) return;
+    const validationError = regulatoryValidationError(form, { requireSourceUrl: type === 'project' });
+    if (validationError) return toast.error(validationError);
+
+    const section = type === 'phase' ? 'rera_phases' : 'rera_projects';
+    const details = {
+      regulatory_status: form.regulatory_status,
+      ...(form.status_reason?.trim() ? { status_reason: form.status_reason } : {}),
+      ...(form.regulatory_status === 'REGISTERED' ? {
+        authority_id: form.authority_id || null,
+        authority_code: form.authority_code,
+        authority_name: form.authority_name,
+        registration_number: form.registration_number,
+        registration_date: form.registration_date,
+        registration_expiry_date: form.registration_expiry_date || null,
+        ...(type === 'project' ? { source_reference: form.source_reference } : {}),
+      } : {}),
+      ...(form.regulatory_status === 'EXPIRED' ? { registration_expiry_date: form.registration_expiry_date } : {}),
+      ...(form.regulatory_status === 'COMPLETED' ? { actual_completion_date: form.actual_completion_date } : {}),
+    };
+
+    setBusy(true);
+    try {
+      const payload = cleanPayload(writablePolicyPayload(details, section, getFieldPolicy));
+      const { data } = type === 'phase'
+        ? await api.patch(`/rera/phases/${id}`, payload)
+        : await api.patch(`/rera/projects/${id}`, payload);
+      const saved = data?.[type] ?? data;
+      toast.success(`${type === 'phase' ? 'Phase' : projectTerm} moved to ${readable(form.regulatory_status)}`);
+      setStatusDialog({ open: false, type: 'project', record: null, form: null });
+      setDetail(null);
+      onChanged?.(type === 'project' ? recordId(saved) || id : undefined);
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Regulatory status could not be updated');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const selectedStatus = String(firstValue(selectedProject, ['regulatory_status', 'registration_status', 'status'], 'DRAFT')).toUpperCase();
+  const selectedStatusAction = PRIMARY_STATUS_ACTION[selectedStatus];
+
   return (
-    <div className="space-y-9 py-2">
-      <section>
-        <SectionHead
-          title={projectPlural}
-          meta={projectRows.length ? String(projectRows.length) : null}
-          description={isReraWorkspace
-            ? 'Regulatory project records remain distinct from the selected Site.'
-            : 'Development project records stay linked to the selected Site for planning and finance.'}
-          actions={canWrite ? <Button type="button" size="sm" onClick={() => openProject()}><Plus />Add {projectTerm}</Button> : null}
-        />
-        {projectRows.length ? (
-          <Table>
-            <TableHeader>
-              <TableRow className="border-mr-line hover:bg-transparent">
-                <TableHead>Project</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>{isReraWorkspace ? 'Regulatory status' : 'Project status'}</TableHead>
-                {isReraWorkspace && <TableHead>Authority</TableHead>}
-                {isReraWorkspace && <TableHead>Registration</TableHead>}
-                <TableHead className="w-24 text-right">Action</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {projectRows.map((project, index) => {
+    <div className="py-1">
+      <section className="flex flex-col gap-4 border-y border-mr-line bg-mr-surface px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+        <div>
+          <div className="flex items-center gap-2"><h2 className="text-[15px] font-semibold text-mr-text">Project structure</h2><span className="rounded-full bg-mr-surface-2 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-mr-muted">{projectRows.length} {projectRows.length === 1 ? 'project' : 'projects'}</span></div>
+          <p className="mt-1 text-[12px] leading-5 text-mr-muted">Select a project to manage its regulatory identity and phase-level registrations.</p>
+        </div>
+        {canWrite && <Button type="button" size="sm" onClick={() => openProject()}><Plus className="h-4 w-4" />Add {projectTerm}</Button>}
+      </section>
+
+      {projectRows.length ? (
+        <div className="grid min-h-[480px] border-b border-mr-line bg-mr-surface lg:grid-cols-[minmax(290px,0.78fr)_minmax(0,1.7fr)]">
+          <aside className="border-b border-mr-line lg:border-b-0 lg:border-r">
+            <div className="border-b border-mr-line p-3">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-mr-faint" />
+                <Input value={projectSearch} onChange={(event) => setProjectSearch(event.target.value)} placeholder={`Search ${projectPlural.toLowerCase()}…`} className="h-9 bg-mr-canvas/60 pl-9 text-xs" />
+              </div>
+            </div>
+            <div className="max-h-[620px] divide-y divide-mr-line overflow-y-auto">
+              {filteredProjects.map((project, index) => {
                 const id = recordId(project);
                 const selected = selectedProjectId && String(id) === String(selectedProjectId);
                 const registration = firstValue(project, ['registration_number', 'rera_number']);
-                return (
-                  <TableRow key={`${id ?? 'project'}-${index}`} data-state={selected ? 'selected' : undefined} className="border-mr-line">
-                    <TableCell>
-                      <button type="button" onClick={() => { onProjectSelected?.(String(id)); setDetail({ type: 'project', record: project }); }} className="text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue">
-                        <span className="block text-[13px] font-medium text-mr-text">{firstValue(project, ['name', 'project_name'], 'Untitled project')}</span>
-                        <span className="mt-0.5 block text-[11px] text-mr-muted">{firstValue(project, ['project_code', 'code', 'internal_code'], 'No internal code')}</span>
-                      </button>
-                    </TableCell>
-                    <TableCell className="text-[12px] text-mr-muted">{readable(firstValue(project, ['project_shape', 'project_type']))}</TableCell>
-                    <TableCell><ReraStatus value={firstValue(project, ['regulatory_status', 'registration_status', 'status'])} label={isReraWorkspace && registration ? 'Registration recorded' : undefined} /></TableCell>
-                    {isReraWorkspace && <TableCell className="text-[12px] text-mr-muted">{firstValue(project, ['authority', 'authority_name'], 'Not recorded')}</TableCell>}
-                    {isReraWorkspace && <TableCell className="text-[12px] font-medium text-mr-text">{registration || 'Not recorded'}</TableCell>}
-                    <TableCell className="text-right">
-                      <Button type="button" variant="ghost" size="sm" onClick={() => setDetail({ type: 'project', record: project })}>View</Button>
-                    </TableCell>
-                  </TableRow>
-                );
+                return <button key={`${id ?? 'project'}-${index}`} type="button" onClick={() => onProjectSelected?.(String(id))} className={`group relative flex w-full items-start gap-3 px-4 py-4 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-mr-blue ${selected ? 'bg-mr-blue-soft/70' : 'hover:bg-mr-surface-2/70'}`}>
+                  {selected && <span className="absolute inset-y-0 left-0 w-0.5 bg-mr-blue" />}
+                  <span className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${selected ? 'bg-mr-blue text-white' : 'bg-mr-surface-2 text-mr-muted'}`}><Building2 className="h-4 w-4" /></span>
+                  <span className="min-w-0 flex-1"><span className="block truncate text-[13px] font-semibold text-mr-text">{firstValue(project, ['name', 'project_name'], 'Untitled project')}</span><span className="mt-0.5 block truncate text-[10px] font-medium uppercase tracking-wide text-mr-faint">{firstValue(project, ['project_code', 'code', 'internal_code'], 'No internal code')}</span><span className="mt-2 flex items-center justify-between gap-2"><ReraStatus value={firstValue(project, ['regulatory_status', 'registration_status', 'status'])} /><span className="truncate text-[10px] text-mr-faint">{registration || (isReraWorkspace ? 'No registration' : readable(firstValue(project, ['project_shape', 'project_type'])))}</span></span></span>
+                  <ChevronRight className={`mt-2 h-4 w-4 shrink-0 ${selected ? 'text-mr-blue' : 'text-mr-faint group-hover:text-mr-muted'}`} />
+                </button>;
               })}
-            </TableBody>
-          </Table>
-        ) : (
-          <CompactEmpty
-            icon={Building2}
-            title={`No ${projectTerm} created`}
-            description={isReraWorkspace
-              ? 'Create a RERA Project only when this development is being managed through the applicable regulatory workflow.'
-              : 'Create a Development Project to begin planning phases, customer collections and project finance.'}
-            action={canWrite ? <Button type="button" variant="outline" onClick={() => openProject()}><Plus />Create {projectTerm}</Button> : null}
-          />
-        )}
-      </section>
+              {!filteredProjects.length && <div className="px-5 py-12 text-center"><p className="text-xs font-semibold text-mr-text">No project found</p><p className="mt-1 text-[11px] text-mr-muted">Try a name, code, registration number or authority.</p></div>}
+            </div>
+          </aside>
 
-      <section>
-        <SectionHead
-          title="Project phases"
-          meta={phaseRows.length ? String(phaseRows.length) : null}
-          description={selectedProject ? `Phases recorded under ${firstValue(selectedProject, ['name', 'project_name'], 'the selected project')}.` : 'Select a project to manage phases.'}
-          actions={canWrite && selectedProjectId ? <Button type="button" variant="outline" size="sm" onClick={() => openPhase()}><Plus />Add phase</Button> : null}
-        />
-        {!selectedProject ? (
-          <CompactEmpty title={`Select a ${projectTerm}`} description={`Project phases are shown only within their parent ${projectTerm}.`} />
-        ) : phaseRows.length ? (
-          <Table>
-            <TableHeader>
-              <TableRow className="border-mr-line hover:bg-transparent">
-                <TableHead>Phase</TableHead>
-                <TableHead>{isReraWorkspace ? 'Regulatory status' : 'Phase status'}</TableHead>
-                {isReraWorkspace && <TableHead>Registration</TableHead>}
-                <TableHead>Committed completion</TableHead>
-                <TableHead className="w-24 text-right">Action</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {phaseRows.map((phase, index) => (
-                <TableRow key={`${recordId(phase) ?? 'phase'}-${index}`} className="border-mr-line">
-                  <TableCell>
-                    <button type="button" onClick={() => setDetail({ type: 'phase', record: phase })} className="text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue">
-                      <span className="block text-[13px] font-medium text-mr-text">{firstValue(phase, ['name', 'phase_name'], 'Untitled phase')}</span>
-                      <span className="mt-0.5 block text-[11px] text-mr-muted">{firstValue(phase, ['phase_code', 'code'], 'No phase code')}</span>
-                    </button>
-                  </TableCell>
-                  <TableCell><ReraStatus value={firstValue(phase, ['regulatory_status', 'status'])} label={isReraWorkspace && phase.registration_number ? 'Registration recorded' : undefined} /></TableCell>
-                  {isReraWorkspace && <TableCell className="text-[12px] text-mr-muted">{phase.registration_number || 'Not recorded'}</TableCell>}
-                  <TableCell className="text-[12px] text-mr-muted">{formatDate(firstValue(phase, ['proposed_completion_date', 'committed_completion_date', 'completion_date']))}</TableCell>
-                  <TableCell className="text-right"><Button type="button" variant="ghost" size="sm" onClick={() => setDetail({ type: 'phase', record: phase })}>View</Button></TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        ) : (
-          <CompactEmpty title="No phases recorded" description="This project currently has no separately managed phases." action={canWrite ? <Button type="button" variant="outline" onClick={() => openPhase()}><Plus />Add phase</Button> : null} />
-        )}
-      </section>
+          <section className="min-w-0">
+            {!selectedProject ? (
+              <CompactEmpty title={`Select a ${projectTerm}`} description={`Choose a project from the list to review its identity and manage phases.`} />
+            ) : <>
+              <div className="flex flex-col gap-4 border-b border-mr-line px-4 py-4 sm:flex-row sm:items-start sm:justify-between sm:px-5">
+                <div className="min-w-0"><p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-mr-faint">Selected {projectTerm}</p><div className="mt-1 flex flex-wrap items-center gap-2"><h3 className="truncate text-lg font-semibold text-mr-text">{firstValue(selectedProject, ['name', 'project_name'], 'Untitled project')}</h3>{isReraWorkspace && <ReraStatus value={selectedStatus} />}</div><div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-mr-muted"><span>{firstValue(selectedProject, ['project_code', 'code', 'internal_code'], 'No internal code')}</span>{isReraWorkspace && <span>{firstValue(selectedProject, ['authority', 'authority_name'], 'Authority not recorded')}</span>}{isReraWorkspace && <span>{firstValue(selectedProject, ['registration_number', 'rera_number'], 'Registration not recorded')}</span>}</div></div>
+                <div className="flex shrink-0 flex-wrap gap-2">{canUpdate ? <Button type="button" variant="outline" size="sm" onClick={() => openProject(selectedProject)}><Pencil className="h-3.5 w-3.5" />Edit project</Button> : <Button type="button" variant="outline" size="sm" onClick={() => setDetail({ type: 'project', record: selectedProject })}>View details</Button>}{canWrite && <Button type="button" variant="outline" size="sm" onClick={() => openPhase()}><Plus className="h-4 w-4" />Add phase</Button>}</div>
+              </div>
+              {isReraWorkspace && <RegulatoryJourney
+                status={selectedStatus}
+                action={selectedStatusAction}
+                canUpdate={canUpdateProjectStatus}
+                onAction={() => openStatusUpdate('project', selectedProject, selectedStatusAction?.target)}
+              />}
+              <div className="flex items-center justify-between border-b border-mr-line bg-mr-surface-2/45 px-4 py-3 sm:px-5"><div><p className="text-[13px] font-semibold text-mr-text">Project phases</p><p className="mt-0.5 text-[10px] text-mr-muted">{phaseRows.length ? `${phaseRows.length} separately managed ${phaseRows.length === 1 ? 'phase' : 'phases'}` : 'No separate phases recorded'}</p></div><span className="inline-flex items-center gap-1.5 text-[10px] font-medium text-mr-muted"><CalendarClock className="h-3.5 w-3.5" />Dates are project-specific</span></div>
+              {phaseRows.length ? <div className="overflow-x-auto"><Table><TableHeader><TableRow className="border-mr-line hover:bg-transparent"><TableHead className="pl-5">Phase</TableHead><TableHead>{isReraWorkspace ? 'Regulatory status' : 'Phase status'}</TableHead>{isReraWorkspace && <TableHead>Registration</TableHead>}<TableHead>Committed completion</TableHead><TableHead className="w-20 pr-5 text-right">Details</TableHead></TableRow></TableHeader><TableBody>{phaseRows.map((phase, index) => <TableRow key={`${recordId(phase) ?? 'phase'}-${index}`} className="group cursor-pointer border-mr-line hover:bg-mr-blue-soft/30" onClick={() => setDetail({ type: 'phase', record: phase })}><TableCell className="pl-5"><span className="block text-[13px] font-medium text-mr-text">{firstValue(phase, ['name', 'phase_name'], 'Untitled phase')}</span><span className="mt-0.5 block text-[10px] text-mr-faint">{firstValue(phase, ['phase_code', 'code'], 'No phase code')}</span></TableCell><TableCell><ReraStatus value={firstValue(phase, ['regulatory_status', 'status'])} label={isReraWorkspace && phase.registration_number ? 'Registration recorded' : undefined} /></TableCell>{isReraWorkspace && <TableCell className="text-[12px] font-medium text-mr-text">{phase.registration_number || 'Not recorded'}</TableCell>}<TableCell className="text-[12px] text-mr-muted">{formatDate(firstValue(phase, ['proposed_completion_date', 'committed_completion_date', 'completion_date']))}</TableCell><TableCell className="pr-5 text-right"><ChevronRight className="ml-auto h-4 w-4 text-mr-faint transition group-hover:translate-x-0.5 group-hover:text-mr-blue" /></TableCell></TableRow>)}</TableBody></Table></div> : <CompactEmpty title="No phases recorded" description="Add a phase only when it has a separate timeline or regulatory registration." action={canWrite ? <Button type="button" variant="outline" onClick={() => openPhase()}><Plus />Add first phase</Button> : null} />}
+            </>}
+          </section>
+        </div>
+      ) : <div className="border-b border-mr-line bg-mr-surface"><CompactEmpty icon={Building2} title={`No ${projectTerm} created`} description={isReraWorkspace ? 'Create the first regulatory project, then add phases only where the registration or delivery timeline differs.' : 'Create a Development Project to begin planning phases, customer collections and project finance.'} action={canWrite ? <Button type="button" variant="outline" onClick={() => openProject()}><Plus />Create {projectTerm}</Button> : null} /></div>}
 
       <ProjectDialog
         state={projectDialog}
@@ -408,6 +511,13 @@ export default function ReraProjectsPhases({
         projectTerm={projectTerm}
         isReraWorkspace={isReraWorkspace}
       />
+      <StatusUpdateDialog
+        state={statusDialog}
+        setState={setStatusDialog}
+        onSubmit={saveStatus}
+        busy={busy}
+        projectTerm={projectTerm}
+      />
 
       <Sheet open={Boolean(detail)} onOpenChange={(open) => { if (!open) setDetail(null); }}>
         <SheetContent className="w-full overflow-y-auto sm:max-w-lg">
@@ -427,13 +537,20 @@ export default function ReraProjectsPhases({
               {isReraWorkspace && detail.type === 'project' && <DetailFact label="Ruleset" value={firstValue(detail.record, ['ruleset_name', 'active_ruleset_name', 'ruleset_id'])} />}
               {detail.type === 'project' && <DetailFact label="Source reference" value={firstValue(detail.record, ['source_reference', 'official_source_url', 'source_url', 'portal_reference'])} />}
               {((detail.type === 'project' && canUpdate) || (detail.type === 'phase' && canUpdate)) && (
-                <Button type="button" variant="outline" className="mt-6" onClick={() => {
-                  if (detail.type === 'project') openProject(detail.record);
-                  else openPhase(detail.record);
-                  setDetail(null);
-                }}>
-                  <Pencil />Edit details
-                </Button>
+                <div className="mt-6 flex flex-wrap gap-2">
+                  {isReraWorkspace && (detail.type === 'phase' ? canUpdatePhaseStatus : canUpdateProjectStatus) && PRIMARY_STATUS_ACTION[String(firstValue(detail.record, ['regulatory_status', 'registration_status', 'status'], 'DRAFT')).toUpperCase()] && <Button type="button" onClick={() => {
+                    const action = PRIMARY_STATUS_ACTION[String(firstValue(detail.record, ['regulatory_status', 'registration_status', 'status'], 'DRAFT')).toUpperCase()];
+                    setDetail(null);
+                    openStatusUpdate(detail.type, detail.record, action.target);
+                  }}>Update status <ArrowRight className="h-4 w-4" /></Button>}
+                  <Button type="button" variant="outline" onClick={() => {
+                    if (detail.type === 'project') openProject(detail.record);
+                    else openPhase(detail.record);
+                    setDetail(null);
+                  }}>
+                    <Pencil />Edit details
+                  </Button>
+                </div>
               )}
             </div>
           )}
@@ -443,8 +560,111 @@ export default function ReraProjectsPhases({
   );
 }
 
+function RegulatoryJourney({ status, action, canUpdate, onAction }) {
+  const currentStage = STATUS_STAGE[status] ?? 0;
+  const registrationRecorded = status === 'REGISTERED';
+
+  return (
+    <section className="border-b border-mr-line bg-mr-blue-soft/20 px-4 py-5 sm:px-5">
+      <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-end justify-between gap-2">
+            <div>
+              <p className="text-[13px] font-semibold text-mr-text">Regulatory journey</p>
+              <p className="mt-0.5 text-[10px] text-mr-muted">Update the internal record as the authority process moves forward.</p>
+            </div>
+            <p className="text-[10px] text-mr-faint">This does not publish to a government portal.</p>
+          </div>
+          <div className="mt-4 grid grid-cols-4">
+            {REGULATORY_JOURNEY.map((step, index) => {
+              const completed = index < currentStage || (registrationRecorded && index === currentStage);
+              const active = index === currentStage && !completed;
+              return (
+                <div key={step.label} className="relative min-w-0 pr-2 last:pr-0">
+                  {index < REGULATORY_JOURNEY.length - 1 && <span className={`absolute left-6 right-0 top-3 h-px ${index < currentStage ? 'bg-emerald-400' : 'bg-mr-line'}`} />}
+                  <div className="relative flex items-start gap-2 sm:gap-3">
+                    <span className={`relative z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[10px] font-semibold ${completed ? 'border-emerald-500 bg-emerald-500 text-white' : active ? 'border-mr-blue bg-mr-blue text-white' : 'border-mr-line bg-mr-surface text-mr-faint'}`}>
+                      {completed ? <Check className="h-3.5 w-3.5" /> : active ? <CircleDot className="h-3.5 w-3.5" /> : index + 1}
+                    </span>
+                    <span className="min-w-0 pt-0.5">
+                      <span className={`block truncate text-[10px] font-semibold sm:text-[11px] ${completed || active ? 'text-mr-text' : 'text-mr-faint'}`}>{step.label}</span>
+                      <span className="mt-0.5 hidden text-[9px] text-mr-muted lg:block">{step.description}</span>
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        <div className="shrink-0 xl:w-44">
+          {action && canUpdate ? <Button type="button" className="w-full" onClick={onAction}>{action.label}<ArrowRight className="h-4 w-4" /></Button> : (
+            <div className="flex items-center gap-2 text-[11px] font-medium text-mr-muted xl:justify-end">
+              <FileCheck2 className="h-4 w-4 text-emerald-600" />
+              {registrationRecorded ? 'Registration recorded' : 'No next action'}
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function StatusUpdateDialog({ state, setState, onSubmit, busy, projectTerm }) {
+  const form = state.form;
+  const targetStatus = form?.regulatory_status || '';
+  const entityLabel = state.type === 'phase' ? 'Phase' : projectTerm;
+  const needsRegistration = targetStatus === 'REGISTERED';
+  const needsExpiry = targetStatus === 'EXPIRED';
+  const needsCompletion = targetStatus === 'COMPLETED';
+  const needsReason = ['EXEMPTION_UNDER_REVIEW', 'REVOKED'].includes(targetStatus);
+  const set = (key, value) => setState((current) => ({
+    ...current,
+    form: { ...current.form, [key]: value },
+  }));
+
+  return (
+    <Dialog open={state.open} onOpenChange={(open) => setState((current) => ({ ...current, open }))}>
+      <DialogContent className="sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle>{readable(targetStatus)}</DialogTitle>
+          <DialogDescription>
+            Update only the information needed for this {entityLabel.toLowerCase()} step. The change is saved to the audit trail.
+          </DialogDescription>
+        </DialogHeader>
+        {form && <form onSubmit={onSubmit} className="space-y-5">
+          <div className="flex items-center gap-3 border-y border-mr-line bg-mr-surface-2/45 px-1 py-3">
+            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-mr-blue-soft text-mr-blue"><FileCheck2 className="h-4 w-4" /></span>
+            <div><p className="text-[11px] text-mr-muted">New regulatory status</p><p className="text-[13px] font-semibold text-mr-text">{readable(targetStatus)}</p></div>
+          </div>
+
+          {needsRegistration && <div className="grid gap-4 sm:grid-cols-2">
+            <FormField label="Authority name" required><Input value={form.authority_name} onChange={(event) => set('authority_name', event.target.value)} placeholder="e.g. State RERA authority" /></FormField>
+            <FormField label="Authority code"><Input value={form.authority_code} onChange={(event) => set('authority_code', event.target.value)} /></FormField>
+            <FormField label="Registration number" required><Input value={form.registration_number} onChange={(event) => set('registration_number', event.target.value)} /></FormField>
+            <FormField label="Registration date" required><Input type="date" value={form.registration_date} onChange={(event) => set('registration_date', event.target.value)} /></FormField>
+            <FormField label="Registration expiry"><Input type="date" value={form.registration_expiry_date} onChange={(event) => set('registration_expiry_date', event.target.value)} /></FormField>
+            {state.type === 'project' && <FormField label="Official source URL" required hint="Authority portal or official registration page."><Input type="url" value={form.source_reference} onChange={(event) => set('source_reference', event.target.value)} placeholder="https://…" /></FormField>}
+          </div>}
+
+          {needsExpiry && <FormField label="Registration expiry date" required><Input type="date" value={form.registration_expiry_date} onChange={(event) => set('registration_expiry_date', event.target.value)} /></FormField>}
+          {needsCompletion && <FormField label="Actual completion date" required><Input type="date" value={form.actual_completion_date} onChange={(event) => set('actual_completion_date', event.target.value)} /></FormField>}
+          <FormField label={needsReason ? 'Reason' : 'Status note'} required={needsReason} hint={needsReason ? undefined : 'Optional internal context for the audit trail.'}><Textarea rows={3} value={form.status_reason} onChange={(event) => set('status_reason', event.target.value)} /></FormField>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setState({ open: false, type: 'project', record: null, form: null })}>Cancel</Button>
+            <Button type="submit" disabled={busy}>{busy && <Loader2 className="animate-spin" />}Confirm update</Button>
+          </DialogFooter>
+        </form>}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function ProjectDialog({ state, setState, form, setForm, onSubmit, busy, projectTerm, isReraWorkspace }) {
   const editing = Boolean(state.record);
+  const statusOptions = editing
+    ? availableStatusOptions(firstValue(state.record, ['regulatory_status', 'registration_status', 'status'], 'DRAFT'))
+    : PROJECT_STATUSES;
   const set = (key, value) => setForm((current) => ({ ...current, [key]: value }));
   return (
     <Dialog open={state.open} onOpenChange={(open) => setState((current) => ({ ...current, open }))}>
@@ -473,7 +693,7 @@ function ProjectDialog({ state, setState, form, setForm, onSubmit, busy, project
           {isReraWorkspace && <FormField policyId="rera_projects.regulatory_status" label="Regulatory status" hint="This records an internal status and does not represent authority verification.">
             <Select value={form.regulatory_status} onValueChange={(value) => set('regulatory_status', value)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>{PROJECT_STATUSES.map((value) => <SelectItem key={value} value={value}>{value === 'REGISTERED' ? 'Registered — registration recorded' : readable(value)}</SelectItem>)}</SelectContent>
+              <SelectContent>{statusOptions.map((value) => <SelectItem key={value} value={value}>{value === 'REGISTERED' ? 'Registered — registration recorded' : readable(value)}</SelectItem>)}</SelectContent>
             </Select>
           </FormField>}
           {isReraWorkspace && <FormField policyId="rera_projects.authority_name" label="Authority name" hint="Record the authority explicitly; it is never inferred from the address."><Input value={form.authority_name} onChange={(event) => set('authority_name', event.target.value)} /></FormField>}
@@ -502,6 +722,9 @@ function ProjectDialog({ state, setState, form, setForm, onSubmit, busy, project
 
 function PhaseDialog({ state, setState, form, setForm, onSubmit, busy, projectTerm, isReraWorkspace }) {
   const editing = Boolean(state.record);
+  const statusOptions = editing
+    ? availableStatusOptions(firstValue(state.record, ['regulatory_status', 'status'], 'DRAFT'))
+    : PHASE_STATUSES;
   const set = (key, value) => setForm((current) => ({ ...current, [key]: value }));
   return (
     <Dialog open={state.open} onOpenChange={(open) => setState((current) => ({ ...current, open }))}>
@@ -517,7 +740,7 @@ function PhaseDialog({ state, setState, form, setForm, onSubmit, busy, projectTe
             {isReraWorkspace && <FormField policyId="rera_phases.regulatory_status" label="Regulatory status" hint="This is an internal workflow record.">
               <Select value={form.regulatory_status} onValueChange={(value) => set('regulatory_status', value)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>{PHASE_STATUSES.map((value) => <SelectItem key={value} value={value}>{value === 'REGISTERED' ? 'Registration recorded' : readable(value)}</SelectItem>)}</SelectContent>
+                <SelectContent>{statusOptions.map((value) => <SelectItem key={value} value={value}>{value === 'REGISTERED' ? 'Registration recorded' : readable(value)}</SelectItem>)}</SelectContent>
               </Select>
             </FormField>}
             {isReraWorkspace && <FormField policyId="rera_phases.authority_name" label="Authority name"><Input value={form.authority_name} onChange={(event) => set('authority_name', event.target.value)} /></FormField>}

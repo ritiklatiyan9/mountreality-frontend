@@ -46,15 +46,18 @@ export const amountInWordsINR = (value) => {
   return `${sign}Rupees ${parts.join(' ')} Only`;
 };
 
-// Resolve the letterhead used on official prints: booking module's
-// project_settings wins, then the auth-context site, then safe fallbacks.
-export const buildCompany = ({ letterhead, site }) => {
+// Resolve official NOC identity from the tenant first. A Site is a project,
+// not the issuing company, so its name must never replace the organization.
+// Site-scoped project_settings still supplies contact and logo details.
+export const buildCompany = ({ letterhead, site, organization }) => {
   const s = letterhead || {};
+  const organizationName = organization?.name || site?.organization_name || '';
   const location = [site?.city, site?.state].filter(Boolean).join(', ') || s.company_city || '';
   return {
-    legalName: site?.name || s.company_legal_name || 'COMPANY',
-    brandName: s.company_brand_name || site?.name || 'COMPANY',
-    address: [site?.address, site?.city, site?.state].filter(Boolean).join(', ') || s.company_address || '',
+    legalName: organizationName || s.company_legal_name || site?.name || 'COMPANY',
+    brandName: organizationName || s.company_brand_name || s.company_legal_name || site?.name || 'COMPANY',
+    projectName: site?.name || '',
+    address: s.company_address || [site?.address, site?.city, site?.state].filter(Boolean).join(', '),
     location,
     phone: s.company_phone || '',
     email: s.company_email || '',

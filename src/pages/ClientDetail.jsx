@@ -939,7 +939,7 @@ const ClientDetail = () => {
                   {[
                     { key: 'expenses', label: 'Expenses', icon: Receipt, count: finData.summary.expenses.count, amount: finData.summary.expenses.debit || finData.summary.expenses.credit },
                     { key: 'commissions', label: 'Commissions', icon: TrendingUp, count: finData.summary.commissions.count, amount: finData.summary.commissions.total },
-                    { key: 'plot_payments', label: 'Plot Registry', icon: Landmark, count: finData.summary.plot_payments.count, amount: finData.summary.plot_payments.total },
+                    { key: 'plot_payments', label: 'Project Registries', icon: Landmark, count: finData.summary.plot_payments.count, amount: finData.summary.plot_payments.total },
                     { key: 'farmer_payments', label: 'Farmer Pay', icon: Tractor, count: finData.summary.farmer_payments.count, amount: finData.summary.farmer_payments.total },
                     { key: 'firm_transactions', label: 'Firm Txns', icon: Building2, count: finData.summary.firm_transactions.count, amount: finData.summary.firm_transactions.debit || finData.summary.firm_transactions.credit },
                   ].map(({ key, label, icon: Ic, count, amount, activeBg, iconCls }) => (
@@ -965,7 +965,7 @@ const ClientDetail = () => {
                     {[
                       { key: 'expenses', label: 'Expenses' },
                       { key: 'commissions', label: 'Commissions' },
-                      { key: 'plot_payments', label: 'Plot Registry' },
+                      { key: 'plot_payments', label: 'Project Registries' },
                       { key: 'farmer_payments', label: 'Farmer Pay' },
                       { key: 'firm_transactions', label: 'Firm Txns' },
                     ].map((tab) => (

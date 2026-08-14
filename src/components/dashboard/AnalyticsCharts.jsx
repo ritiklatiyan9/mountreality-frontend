@@ -9,6 +9,9 @@ import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
 } from 'recharts';
 
+/* Axis ticks stay abbreviated — a Y axis of ₹7,00,00,000 overlaps into an
+   unreadable smear. Every figure a reader actually takes a number from
+   (tooltips, labels, KPIs) prints in full. */
 const fmt = (v) => {
   const n = parseFloat(v) || 0;
   const abs = Math.abs(n);
@@ -21,11 +24,7 @@ const fmt = (v) => {
 
 const fmtTooltip = (v) => {
   const n = parseFloat(v) || 0;
-  const abs = Math.abs(n);
-  const sign = n < 0 ? '-' : '';
-  if (abs >= 10000000) return `${sign}₹${(abs / 10000000).toFixed(2)} Cr`;
-  if (abs >= 100000) return `${sign}₹${(abs / 100000).toFixed(2)} L`;
-  return `${sign}₹${abs.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+  return `${n < 0 ? '−' : ''}₹${Math.abs(n).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
 };
 
 const fmtFull = (v) => parseFloat(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });

@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { createElement, useState, useEffect, useCallback, useContext, useMemo, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { SitePolicyContext } from '../context/SitePolicyContext';
 import api from '../api/api';
 import { cn } from '../lib/utils';
 import { Card, CardContent } from '../components/ui/card';
@@ -33,6 +34,7 @@ import {
 } from '../components/EntryModal';
 import { classifyPaymentMode } from '../utils/paymentMode';
 import BankAccountSelect from '../components/BankAccountSelect';
+import { getPropertyTerminology, unitCountLabel } from '../lib/propertyTerminology';
 
 // ══════════════════════════════════════════════════
 //  CONSTANTS
@@ -84,6 +86,8 @@ const naturalPlotCompare = (a, b) => String(a || '').localeCompare(String(b || '
 
 export default function PaymentManagementPlots() {
   const { currentSite } = useAuth();
+  const sitePolicy = useContext(SitePolicyContext);
+  const propertyTerms = useMemo(() => getPropertyTerminology(sitePolicy), [sitePolicy]);
   const siteId = currentSite?.id;
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -436,9 +440,9 @@ export default function PaymentManagementPlots() {
           <ArrowLeft className="w-4 h-4" />
         </Button>
         <div>
-          <h1 className="text-lg font-bold text-slate-900">All Plots</h1>
+          <h1 className="text-lg font-bold text-slate-900">All {propertyTerms.plural}</h1>
           <p className="text-xs text-slate-500">
-            Ordered by plot number · installments, collections & overdue interest{currentSite?.name ? ` · ${currentSite.name}` : ''}
+            Ordered by {propertyTerms.singular.toLowerCase()} number · installments, collections &amp; overdue interest{currentSite?.name ? ` · ${currentSite.name}` : ''}
           </p>
         </div>
       </div>
@@ -493,7 +497,7 @@ export default function PaymentManagementPlots() {
             <div className="relative flex-1 min-w-[200px]">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
               <Input
-                placeholder="Search plot no, buyer, booking by…"
+                placeholder={`Search ${propertyTerms.singular.toLowerCase()} no., buyer, booking by…`}
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
                 className="pl-8 h-8 text-xs"
@@ -503,16 +507,16 @@ export default function PaymentManagementPlots() {
               <PopoverTrigger asChild>
                 <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5 min-w-40 justify-between">
                   <span className="flex items-center gap-1.5 text-slate-600">
-                    <MapPin className="w-3.5 h-3.5 text-slate-400" /> Jump to plot…
+                    <MapPin className="w-3.5 h-3.5 text-slate-400" /> Jump to {propertyTerms.singular.toLowerCase()}…
                   </span>
                   <ChevronsUpDown className="w-3 h-3 text-slate-400" />
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-72 p-0" align="end">
                 <Command>
-                  <CommandInput placeholder="Plot no or buyer…" className="h-8 text-xs" />
+                  <CommandInput placeholder={`${propertyTerms.singular} no. or buyer…`} className="h-8 text-xs" />
                   <CommandList>
-                    <CommandEmpty>No plot found.</CommandEmpty>
+                    <CommandEmpty>No {propertyTerms.singular.toLowerCase()} found.</CommandEmpty>
                     <CommandGroup>
                       {plotPickerOptions.map((p) => (
                         <CommandItem
@@ -550,7 +554,7 @@ export default function PaymentManagementPlots() {
                 </Badge>
               )}
               <Button variant="ghost" size="sm" className="text-xs h-6" onClick={() => { setStatusFilter('all'); setDueFilter('all'); setSearch(''); setSearchInput(''); }}>Clear all</Button>
-              <span className="text-xs text-slate-400 ml-auto">Showing {filteredPlots.length} plots</span>
+              <span className="text-xs text-slate-400 ml-auto">Showing {unitCountLabel(filteredPlots.length, propertyTerms)}</span>
             </div>
           )}
         </CardContent>
@@ -566,8 +570,8 @@ export default function PaymentManagementPlots() {
           ) : filteredPlots.length === 0 ? (
             <div className="text-center py-16">
               <Receipt className="w-8 h-8 text-slate-200 mx-auto mb-2" />
-              <p className="text-sm text-slate-500">No plots with installments found</p>
-              <p className="text-xs text-slate-400 mt-1">Enable installments on plots from the Plot Payments page</p>
+              <p className="text-sm text-slate-500">No {propertyTerms.plural.toLowerCase()} with installments found</p>
+              <p className="text-xs text-slate-400 mt-1">Enable installments from the {propertyTerms.paymentsTitle} page</p>
             </div>
           ) : (
             <div className="overflow-auto relative z-0 will-change-scroll" style={{ maxHeight: 'calc(100vh - 300px)', WebkitOverflowScrolling: 'touch' }}>
@@ -576,7 +580,7 @@ export default function PaymentManagementPlots() {
                   <tr>
                     <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-left sticky left-0 z-40 bg-slate-50 px-3 py-2 min-w-24" style={{ boxShadow: '2px 0 4px -1px rgba(0,0,0,0.08)' }}>
                       <Button variant="ghost" size="sm" onClick={() => toggleSort('plot_no')} className="h-6 px-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-                        Plot
+                        {propertyTerms.singular}
                         {sortKey === 'plot_no'
                           ? <span className="ml-1 text-[9px]">{sortDir === 'asc' ? '▲' : '▼'}</span>
                           : <ArrowUpDown className="w-3 h-3 ml-1" />}
@@ -664,12 +668,12 @@ export default function PaymentManagementPlots() {
                               { icon: CreditCard, label: 'Record Payment', fn: () => openPayment(plot) },
                               { icon: Plus, label: 'Add Installments', fn: () => openCreateInstallments(plot) },
                               { icon: TrendingUp, label: 'Interest Settings', fn: () => openSettings(plot) },
-                              { icon: ExternalLink, label: 'Open Full Plot', fn: () => navigate(`/plot-payments/${plot.id}`) },
+                              { icon: ExternalLink, label: `Open full ${propertyTerms.singular.toLowerCase()}`, fn: () => navigate(`/plot-payments/${plot.id}`) },
                             ].map(({ icon: Icon, label, fn }) => (
                               <Tooltip key={label}>
                                 <TooltipTrigger asChild>
                                   <Button variant="ghost" size="icon" className="h-7 w-7" onClick={fn}>
-                                    <Icon className="w-3.5 h-3.5" />
+                                    {createElement(Icon, { className: 'w-3.5 h-3.5' })}
                                   </Button>
                                 </TooltipTrigger>
                                 <TooltipContent>{label}</TooltipContent>
@@ -697,7 +701,7 @@ export default function PaymentManagementPlots() {
                   <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-900 text-white text-xs font-bold shrink-0">
                     {detailPlot?.plot_no}
                   </span>
-                  <span className="truncate">Plot {detailPlot?.plot_no}{detailPlot?.block ? ` · ${detailPlot.block}` : ''}</span>
+                  <span className="truncate">{propertyTerms.singular} {detailPlot?.plot_no}{detailPlot?.block ? ` · ${detailPlot.block}` : ''}</span>
                 </SheetTitle>
                 <SheetDescription className="mt-1 truncate">
                   {detailPlot?.buyer_name || '—'} · Sale ₹{fmt(detailPlot?.sale_price)}
@@ -706,7 +710,7 @@ export default function PaymentManagementPlots() {
               {detailPlot && (
                 <Button variant="outline" size="sm" className="h-8 shrink-0 gap-1.5 text-xs"
                   onClick={() => navigate(`/plot-payments/${detailPlot.id}`)}>
-                  Full Plot <ExternalLink className="h-3.5 w-3.5" />
+                  Full {propertyTerms.singular} <ExternalLink className="h-3.5 w-3.5" />
                 </Button>
               )}
             </div>
@@ -851,7 +855,7 @@ export default function PaymentManagementPlots() {
         open={payOpen}
         onOpenChange={(open) => { setPayOpen(open); }}
         title="Record Payment"
-        description={<>Plot {payPlot?.plot_no}{payPlot?.buyer_name ? ' — ' + payPlot?.buyer_name : ''} · Remaining: ₹{fmt(payPlot?.total_remaining)}</>}
+        description={<>{propertyTerms.singular} {payPlot?.plot_no}{payPlot?.buyer_name ? ' — ' + payPlot?.buyer_name : ''} · Remaining: ₹{fmt(payPlot?.total_remaining)}</>}
         footer={
           <EntryFooter
             onCancel={() => setPayOpen(false)}
@@ -967,7 +971,7 @@ export default function PaymentManagementPlots() {
       <Dialog open={instOpen} onOpenChange={setInstOpen}>
         <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Add Installments — {instPlot?.plot_no}</DialogTitle>
+            <DialogTitle>Add installments — {propertyTerms.singular} {instPlot?.plot_no}</DialogTitle>
             <DialogDescription>{instPlot?.buyer_name} · Sale Price: ₹{fmt(instPlot?.sale_price)}</DialogDescription>
           </DialogHeader>
           <form onSubmit={handleCreateInstallments} className="space-y-4">

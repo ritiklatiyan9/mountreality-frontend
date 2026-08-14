@@ -8,6 +8,7 @@ import {
   ShieldCheck, Shield,
   CalendarDays, Gavel, ScrollText, Building, FileText, Network, ClipboardCheck,
 } from 'lucide-react';
+import { getPropertyTerminology } from '../../lib/propertyTerminology';
 
 /* ── Navigation model ────────────────────────────────────────────────
    Every route, label and permission condition here is carried over from
@@ -25,15 +26,19 @@ export const SIDEBAR_DEFAULT_WIDTH = 252;
 export const SIDEBAR_MAX_WIDTH = 360;
 export const SIDEBAR_COLLAPSED_WIDTH = 72;
 
-export function buildNavigation({ hasPermission, isAdmin, getTerm = (_key, fallback) => fallback }) {
+export function buildNavigation({ hasPermission, isAdmin, getTerm = (_key, fallback) => fallback, sitePolicy = null }) {
   const can = (module) => hasPermission(module, 'read');
   const term = (key, fallback) => getTerm(key, getTerm(`navigation.${key}`, fallback));
   const projectTerm = term('project', 'Project');
+  const propertyTerms = getPropertyTerminology(sitePolicy);
+  const inventoryUnitTerm = propertyTerms.singular;
+  const collectionsTerm = propertyTerms.paymentsTitle;
+  const registriesTerm = propertyTerms.registryTitle;
 
   /* Registry group is visible when either of its two datasets is. */
   const registryChildren = [
     ...(can('plot_registry') ? [
-      { path: '/plot-registry', label: 'Registry list', icon: Library },
+      { path: '/plot-registry', label: `${inventoryUnitTerm} registry list`, icon: Library },
       { path: '/plot-registry/documents', label: 'Registry documents', icon: FolderOpen },
     ] : []),
     ...(can('document_search') ? [
@@ -96,24 +101,23 @@ export function buildNavigation({ hasPermission, isAdmin, getTerm = (_key, fallb
         },
         {
           path: '/plot-payments',
-          label: term('collections_module', 'Plot payments'),
+          label: 'Project Payments',
           icon: Landmark,
           visible: can('plot_payments'),
           matches: ['/plot-payments', '/customer-inventory', '/project-finance', '/bank-configs', '/plot-documents', '/payment-management', '/payment-analytics', '/receive-payments'],
           children: [
-            { path: '/customer-inventory', label: term('customer_inventory', 'Customer & inventory'), icon: UsersRound },
             { path: '/project-finance', label: term('project_finance', 'Project finance'), icon: ChartColumn },
-            { path: '/plot-payments', label: 'Plot payments', icon: Landmark },
+            { path: '/customer-inventory', label: term('customer_inventory', 'Customer & inventory'), icon: UsersRound },
+            { path: '/plot-payments', label: collectionsTerm, icon: Landmark },
+            { path: '/payment-management', label: 'Payments workspace', icon: CalendarClock },
             { path: '/bank-configs', label: 'Bank configs', icon: KeyRound },
-            { path: '/plot-documents', label: 'Plot documents', icon: FolderArchive },
-            { path: '/payment-management', label: 'Payment tracker', icon: CalendarClock },
-            { path: '/payment-analytics', label: 'Payment analytics', icon: ChartColumn },
+            { path: '/plot-documents', label: `${inventoryUnitTerm} documents`, icon: FolderArchive },
             ...(can('upi_collect') ? [{ path: '/receive-payments', label: 'QR Payments', icon: QrCode }] : []),
           ],
         },
         {
           path: '/plot-commission',
-          label: term('commission_module', 'Plot commission'),
+          label: term('commission_module', 'Project Commissions'),
           icon: Percent,
           visible: can('commissions'),
           matches: ['/commissions', '/plot-commission', '/plot-commission/search'],
@@ -123,7 +127,7 @@ export function buildNavigation({ hasPermission, isAdmin, getTerm = (_key, fallb
         },
         {
           path: '/plot-registry',
-          label: term('conveyance_module', 'Registry & documents'),
+          label: registriesTerm,
           icon: Files,
           visible: registryChildren.length > 0,
           matches: ['/plot-registry', '/documents'],
@@ -248,6 +252,7 @@ export function buildNavigation({ hasPermission, isAdmin, getTerm = (_key, fallb
               { path: '/compliance/templates', label: 'Templates & filings', icon: Files },
             ] : []),
             ...(can('compliance_settings') ? [
+              { path: '/compliance/categories', label: 'Compliance categories', icon: Tags },
               { path: '/compliance/authorities', label: 'Authorities', icon: Landmark },
               { path: '/compliance/settings', label: 'Settings & audit', icon: Shield },
             ] : []),

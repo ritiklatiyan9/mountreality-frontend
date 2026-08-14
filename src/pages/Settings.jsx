@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -42,7 +42,7 @@ import { orgDomainHost, orgDomainUrl } from "../lib/tenant";
 import KycTimeline from "../components/kyc/KycTimeline";
 import OperatingProfileSettings from "../components/settings/OperatingProfileSettings";
 import GoogleCalendarSettings from "../components/settings/GoogleCalendarSettings";
-import { useOrgKyc } from "../hooks/useOrgKyc";
+import { KYC_STEPS, stepDone, useOrgKyc } from "../hooks/useOrgKyc";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 const SMS_DEFAULTS = {
@@ -230,6 +230,7 @@ export const Settings = () => {
   const [showNewPass, setShowNewPass] = useState(false);
   const [showConfirmPass, setShowConfirmPass] = useState(false);
   const [workflowUnlocked, setWorkflowUnlocked] = useState(false);
+  const [workflowReady, setWorkflowReady] = useState(false);
   const [workflowLoading, setWorkflowLoading] = useState(false);
   const [workflowSaving, setWorkflowSaving] = useState(false);
   const [sms, setSms] = useState(SMS_DEFAULTS);
@@ -241,7 +242,10 @@ export const Settings = () => {
   const [smsQueueReady, setSmsQueueReady] = useState(true);
   const [smsLoading, setSmsLoading] = useState(false);
   const [smsSaving, setSmsSaving] = useState(false);
+  const [operatingProfileStatus, setOperatingProfileStatus] = useState(null);
+  const [googleCalendarConnected, setGoogleCalendarConnected] = useState(null);
   const currentSiteIdRef = useRef(currentSite?.id);
+  const canReadOperatingProfile = isAdmin || hasPermission("operating_profile", "read");
 
   useEffect(() => {
     currentSiteIdRef.current = currentSite?.id;
@@ -259,21 +263,25 @@ export const Settings = () => {
   useEffect(() => {
     if (!isAdmin || !currentSite?.id) {
       setWorkflowUnlocked(false);
+      setWorkflowReady(false);
       return;
     }
 
     let active = true;
     const fetchWorkflowSetting = async () => {
       setWorkflowUnlocked(false);
+      setWorkflowReady(false);
       setWorkflowLoading(true);
       try {
         const response = await api.get("/settings/features", {
           params: { site_id: currentSite.id },
         });
-        if (active)
+        if (active) {
           setWorkflowUnlocked(
             response.data.features?.plot_registry_workflow_unlocked === true,
           );
+          setWorkflowReady(true);
+        }
       } catch (error) {
         console.error("Failed to load Plot Registry workflow setting:", error);
         if (active) {
@@ -291,6 +299,44 @@ export const Settings = () => {
       active = false;
     };
   }, [currentSite?.id, isAdmin]);
+
+  useEffect(() => {
+    if (!currentSite?.id) {
+      setOperatingProfileStatus(null);
+      setGoogleCalendarConnected(null);
+      return;
+    }
+    let active = true;
+    setOperatingProfileStatus(null);
+    if (isAdmin) setGoogleCalendarConnected(null);
+    const requests = [
+      canReadOperatingProfile
+        ? api.get("/settings/operating-profile", { params: { site_id: currentSite.id } })
+          .then(({ data }) => {
+            if (active) {
+              const profileActive = Boolean(data.published_profile?.id);
+              setOperatingProfileStatus({ active: profileActive, complete: profileActive });
+            }
+          })
+          .catch(() => {
+            if (active) setOperatingProfileStatus({ active: false, complete: false });
+          })
+        : Promise.resolve(),
+      isAdmin
+        ? api.get("/settings/google-calendar/status")
+          .then(({ data }) => {
+            if (active) setGoogleCalendarConnected(Boolean(data.connection));
+          })
+          .catch(() => {
+            if (active) setGoogleCalendarConnected(false);
+          })
+        : Promise.resolve(),
+    ];
+    Promise.all(requests).catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [canReadOperatingProfile, currentSite?.id, isAdmin]);
 
   useEffect(() => {
     if (!isAdmin || !currentSite?.id) return;
@@ -510,7 +556,7 @@ export const Settings = () => {
   const tabs = [
     { id: "profile", label: "My details" },
     { id: "kyc", label: "Verification" },
-    ...(isAdmin || hasPermission("operating_profile", "read")
+    ...(canReadOperatingProfile
       ? [{ id: "operating-profile", label: "Operating profile" }]
       : []),
     { id: "security", label: "Password" },
@@ -571,6 +617,44 @@ export const Settings = () => {
   const activeMeta = SETTINGS_TAB_META[active] || SETTINGS_TAB_META.profile;
   const ActiveIcon = activeMeta.icon;
   const activeTabIndex = tabs.findIndex((item) => item.id === active);
+  const profileComplete = Boolean(user?.name?.trim() && user?.email?.trim());
+  const kycComplete = Boolean(kyc && KYC_STEPS.every((step) => stepDone(kyc, step)));
+  const tabStatuses = useMemo(() => ({
+    profile: { complete: profileComplete, label: profileComplete ? "Complete" : "Needs details" },
+    kyc: { complete: kycComplete, label: kycLoading ? "Checking" : kycComplete ? "Complete" : "In progress" },
+    "operating-profile": {
+      complete: operatingProfileStatus?.complete === true,
+      label: operatingProfileStatus == null
+        ? "Checking"
+        : operatingProfileStatus.complete
+          ? "Complete"
+          : operatingProfileStatus.active ? "Needs details" : "Not configured",
+    },
+    security: { complete: true, label: "Protected" },
+    receipt: { complete: true, label: "Ready" },
+    workflow: {
+      complete: workflowReady,
+      label: !workflowReady ? "Checking" : workflowUnlocked ? "Flexible" : "Sequential",
+    },
+    sms: { complete: sms.enabled, label: smsLoading ? "Checking" : sms.enabled ? "On" : "Off" },
+    "google-calendar": {
+      complete: googleCalendarConnected === true,
+      label: googleCalendarConnected == null ? "Checking" : googleCalendarConnected ? "Connected" : "Not connected",
+    },
+  }), [
+    googleCalendarConnected, kycComplete, kycLoading, operatingProfileStatus,
+    profileComplete, sms.enabled, smsLoading, workflowReady, workflowUnlocked,
+  ]);
+  const completedTabCount = tabs.filter((item) => tabStatuses[item.id]?.complete).length;
+  const handleOperatingProfileStatus = useCallback((status) => {
+    setOperatingProfileStatus({
+      active: Boolean(status?.active),
+      complete: Boolean(status?.complete),
+    });
+  }, []);
+  const handleGoogleCalendarStatus = useCallback((status) => {
+    setGoogleCalendarConnected(Boolean(status?.connected));
+  }, []);
 
   return (
     <div className="mx-auto w-full max-w-[1760px] pb-16">
@@ -615,7 +699,7 @@ export const Settings = () => {
             Configuration map
           </span>
           <span className="text-[12px] text-mr-muted">
-            {tabs.length} areas available · {activeMeta.kicker}
+            {completedTabCount} of {tabs.length} ready · {activeMeta.kicker}
           </span>
         </div>
         <ol className="flex min-w-max items-start px-3 py-3 sm:px-5">
@@ -624,7 +708,7 @@ export const Settings = () => {
               SETTINGS_TAB_META[item.id] || SETTINGS_TAB_META.profile;
             const Icon = meta.icon;
             const selected = item.id === active;
-            const beforeActive = index < activeTabIndex;
+            const status = tabStatuses[item.id] || { complete: false, label: "Not started" };
             return (
               <li
                 key={item.id}
@@ -639,9 +723,9 @@ export const Settings = () => {
                   className="group flex min-w-0 flex-col items-start text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue"
                 >
                   <span
-                    className={`flex h-8 w-8 items-center justify-center rounded-full border text-[12px] transition-all ${selected ? "border-mr-ink bg-mr-ink text-white shadow-sm shadow-mr-ink/20" : beforeActive ? "border-mr-lime-ink/25 bg-mr-lime-soft text-mr-lime-ink" : "border-mr-line bg-mr-surface-2 text-mr-faint group-hover:border-mr-blue/40 group-hover:text-mr-blue"}`}
+                    className={`flex h-8 w-8 items-center justify-center rounded-full border text-[12px] transition-all ${selected ? "border-mr-ink bg-mr-ink text-white shadow-sm shadow-mr-ink/20" : status.complete ? "border-mr-lime-ink/25 bg-mr-lime-soft text-mr-lime-ink" : "border-mr-line bg-mr-surface-2 text-mr-faint group-hover:border-mr-blue/40 group-hover:text-mr-blue"}`}
                   >
-                    {beforeActive ? (
+                    {status.complete ? (
                       <Check className="h-3.5 w-3.5" aria-hidden="true" />
                     ) : (
                       <Icon className="h-3.5 w-3.5" aria-hidden="true" />
@@ -655,7 +739,7 @@ export const Settings = () => {
                 </button>
                 {index < tabs.length - 1 && (
                   <span
-                    className={`mx-2 mt-4 h-px min-w-5 flex-1 xl:mx-3 ${beforeActive ? "bg-mr-lime-ink/35" : "bg-mr-line"}`}
+                    className={`mx-2 mt-4 h-px min-w-5 flex-1 xl:mx-3 ${status.complete ? "bg-mr-lime-ink/35" : "bg-mr-line"}`}
                     aria-hidden="true"
                   />
                 )}
@@ -673,7 +757,7 @@ export const Settings = () => {
                 Manage workspace
               </p>
               <p className="mt-1 text-[13px] leading-relaxed text-mr-muted">
-                Choose a setting area to continue.
+                {completedTabCount} of {tabs.length} areas ready. Finish only what your workspace needs.
               </p>
             </div>
             <nav className="p-2" aria-label="Settings sections">
@@ -682,6 +766,7 @@ export const Settings = () => {
                   SETTINGS_TAB_META[item.id] || SETTINGS_TAB_META.profile;
                 const Icon = meta.icon;
                 const selected = item.id === active;
+                const status = tabStatuses[item.id] || { complete: false, label: "Not started" };
                 return (
                   <button
                     key={item.id}
@@ -690,9 +775,9 @@ export const Settings = () => {
                     className={`group flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue ${selected ? "bg-mr-ink text-white shadow-sm shadow-mr-ink/15" : "text-mr-muted hover:bg-mr-surface-2 hover:text-mr-text"}`}
                   >
                     <span
-                      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[11px] font-semibold ${selected ? "bg-white/10 text-white" : "bg-mr-surface-2 text-mr-faint group-hover:bg-mr-blue-soft group-hover:text-mr-blue"}`}
+                      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[11px] font-semibold ${selected ? "bg-white/10 text-white" : status.complete ? "bg-mr-lime-soft text-mr-lime-ink" : "bg-mr-surface-2 text-mr-faint group-hover:bg-mr-blue-soft group-hover:text-mr-blue"}`}
                     >
-                      {index + 1}
+                      {status.complete ? <Check className="h-4 w-4" strokeWidth={2.5} aria-label="Complete" /> : index + 1}
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center gap-1.5 text-[13px] font-semibold">
@@ -702,7 +787,7 @@ export const Settings = () => {
                       <span
                         className={`mt-0.5 block truncate text-[11px] ${selected ? "text-white/65" : "text-mr-faint"}`}
                       >
-                        {meta.kicker}
+                        {meta.kicker} · {status.label}
                       </span>
                     </span>
                     <ChevronRight
@@ -777,11 +862,11 @@ export const Settings = () => {
 
               {active === "operating-profile" &&
                 (isAdmin || hasPermission("operating_profile", "read")) && (
-                  <OperatingProfileSettings />
+                  <OperatingProfileSettings onStatusChange={handleOperatingProfileStatus} />
                 )}
 
               {active === "google-calendar" && isAdmin && (
-                <GoogleCalendarSettings />
+                <GoogleCalendarSettings onStatusChange={handleGoogleCalendarStatus} />
               )}
 
               {/* ── My details ── */}

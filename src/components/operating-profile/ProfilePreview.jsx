@@ -35,6 +35,7 @@ export default function ProfilePreview({ preview }) {
   const diff = preview.diff || preview;
   const impact = diff.records_requiring_mapping || diff.recordsRequiringMapping || [];
   const warnings = diff.warnings || [];
+  const financeMode = diff.finance_mode_change || diff.financeModeChange;
 
   return (
     <div className="space-y-7">
@@ -60,6 +61,20 @@ export default function ProfilePreview({ preview }) {
           <p className="mt-1 text-[12px] text-mr-muted">Revision {diff.proposed?.revision || 'Draft'}</p>
         </div>
       </div>
+
+      {financeMode && (
+        <div className="flex flex-wrap items-center justify-between gap-3 border-y border-mr-line py-3 text-[13px]">
+          <div>
+            <p className="font-semibold text-mr-text">Finance payment modes</p>
+            <p className="mt-0.5 text-[12px] text-mr-muted">Controls new receipt and refund entry across this Site.</p>
+          </div>
+          <div className="flex items-center gap-2 font-medium text-mr-text">
+            <span>{String(financeMode.from || 'ALL_MODES').replaceAll('_', ' ')}</span>
+            <ArrowRight className="h-3.5 w-3.5 text-mr-faint" aria-hidden="true" />
+            <span className={financeMode.changed ? 'text-mr-blue' : ''}>{String(financeMode.to || 'ALL_MODES').replaceAll('_', ' ')}</span>
+          </div>
+        </div>
+      )}
 
       <div className="grid gap-x-8 gap-y-7 md:grid-cols-2">
         <DiffList title="Modules added" rows={diff.modules_added || []} icon={Plus} tone="text-mr-lime-ink" />

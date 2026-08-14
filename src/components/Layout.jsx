@@ -45,7 +45,7 @@ const NOTIF_APPROVAL_MODULE = {
   plot_commission_payment: { label: 'Plot Commission', cls: 'bg-purple-50 text-purple-700 border-purple-200' },
   cash_flow_entry:    { label: 'Personal Ledger',  cls: 'bg-blue-50 text-blue-700 border-blue-200' },
   firm_transaction:   { label: 'Bank Statement Reconciliation', cls: 'bg-orange-50 text-orange-700 border-orange-200' },
-  plot_payment:       { label: 'Plot Payment',     cls: 'bg-cyan-50 text-cyan-700 border-cyan-200' },
+  plot_payment:       { label: 'Project Payment',     cls: 'bg-cyan-50 text-cyan-700 border-cyan-200' },
   expense:            { label: 'Expense',          cls: 'bg-red-50 text-red-700 border-red-200' },
   daybook_farmer:     { label: 'Farmer Payment',   cls: 'bg-green-50 text-green-700 border-green-200' },
   daybook_commission: { label: 'Plot Commission',  cls: 'bg-purple-50 text-purple-700 border-purple-200' },
@@ -105,10 +105,10 @@ const getNotifRequestDetails = (entry) => {
 
 const NOTIF_EDIT_MODULE_LABELS = {
   farmer: 'Farmer', farmer_payment: 'Farmer Payment', plot: 'Plot',
-  plot_payment: 'Plot Payment', daybook: 'Day Book',
+  plot_payment: 'Project Payment', daybook: 'Day Book',
   daybook_expense: 'Expense', daybook_farmer_payment: 'Farmer Payment',
   daybook_commission: 'Commission', daybook_cashflow: 'Personal Ledger',
-  daybook_firm_transaction: 'Bank Statement Reconciliation', daybook_plot_payment: 'Plot Payment',
+  daybook_firm_transaction: 'Bank Statement Reconciliation', daybook_plot_payment: 'Project Payment',
 };
 
 const NOTIF_STATUS_BADGE = {
@@ -220,7 +220,8 @@ const Layout = () => {
   const prevSiteRef = useRef(null);
   const shellRef = useRef(null);
   const { user, logout, sites, currentSite, setCurrentSite, isAdmin, hasPermission } = useAuth();
-  const { getTerm } = useSitePolicy();
+  const sitePolicy = useSitePolicy();
+  const { getTerm } = sitePolicy;
   const openDoc = useDocViewer();
   const location = useLocation();
   const navigate = useNavigate();
@@ -235,12 +236,12 @@ const Layout = () => {
   // Header title, resolved against the same permission-filtered nav the
   // sidebar renders — a route the user cannot open can never name the header.
   const pageTitle = useMemo(() => {
-    const flat = flattenNavigation(buildNavigation({ hasPermission, isAdmin, getTerm }));
+    const flat = flattenNavigation(buildNavigation({ hasPermission, isAdmin, getTerm, sitePolicy }));
     const match = flat
       .filter((i) => location.pathname === i.path || location.pathname.startsWith(`${i.path}/`))
       .sort((a, b) => b.path.length - a.path.length)[0];
     return match?.label || titleFromPath(location.pathname);
-  }, [getTerm, hasPermission, isAdmin, location.pathname]);
+  }, [getTerm, hasPermission, isAdmin, location.pathname, sitePolicy]);
 
   // Close mobile menu on navigation
   useEffect(() => {

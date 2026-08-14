@@ -51,8 +51,19 @@ import { customerSigImg, authoritySigHtml, nameSignOn, CUSTOMER_SIGN_CSS } from 
 import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
 import RegistryDocuments from '../components/RegistryDocuments';
+import ReraWorkflowNotice from '../components/policy/ReraWorkflowNotice';
 import { useDocViewer } from '../components/DocViewer';
 import BankAccountSelect from '../components/BankAccountSelect';
+import { isReraOperatingProfile } from '../lib/sitePolicy';
+import { getFinancePaymentPolicy } from '../lib/financePaymentPolicy';
+import { getPropertyTerminology, getPropertyTypeTerminology } from '../lib/propertyTerminology';
+import {
+  REGISTRY_WORKFLOW_STEPS,
+  advanceRegistry,
+  getNextRegistryStatus,
+  registryActionError,
+  registryStatusIndex,
+} from '../services/registryWorkflow';
 
 // ── Helpers ──
 const fmt = (v) => {
@@ -72,6 +83,9 @@ const escHtml = (value) => String(value ?? '')
   .replace(/'/g, '&#39;');
 
 const PAYMENT_MODE_OPTIONS = ['CASH', 'BANK', 'UPI', 'NEFT', 'RTGS', 'CHEQUE', 'TRANSFER'];
+const isCashPlotPayment = (payment) => [payment?.payment_type, payment?.payment_from]
+  .filter(Boolean)
+  .some((value) => String(value).trim().toUpperCase() === 'CASH');
 
 // Compact label/value row for the Registry Details rail card.
 const DetailRow = ({ label, value }) => (
@@ -259,7 +273,13 @@ const PlotRegistry = () => {
   const { id: registryIdParam } = useParams();
   const { currentSite, canManage, user, isAdmin, hasPermission } = useAuth();
   const sitePolicy = useContext(SitePolicyContext);
-  const registryLabel = sitePolicy?.getTerm?.('conveyance_module', 'Plot Registry') || 'Plot Registry';
+  const isReraProfile = isReraOperatingProfile(sitePolicy);
+  const financePaymentPolicy = getFinancePaymentPolicy(sitePolicy);
+  const propertyTerms = useMemo(
+    () => getPropertyTerminology(sitePolicy),
+    [sitePolicy],
+  );
+  const registryLabel = propertyTerms.registryTitle;
   const canWrite  = canManage && hasPermission('plot_registry', 'write');
   const canUpdate = canManage && hasPermission('plot_registry', 'update');
   const canDelete = canManage && hasPermission('plot_registry', 'delete');
@@ -280,6 +300,7 @@ const PlotRegistry = () => {
   const [autocomplete, setAutocomplete] = useState(createEmptyAutocomplete);
   const [message, setMessage] = useState({ type: '', text: '' });
   const [submitting, setSubmitting] = useState(false);
+  const [advancingLifecycle, setAdvancingLifecycle] = useState(false);
   const [approvers, setApprovers] = useState([]);
 
   // Payments-clear check for the plot picked in the create form
@@ -364,6 +385,8 @@ const PlotRegistry = () => {
     circle_rate: '', registry_date: todayISO(), created_entry_date: todayISO(),
     farmer_name: '', seller_name: '', firm_name: '',
     bank_amount: '', registry_payment: '', notes: '',
+    deed_number: '', registration_number: '', sub_registrar_office: '', registrar_district: '',
+    deed_execution_date: '', registration_date: '', stamp_duty_amount: '', registration_fee_amount: '',
     assigned_admin_id: null,
   });
 
@@ -382,6 +405,15 @@ const PlotRegistry = () => {
   const [plotSearch, setPlotSearch] = useState('');
   const [farmerUserSearch, setFarmerUserSearch] = useState('');
   const [sellerUserSearch, setSellerUserSearch] = useState('');
+
+  useEffect(() => {
+    if (!isReraProfile) return;
+    // A policy refresh can happen while a dialog is already open. Remove
+    // draft registry-only money immediately so it cannot leak into a RERA save.
+    setInlinePayments([]);
+    setPaymentDialogOpen(false);
+    setFinanceWarningOpen(false);
+  }, [isReraProfile]);
 
   const addInlinePaymentRow = () => {
     setInlinePayments((prev) => ([
@@ -454,7 +486,20 @@ const PlotRegistry = () => {
 
   const filteredRecentBankPayments = useMemo(() => {
     const selectedPlotId = regForm.plot_id;
-    let list = autocomplete.recentBankPlotPayments || [];
+    const allReceipts = autocomplete.recentBankPlotPayments || [];
+    const reversedPaymentIds = new Set(
+      allReceipts
+        .map((payment) => payment.reversal_of_payment_id)
+        .filter(Boolean)
+        .map(String),
+    );
+    let list = allReceipts.filter((payment) => (
+      !payment.reversal_of_payment_id
+      && !payment.payment_is_reversal
+      && !payment.payment_was_reversed
+      && !reversedPaymentIds.has(String(payment.id))
+      && (!financePaymentPolicy.bankOnly || !isCashPlotPayment(payment))
+    ));
 
     if (selectedPlotId) {
       list = list.filter((p) => String(p.plot_id) === String(selectedPlotId));
@@ -462,7 +507,7 @@ const PlotRegistry = () => {
       list = [];
     }
     return list;
-  }, [autocomplete.recentBankPlotPayments, regForm.plot_id]);
+  }, [autocomplete.recentBankPlotPayments, financePaymentPolicy.bankOnly, regForm.plot_id]);
 
   const linkedPaymentsTotal = useMemo(() => {
     return linkedPlotPayments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
@@ -472,16 +517,34 @@ const PlotRegistry = () => {
     return inlinePayments.reduce((sum, r) => sum + (parseFloat(r.amount) || 0), 0);
   }, [inlinePayments]);
 
+  const existingCanonicalPayments = useMemo(
+    () => existingRegistryPayments.filter((payment) => payment.source_plot_payment_id),
+    [existingRegistryPayments],
+  );
+  const existingCanonicalTotal = useMemo(
+    () => existingCanonicalPayments.reduce((sum, payment) => sum + (parseFloat(payment.amount) || 0), 0),
+    [existingCanonicalPayments],
+  );
+  const canonicalReceiptTotal = existingCanonicalTotal + linkedPaymentsTotal;
+  const canonicalReceiptCount = existingCanonicalPayments.length + linkedPlotPayments.length;
   const allPaymentsTotal = linkedPaymentsTotal + inlinePaymentsTotal;
   const hasAnyPayments = linkedPlotPayments.length > 0 || inlinePayments.some((r) => parseFloat(r.amount) > 0);
-  const registryPaymentNum = parseFloat(regForm.registry_payment) || 0;
-  const paymentsMatchRegistry = hasAnyPayments && registryPaymentNum > 0 && Math.abs(allPaymentsTotal - registryPaymentNum) < 0.01;
+  const registryPaymentNum = isReraProfile ? canonicalReceiptTotal : (parseFloat(regForm.registry_payment) || 0);
+  const paymentsMatchRegistry = isReraProfile
+    ? canonicalReceiptTotal > 0
+    : hasAnyPayments && registryPaymentNum > 0 && Math.abs(allPaymentsTotal - registryPaymentNum) < 0.01;
   const financeRemaining = registryPaymentNum - allPaymentsTotal;
-  const canCreateRegistry = editingRegistry || (regForm.plot_id && registryPaymentNum > 0);
-  // Registry gate: non-admins can only create directly when the plot's bank
-  // payments are clear (received >= to_receive_bank); otherwise the create is
-  // parked as an edit request for admin approval.
-  const needsApproval = !editingRegistry && !isAdmin && !!plotClearance && !plotClearance.clear;
+  const canCreateRegistry = editingRegistry || (
+    regForm.plot_id
+    && registryPaymentNum > 0
+  );
+  // Generic Sites retain the legacy bank-clear/edit-request gate. RERA Sites
+  // use the staged registry readiness workflow enforced by the registry API.
+  const needsApproval = !isReraProfile
+    && !editingRegistry
+    && !isAdmin
+    && !!plotClearance
+    && !plotClearance.clear;
 
   const filteredFarmerUsers = useMemo(() => {
     const q = normalizeSearchText(farmerUserSearch);
@@ -785,6 +848,8 @@ const PlotRegistry = () => {
       circle_rate: '', registry_date: todayISO(), created_entry_date: todayISO(),
       farmer_name: '', seller_name: '', firm_name: '',
       bank_amount: '', registry_payment: '', notes: '',
+      deed_number: '', registration_number: '', sub_registrar_office: '', registrar_district: '',
+      deed_execution_date: '', registration_date: '', stamp_duty_amount: '', registration_fee_amount: '',
       assigned_admin_id: null,
     });
     setInlinePayments([]);
@@ -818,6 +883,14 @@ const PlotRegistry = () => {
       firm_name: r.firm_name || '',
       bank_amount: r.bank_amount != null ? String(r.bank_amount) : '',
       registry_payment: r.registry_payment ? String(r.registry_payment) : '',
+      deed_number: r.deed_number || '',
+      registration_number: r.registration_number || '',
+      sub_registrar_office: r.sub_registrar_office || '',
+      registrar_district: r.registrar_district || '',
+      deed_execution_date: r.deed_execution_date ? r.deed_execution_date.split('T')[0] : '',
+      registration_date: r.registration_date ? r.registration_date.split('T')[0] : '',
+      stamp_duty_amount: r.stamp_duty_amount != null ? String(r.stamp_duty_amount) : '',
+      registration_fee_amount: r.registration_fee_amount != null ? String(r.registration_fee_amount) : '',
       notes: r.notes || '',
       assigned_admin_id: r.assigned_admin_id || null,
     });
@@ -860,7 +933,15 @@ const PlotRegistry = () => {
     setFinanceWarningOpen(false);
     setMessage({ type: '', text: '' });
     if (!editingRegistry && !regForm.plot_id) {
-      setMessage({ type: 'error', text: 'Please select plot number from dropdown' });
+      setMessage({ type: 'error', text: `Please select a ${propertyTerms.singular.toLowerCase()} from the dropdown` });
+      return;
+    }
+    if (isReraProfile && inlinePayments.some((row) => parseFloat(row.amount) > 0)) {
+      setMessage({ type: 'error', text: 'RERA registries accept mapped Project Payment receipts only. Remove registry-only manual money before saving.' });
+      return;
+    }
+    if (regForm.deed_execution_date && regForm.registration_date && regForm.registration_date < regForm.deed_execution_date) {
+      setMessage({ type: 'error', text: 'Registration date cannot be earlier than the deed execution date.' });
       return;
     }
     const unmappedBankRow = inlinePayments.find((row) => (
@@ -886,8 +967,18 @@ const PlotRegistry = () => {
         farmer_name: regForm.farmer_name,
         seller_name: regForm.seller_name,
         firm_name: regForm.firm_name,
-        bank_amount: regForm.bank_amount,
-        registry_payment: regForm.registry_payment,
+        bank_amount: isReraProfile ? undefined : regForm.bank_amount,
+        registry_payment: isReraProfile
+          ? (editingRegistry ? undefined : Number(canonicalReceiptTotal.toFixed(2)))
+          : regForm.registry_payment,
+        deed_number: regForm.deed_number,
+        registration_number: regForm.registration_number,
+        sub_registrar_office: regForm.sub_registrar_office,
+        registrar_district: regForm.registrar_district,
+        deed_execution_date: regForm.deed_execution_date || null,
+        registration_date: regForm.registration_date || null,
+        stamp_duty_amount: regForm.stamp_duty_amount || null,
+        registration_fee_amount: regForm.registration_fee_amount || null,
         notes: regForm.notes,
         assigned_admin_id: regForm.assigned_admin_id,
       };
@@ -899,7 +990,9 @@ const PlotRegistry = () => {
             source_plot_payment_id: row.id,
           })));
         }
-        const validInlineRows = inlinePayments.filter((row) => parseFloat(row.amount) > 0);
+        const validInlineRows = isReraProfile
+          ? []
+          : inlinePayments.filter((row) => parseFloat(row.amount) > 0);
         if (validInlineRows.length > 0) {
           await Promise.all(validInlineRows.map((row) => api.post('/registries/payments', {
             registry_id: editingRegistry.id,
@@ -914,7 +1007,7 @@ const PlotRegistry = () => {
         }
         const msgParts = ['Registry updated'];
         if (resData?.plot_status_updated) {
-          msgParts.push('— Plot status auto-updated to REGISTRY in Plot Payments');
+          msgParts.push(`— ${propertyTerms.singular} status auto-updated to REGISTRY in ${propertyTerms.paymentsTitle}`);
         }
         setMessage({ type: 'success', text: msgParts.join(' ') });
       } else {
@@ -924,7 +1017,7 @@ const PlotRegistry = () => {
           ...payload,
           payments: [
             ...linkedPlotPayments.map((row) => ({ source_plot_payment_id: row.id })),
-            ...inlinePayments
+            ...(!isReraProfile ? inlinePayments : [])
               .filter((row) => parseFloat(row.amount) > 0)
               .map((row) => ({
                 payment_date: row.payment_date || todayISO(),
@@ -949,7 +1042,7 @@ const PlotRegistry = () => {
         const created = await api.post('/registries', createPayload);
         const msgParts = ['Registry created'];
         if (created?.data?.plot_status_updated) {
-          msgParts.push('— Plot status auto-updated to PENDING NOC in Plot Payments');
+          msgParts.push(`— ${propertyTerms.singular} status auto-updated to PENDING NOC in ${propertyTerms.paymentsTitle}`);
         }
         setMessage({ type: 'success', text: msgParts.join(' ') });
       }
@@ -985,8 +1078,15 @@ const PlotRegistry = () => {
 
   const handleSubmitRegistry = (ev) => {
     ev.preventDefault();
+    if (!editingRegistry && isReraProfile && canonicalReceiptTotal <= 0) {
+      setMessage({
+        type: 'error',
+        text: 'Map at least one approved, unreversed Project Payment receipt before creating this RERA registry.',
+      });
+      return;
+    }
     // Show finance warning if payments don't cover registry payment
-    if (registryPaymentNum > 0 && Math.abs(financeRemaining) >= 0.01) {
+    if (!isReraProfile && registryPaymentNum > 0 && Math.abs(financeRemaining) >= 0.01) {
       setFinanceWarningOpen(true);
       return;
     }
@@ -1030,7 +1130,7 @@ const PlotRegistry = () => {
   };
 
   const handleDeleteRegistry = async (r) => {
-    if (!window.confirm(`Delete registry for Plot ${r.plot_no}? This will delete all its payments.`)) return;
+    if (!window.confirm(`Delete registry for ${propertyTerms.singular} ${r.plot_no}? This will delete all its payments.`)) return;
     // Optimistic removal — instant UI feedback. Roll back on failure.
     const snapshot = registries;
     setRegistries((prev) => prev.filter((x) => x.id !== r.id));
@@ -1049,6 +1149,40 @@ const PlotRegistry = () => {
     }
   };
 
+  const mergeRegistryRecord = (record) => {
+    if (!record?.id) return;
+    const merge = (current) => (
+      current && String(current.id) === String(record.id)
+        ? { ...current, ...record }
+        : current
+    );
+    setSelectedRegistry(merge);
+    setRegistryMeta(merge);
+    setRegistries((current) => current.map((item) => (
+      String(item.id) === String(record.id) ? { ...item, ...record } : item
+    )));
+  };
+
+  const handleAdvanceRegistry = async () => {
+    const current = registryDetail;
+    const next = getNextRegistryStatus(current?.lifecycle_status);
+    if (!current || !next || advancingLifecycle) return;
+    setAdvancingLifecycle(true);
+    try {
+      const { registry: updated } = await advanceRegistry(current, next);
+      mergeRegistryRecord(updated);
+      toast.success(`Registry moved to ${next.replaceAll('_', ' ').toLowerCase()}.`);
+      refreshRegistries();
+    } catch (error) {
+      const latest = error.response?.data?.details?.registry;
+      if (latest) mergeRegistryRecord(latest);
+      toast.error(registryActionError(error));
+      refreshRegistries();
+    } finally {
+      setAdvancingLifecycle(false);
+    }
+  };
+
   // ── Payment form handlers ──
   const resetPayForm = () => {
     setPayForm({
@@ -1060,9 +1194,20 @@ const PlotRegistry = () => {
     setMessage({ type: '', text: '' });
   };
 
-  const handleOpenCreatePayment = () => { resetPayForm(); setPaymentDialogOpen(true); };
+  const handleOpenCreatePayment = () => {
+    if (isReraProfile) {
+      toast.info('Record the customer receipt in Project Payments, then map it to this registry.');
+      return;
+    }
+    resetPayForm();
+    setPaymentDialogOpen(true);
+  };
 
   const handleOpenEditPayment = (p) => {
+    if (isReraProfile) {
+      toast.info('Historical registry-only entries are read-only in the RERA workflow.');
+      return;
+    }
     setPayForm({
       payment_date: p.payment_date ? p.payment_date.split('T')[0] : todayISO(),
       amount: p.amount ? String(Math.abs(parseFloat(p.amount))) : '',
@@ -1079,6 +1224,11 @@ const PlotRegistry = () => {
 
   const handleSubmitPayment = async (ev) => {
     ev.preventDefault();
+    if (isReraProfile) {
+      setPaymentDialogOpen(false);
+      toast.error('RERA registry money must come from a mapped Project Payment receipt.');
+      return;
+    }
     setMessage({ type: '', text: '' });
     if (payForm.payment_mode && payForm.payment_mode !== 'CASH' && !payForm.bank_account_id) {
       setMessage({ type: 'error', text: 'Select the bank account used for this payment.' });
@@ -1283,7 +1433,9 @@ const PlotRegistry = () => {
   }, [registries]);
 
   const filteredPayments = useMemo(() => {
-    let list = payments;
+    let list = isReraProfile
+      ? payments.filter((payment) => payment.source_plot_payment_id)
+      : payments;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
       list = payments.filter(p =>
@@ -1294,11 +1446,18 @@ const PlotRegistry = () => {
     const res = [...list];
     if (sortOrderPayments === 'asc') res.reverse();
     return res;
-  }, [payments, searchQuery, sortOrderPayments]);
+  }, [isReraProfile, payments, searchQuery, sortOrderPayments]);
 
   // Detail computed
-  const regPayment = parseFloat(registryDetail?.registry_payment) || 0;
-  const totalPaid = parseFloat(registryDetail?.total_paid) || 0;
+  const canonicalDetailPayments = isReraProfile
+    ? payments.filter((payment) => payment.source_plot_payment_id)
+    : [];
+  const canonicalDetailTotal = canonicalDetailPayments.reduce(
+    (sum, payment) => sum + (parseFloat(payment.amount) || 0),
+    0,
+  );
+  const regPayment = isReraProfile ? canonicalDetailTotal : (parseFloat(registryDetail?.registry_payment) || 0);
+  const totalPaid = isReraProfile ? canonicalDetailTotal : (parseFloat(registryDetail?.total_paid) || 0);
   const balance = regPayment - totalPaid;
   const pctPaid = regPayment > 0 ? (totalPaid / regPayment) * 100 : 0;
   const totalTally = useMemo(() => payments.reduce((s, p) => s + (parseFloat(p.tally_amount) || 0), 0), [payments]);
@@ -1328,7 +1487,7 @@ const PlotRegistry = () => {
     if (!selectedRegistry) return;
     const r = registryDetail;
     const rows = [
-      [`Plot Registry — ${r.plot_no}`],
+      [`${propertyTerms.singular} Registry — ${r.plot_no}`],
       [`Customer: ${r.customer_name || 'N/A'}  |  Farmer: ${r.farmer_name || 'N/A'}  |  Size: ${r.size_meter || '-'} m² / ${r.size_sqyard || '-'} sqyd`],
       [`Registry Date: ${fmtDate(r.registry_date)}  |  Registry Payment: ₹${fmt(regPayment)}  |  Total Paid: ₹${fmt(totalPaid)}  |  Balance: ₹${fmt(balance)}`],
       [],
@@ -1351,7 +1510,7 @@ const PlotRegistry = () => {
     const ws = XLSX.utils.aoa_to_sheet(rows);
     ws['!cols'] = [{ wch: 5 }, { wch: 14 }, { wch: 16 }, { wch: 12 }, { wch: 14 }, { wch: 16 }, { wch: 30 }];
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, `Plot ${r.plot_no}`);
+    XLSX.utils.book_append_sheet(wb, ws, `${propertyTerms.singular} ${r.plot_no}`.slice(0, 31));
     XLSX.writeFile(wb, `Registry_${r.plot_no}_${currentSite?.name || 'site'}.xlsx`);
   };
 
@@ -1410,7 +1569,7 @@ const PlotRegistry = () => {
             <div class="meta-item"><b>Date:</b> ${payDate}</div>
           </div>
           <div class="kv-section">
-            <div class="kv-row"><div class="k">Plot No</div><div class="c">:</div><div class="v">${escHtml(r.plot_no || '—')}</div></div>
+            <div class="kv-row"><div class="k">${propertyTerms.numberLabel}</div><div class="c">:</div><div class="v">${escHtml(r.plot_no || '—')}</div></div>
             <div class="kv-row"><div class="k">Customer</div><div class="c">:</div><div class="v">${escHtml((r.customer_name || '—').toUpperCase())}</div></div>
             <div class="kv-row"><div class="k">Farmer</div><div class="c">:</div><div class="v">${escHtml((r.farmer_name || '—').toUpperCase())}</div></div>
             <div class="kv-row"><div class="k">Amount</div><div class="c">:</div><div class="v" style="color:#059669">RS ${fmtINR(absAmt)}/-</div></div>
@@ -1434,7 +1593,7 @@ const PlotRegistry = () => {
 
     const html = `<!DOCTYPE html>
 <html><head>
-  <title>REGISTRY RECEIPT - Plot ${escHtml(r.plot_no)}</title>
+  <title>REGISTRY RECEIPT - ${propertyTerms.singular} ${escHtml(r.plot_no)}</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Inter:wght@400;500;600;700&family=Dancing+Script:wght@400;500;600;700&display=swap');
     @page { size: A4 portrait; margin: 0; }
@@ -1510,7 +1669,7 @@ const PlotRegistry = () => {
     const html = `<!DOCTYPE html>
 <html>
 <head>
-  <title>Plot Statement - ${escHtml(r.plot_no)}</title>
+  <title>${propertyTerms.singular} Statement - ${escHtml(r.plot_no)}</title>
   <style>
     body { font-family: Arial, sans-serif; color: #111827; margin: 0; padding: 24px; }
     .wrap { max-width: 980px; margin: 0 auto; }
@@ -1531,8 +1690,8 @@ const PlotRegistry = () => {
 <body>
   <div class="wrap">
     <div class="head">
-      <h1>Plot Statement</h1>
-      <div class="sub">Plot ${escHtml(r.plot_no)} | Generated on ${escHtml(new Date().toLocaleString('en-IN'))}</div>
+      <h1>${propertyTerms.singular} Statement</h1>
+      <div class="sub">${propertyTerms.singular} ${escHtml(r.plot_no)} | Generated on ${escHtml(new Date().toLocaleString('en-IN'))}</div>
     </div>
 
     <div class="meta">
@@ -1587,7 +1746,7 @@ const PlotRegistry = () => {
   //    selection exists; otherwise everything the filtered table shows. ──
   const downloadAllRegistriesExcel = () => {
     const exportList = selectedVisibleRegs.length > 0 ? selectedVisibleRegs : filteredRegistries;
-    const headers = ['No', 'Plot No', 'Customer Name', 'Size (m²)', 'Size (sqyd)', 'Registry Date', 'Farmer Name', 'Registry Payment (₹)', 'Total Paid (₹)', 'Balance (₹)', '% Paid', 'Payments'];
+    const headers = ['No', propertyTerms.numberLabel, 'Customer Name', 'Size (m²)', 'Size (sqyd)', 'Registry Date', 'Farmer Name', 'Registry Payment (₹)', 'Total Paid (₹)', 'Balance (₹)', '% Paid', 'Payments'];
     const rows = exportList.map((r, i) => {
       const rp = parseFloat(r.registry_payment) || 0;
       const tp = parseFloat(r.total_paid) || 0;
@@ -1599,7 +1758,7 @@ const PlotRegistry = () => {
     ws['!cols'] = headers.map(() => ({ wch: 16 }));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Registries');
-    XLSX.writeFile(wb, `Plot_Registries_${currentSite?.name || 'site'}${selectedVisibleRegs.length > 0 ? '_selected' : ''}.xlsx`);
+    XLSX.writeFile(wb, `${propertyTerms.singular.replace(/\s+/g, '_')}_Registries_${currentSite?.name || 'site'}${selectedVisibleRegs.length > 0 ? '_selected' : ''}.xlsx`);
   };
 
   // ── Print (HTML viewer, same pattern as the commission register) — outputs
@@ -1640,7 +1799,7 @@ const PlotRegistry = () => {
     const html = `<!DOCTYPE html>
 <html>
 <head>
-  <title>PLOT REGISTRY STATEMENT - ${escHtml(currentSite?.name || '')}</title>
+  <title>${propertyTerms.singular.toUpperCase()} REGISTRY STATEMENT - ${escHtml(currentSite?.name || '')}</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Inter:wght@400;500;600;700&display=swap');
     @page { size: A4 landscape; margin: 10mm; }
@@ -1662,14 +1821,14 @@ const PlotRegistry = () => {
 <body>
   <div class="header">
     <h1>${siteName}</h1>
-    <p>${siteAddr || 'PLOT REGISTRY LEDGER'}</p>
+    <p>${siteAddr || `${propertyTerms.singular.toUpperCase()} REGISTRY LEDGER`}</p>
   </div>
-  <div class="title">Plot Registry Register</div>
+  <div class="title">${propertyTerms.singular} Registry Register</div>
   <div class="context">${contextBits.join(' &nbsp;·&nbsp; ')}</div>
   <table>
     <thead>
       <tr>
-        <th>Plot</th>
+        <th>${propertyTerms.singular}</th>
         <th>Customer</th>
         <th>Farmer</th>
         <th class="num">Size (m²)</th>
@@ -1747,52 +1906,37 @@ const PlotRegistry = () => {
     ? registryDocumentCount > 0
     : (parseInt(r?.registry_doc_count ?? selectedRegistry?.registry_doc_count, 10) || 0) > 0;
 
-  const scrollToWorkflowSection = (sectionId) => {
-    document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
-
-  const workflowSteps = selectedRegistry ? [
-    {
-      done: true,
-      label: 'Registry Entry',
-      date: r.created_entry_date || r.registry_date,
-      available: true,
-      action: canUpdate ? () => handleOpenEditRegistry(r) : null,
-    },
-    {
-      done: Boolean(r.noc_generated_at),
-      label: 'NOC Generated',
-      date: r.noc_generated_at,
-      available: true,
-      action: () => navigate(`/plot-registry/${r.id}/noc`),
-    },
-    {
-      done: Boolean(r.noc_approved_at),
-      label: 'NOC Approved',
-      date: r.noc_approved_at,
-      available: Boolean(r.noc_generated_at) || workflowUnlocked,
-      action: () => navigate(`/plot-registry/${r.id}/noc`),
-    },
-    {
-      done: hasRegistryDoc,
-      label: 'Registry Deed',
-      date: null,
-      available: Boolean(r.noc_generated_at) || workflowUnlocked,
-      action: () => scrollToWorkflowSection('registry-documents-section'),
-    },
-    {
-      done: handovers.length > 0,
-      label: 'Handover',
-      date: handovers[0]?.given_at,
-      available: hasRegistryDoc || workflowUnlocked,
-      action: () => scrollToWorkflowSection('registry-handovers-section'),
-    },
-  ] : [];
+  const lifecycleIndex = registryStatusIndex(r?.lifecycle_status);
+  const workflowSteps = selectedRegistry ? REGISTRY_WORKFLOW_STEPS.map((step, index) => ({
+    ...step,
+    done: lifecycleIndex >= 0 && (
+      index < lifecycleIndex || (index === lifecycleIndex && step.status === 'COMPLETE')
+    ),
+    active: index === lifecycleIndex && step.status !== 'COMPLETE',
+    date: step.status === 'NOT_READY'
+      ? (r.created_entry_date || r.registry_date)
+      : step.status === 'SCHEDULED'
+        ? r.scheduled_at
+        : step.status === 'COMPLETE'
+          ? r.completed_at
+          : null,
+  })) : [];
+  const nextRegistryStatus = getNextRegistryStatus(r?.lifecycle_status);
+  const registryAdvanceRequiresAdmin = ['EXECUTED', 'COMPLETE'].includes(nextRegistryStatus);
 
   // ═══════════════════════════════════════════════════
   //  SHARED REGISTRY DIALOG (used in both detail & list views)
   // ═══════════════════════════════════════════════════
   const selectedPlot = autocomplete.plotOptions?.find((p) => String(p.id) === String(regForm.plot_id));
+  const missingRegistrationMetadata = isReraProfile
+    ? [
+        ['deed number', regForm.deed_number],
+        ['registration number', regForm.registration_number],
+        ['Sub-Registrar office', regForm.sub_registrar_office],
+        ['deed execution date', regForm.deed_execution_date],
+        ['registration date', regForm.registration_date],
+      ].filter(([, value]) => !String(value || '').trim()).map(([label]) => label)
+    : [];
 
   const registryFormDialog = (
     <Dialog open={registryDialogOpen} onOpenChange={(open) => { setRegistryDialogOpen(open); if (!open) resetRegForm(); }}>
@@ -1800,7 +1944,7 @@ const PlotRegistry = () => {
         <DialogHeader className="px-6 pt-5 pb-0">
           <DialogTitle className="text-lg font-semibold">{editingRegistry ? 'Edit Registry' : 'New Registry'}</DialogTitle>
           <DialogDescription className="text-sm text-slate-500">
-            {editingRegistry ? 'Update registry details below.' : 'Select a plot and fill in registry details.'}
+            {editingRegistry ? 'Update registry details below.' : `Select a ${propertyTerms.singular.toLowerCase()} and fill in registry details.`}
           </DialogDescription>
         </DialogHeader>
 
@@ -1816,30 +1960,30 @@ const PlotRegistry = () => {
         )}
 
         <form onSubmit={handleSubmitRegistry} className="space-y-0">
-          {/* ── Section 1: Plot Selection ── */}
+          {/* ── Section 1: Property Selection ── */}
           <div className="px-6 py-4 space-y-3">
             <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-              <MapPin className="w-3.5 h-3.5" /> Plot Selection
+              <MapPin className="w-3.5 h-3.5" /> {propertyTerms.singular} selection
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-1.5 sm:col-span-2">
-                <Label className="text-xs font-medium">Plot (from Plot Payments) *</Label>
+                <Label className="text-xs font-medium">{propertyTerms.singular} (from {propertyTerms.paymentsTitle}) *</Label>
                 <SearchableCombo
                   value={regForm.plot_id}
-                  placeholder="Select plot..."
-                  searchPlaceholder="Search plot number or buyer name..."
-                  emptyText="No plot found."
+                  placeholder={`Select ${propertyTerms.singular.toLowerCase()}...`}
+                  searchPlaceholder={`Search ${propertyTerms.singular.toLowerCase()} number or buyer name...`}
+                  emptyText={`No ${propertyTerms.singular.toLowerCase()} found.`}
                   options={filteredPlotOptions}
                   getKey={(plot) => String(plot.id)}
-                  getLabel={(plot) => `${plot.plot_no}${plot.buyer_name ? ` — ${plot.buyer_name}` : ''}`}
-                  getSearchText={(plot) => `${plot.plot_no} ${plot.buyer_name || ''} ${plot.customer_name || ''} ${plot.farmer_name || ''}`}
+                  getLabel={(plot) => `${getPropertyTypeTerminology(plot.property_type, propertyTerms).singular} ${plot.plot_no}${plot.block ? ` · ${plot.block}` : ''}${plot.buyer_name ? ` — ${plot.buyer_name}` : ''}`}
+                  getSearchText={(plot) => `${getPropertyTypeTerminology(plot.property_type, propertyTerms).singular} ${plot.plot_no} ${plot.block || ''} ${plot.buyer_name || ''} ${plot.customer_name || ''} ${plot.farmer_name || ''}`}
                   onSelect={(plot) => handlePlotSelect(String(plot.id))}
                   searchValue={plotSearch}
                   setSearchValue={setPlotSearch}
                 />
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs font-medium">Plot No</Label>
+                <Label className="text-xs font-medium">{propertyTerms.numberLabel}</Label>
                 <Input placeholder="Auto-filled" value={regForm.plot_no} readOnly disabled className="bg-slate-50" />
               </div>
             </div>
@@ -1856,7 +2000,7 @@ const PlotRegistry = () => {
             )}
 
             {/* Payments-clear status — the registry gate */}
-            {regForm.plot_id && !editingRegistry && plotClearance && (
+            {regForm.plot_id && !editingRegistry && plotClearance && !isReraProfile && (
               plotClearance.clear ? (
                 <div className="flex items-center gap-2 text-[11px] bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2 text-emerald-700">
                   <BadgeCheck className="w-3.5 h-3.5 shrink-0" />
@@ -1923,6 +2067,34 @@ const PlotRegistry = () => {
             </div>
           </div>
 
+          {isReraProfile && (
+            <>
+              <Separator />
+              <details className="group px-6 py-4">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-4">
+                  <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                    <FileText className="h-3.5 w-3.5" /> Deed &amp; Sub-Registrar details
+                  </div>
+                  <span className={`text-[10px] font-semibold ${missingRegistrationMetadata.length ? 'text-amber-700' : 'text-emerald-700'}`}>
+                    {missingRegistrationMetadata.length ? `${missingRegistrationMetadata.length} required before execution` : 'Execution metadata ready'}
+                  </span>
+                </summary>
+                <p className="mt-2 text-[10px] leading-relaxed text-slate-500">These details may be completed progressively, but the server will require the core deed and registration record before execution.</p>
+                <div className="mt-4 grid gap-3 border-t border-slate-100 pt-4 sm:grid-cols-2">
+                  <div className="space-y-1.5"><Label className="text-xs font-medium">Deed number</Label><Input value={regForm.deed_number} onChange={(event) => setRegForm({ ...regForm, deed_number: event.target.value.toUpperCase() })} /></div>
+                  <div className="space-y-1.5"><Label className="text-xs font-medium">Registration number</Label><Input value={regForm.registration_number} onChange={(event) => setRegForm({ ...regForm, registration_number: event.target.value.toUpperCase() })} /></div>
+                  <div className="space-y-1.5"><Label className="text-xs font-medium">Deed execution date</Label><Input type="date" value={regForm.deed_execution_date} onChange={(event) => setRegForm({ ...regForm, deed_execution_date: event.target.value })} /></div>
+                  <div className="space-y-1.5"><Label className="text-xs font-medium">Registration date</Label><Input type="date" min={regForm.deed_execution_date || undefined} value={regForm.registration_date} onChange={(event) => setRegForm({ ...regForm, registration_date: event.target.value })} /></div>
+                  <div className="space-y-1.5"><Label className="text-xs font-medium">Sub-Registrar office</Label><Input value={regForm.sub_registrar_office} onChange={(event) => setRegForm({ ...regForm, sub_registrar_office: event.target.value.toUpperCase() })} /></div>
+                  <div className="space-y-1.5"><Label className="text-xs font-medium">Registrar district</Label><Input value={regForm.registrar_district} onChange={(event) => setRegForm({ ...regForm, registrar_district: event.target.value.toUpperCase() })} /></div>
+                  <div className="space-y-1.5"><Label className="text-xs font-medium">Stamp duty amount</Label><Input type="number" min="0" step="0.01" value={regForm.stamp_duty_amount} onChange={(event) => setRegForm({ ...regForm, stamp_duty_amount: event.target.value })} /></div>
+                  <div className="space-y-1.5"><Label className="text-xs font-medium">Registration fee amount</Label><Input type="number" min="0" step="0.01" value={regForm.registration_fee_amount} onChange={(event) => setRegForm({ ...regForm, registration_fee_amount: event.target.value })} /></div>
+                </div>
+                {missingRegistrationMetadata.length > 0 && <p className="mt-3 text-[10px] text-amber-700">Still needed for execution: {missingRegistrationMetadata.join(', ')}.</p>}
+              </details>
+            </>
+          )}
+
           <Separator />
 
           {/* ── Section 3: Financial ── */}
@@ -1930,6 +2102,22 @@ const PlotRegistry = () => {
             <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">
               <IndianRupee className="w-3.5 h-3.5" /> Financial
             </div>
+            {isReraProfile ? (
+              <div className="grid gap-3 sm:grid-cols-[1fr_220px] sm:items-end">
+                <div className="flex items-center justify-between gap-4 border-y border-blue-100 bg-blue-50/45 px-3 py-3">
+                  <div>
+                    <p className="text-xs font-semibold text-slate-800">Canonical Project Payment receipts</p>
+                    <p className="mt-0.5 text-[10px] text-slate-500">Calculated from {canonicalReceiptCount} approved, unreversed receipt{canonicalReceiptCount === 1 ? '' : 's'} linked below. Manual registry money is unavailable.</p>
+                  </div>
+                  <p className="shrink-0 text-sm font-semibold tabular-nums text-blue-700">₹{fmt(canonicalReceiptTotal)}</p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium">Entry Date</Label>
+                  <Input type="date" value={regForm.created_entry_date}
+                    onChange={(e) => setRegForm({ ...regForm, created_entry_date: e.target.value })} />
+                </div>
+              </div>
+            ) : (
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-1.5">
                 <Label className="text-xs font-medium">Bank Amount (₹)</Label>
@@ -1940,20 +2128,10 @@ const PlotRegistry = () => {
                 {regForm.bank_amount && <p className="text-[10px] text-blue-500">Auto-filled from plot</p>}
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs font-medium flex items-center gap-1.5">
-                  Registry Payment (₹) *
-                  {!editingRegistry && linkedPlotPayments.length > 0 && registryPaymentNum > 0 && (
-                    paymentsMatchRegistry
-                      ? <span className="text-emerald-600 flex items-center gap-0.5"><Check className="w-3 h-3" /> Matched</span>
-                      : <span className="text-amber-600 flex items-center gap-0.5"><AlertCircle className="w-3 h-3" /> Mismatch</span>
-                  )}
-                </Label>
+                <Label className="text-xs font-medium flex items-center gap-1.5">Registry Payment (₹) *</Label>
                 <Input type="number" step="0.01" placeholder="1238000"
                   value={regForm.registry_payment}
                   onChange={(e) => setRegForm({ ...regForm, registry_payment: e.target.value })}
-                  className={!editingRegistry && linkedPlotPayments.length > 0 && registryPaymentNum > 0
-                    ? (paymentsMatchRegistry ? 'border-emerald-300 focus-visible:ring-emerald-400' : 'border-amber-300 focus-visible:ring-amber-400')
-                    : ''}
                   required />
               </div>
               <div className="space-y-1.5">
@@ -1962,6 +2140,7 @@ const PlotRegistry = () => {
                   onChange={(e) => setRegForm({ ...regForm, created_entry_date: e.target.value })} />
               </div>
             </div>
+            )}
           </div>
 
           <Separator />
@@ -2042,7 +2221,7 @@ const PlotRegistry = () => {
                   <div className="flex items-center justify-between">
                     <Label className="text-xs font-semibold flex items-center gap-1.5">
                       <Banknote className="w-3.5 h-3.5 text-blue-500" />
-                      Bank / Cheque Plot Payments
+                      Approved Project Payment receipts
                     </Label>
                     {linkedPlotPayments.length > 0 && (
                       <span className="text-[11px] font-medium text-blue-600">{linkedPlotPayments.length} linked · ₹{fmt(linkedPaymentsTotal)}</span>
@@ -2061,7 +2240,7 @@ const PlotRegistry = () => {
                             {p.payment_mode && <span className="text-slate-400">{p.payment_mode}</span>}
                             {p.notes && <span className="text-slate-400 truncate max-w-30">{p.notes}</span>}
                           </div>
-                          {canDelete && (
+                          {canDelete && !isReraProfile && (
                             <Button
                               type="button" variant="ghost" size="sm"
                               className="h-6 px-2 text-[10px] font-medium text-red-500 hover:bg-red-100 hover:text-red-700"
@@ -2085,7 +2264,7 @@ const PlotRegistry = () => {
                   <div className="flex items-center gap-2">
                     <Select value={recentPaymentSelect || '_none'} onValueChange={(v) => setRecentPaymentSelect(v === '_none' ? '' : v)}>
                       <SelectTrigger className="h-8 text-xs flex-1">
-                        <SelectValue placeholder={regForm.plot_id ? (filteredRecentBankPayments.length > 0 ? 'Select payment to link' : 'No payments for this plot') : 'Select plot first'} />
+                        <SelectValue placeholder={regForm.plot_id ? (filteredRecentBankPayments.length > 0 ? 'Select payment to link' : `No payments for this ${propertyTerms.singular.toLowerCase()}`) : `Select ${propertyTerms.singular.toLowerCase()} first`} />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="_none">Select payment...</SelectItem>
@@ -2119,7 +2298,9 @@ const PlotRegistry = () => {
                   )}
                 </div>
 
-                {/* Manual Payment Entry — reduces registry pending only; no effect on debit/credit elsewhere */}
+                {/* Registry-only money is intentionally unavailable for RERA
+                    profiles; every amount must trace back to Project Payments. */}
+                {!isReraProfile ? (
                 <div className="space-y-2 rounded-lg border border-amber-200 p-3 bg-amber-50/40">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1.5">
@@ -2139,7 +2320,7 @@ const PlotRegistry = () => {
                     </div>
                   </div>
                   <p className="text-[10px] text-slate-500">
-                    Use this when money was received outside the system (handed over manually). It only reduces the registry's pending amount — it will not appear in Day Book, Plot Payments, or any cash/bank total.
+                    Use this when money was received outside the system (handed over manually). It only reduces the registry&apos;s pending amount — it will not appear in Day Book, {propertyTerms.paymentsTitle}, or any cash/bank total.
                   </p>
 
                   {inlinePayments.length === 0 ? (
@@ -2196,9 +2377,22 @@ const PlotRegistry = () => {
                     </div>
                   )}
                 </div>
+                ) : (
+                  <div className="flex items-start justify-between gap-3 border-y border-blue-100 bg-blue-50/50 px-3 py-3 text-[11px] text-blue-800">
+                    <div className="flex items-start gap-2">
+                      <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                      <span>
+                        RERA receipt mapping is active. Record missing money in Project Payments, then link the approved receipt above. Cash receipts remain available unless the Site uses Bank Only finance mode.
+                      </span>
+                    </div>
+                    <Button type="button" variant="link" className="h-auto shrink-0 p-0 text-[11px] text-blue-700" onClick={() => navigate('/plot-payments')}>
+                      Open Project Payments
+                    </Button>
+                  </div>
+                )}
 
                 {/* Match Summary */}
-                {hasAnyPayments && registryPaymentNum > 0 && (
+                {!isReraProfile && hasAnyPayments && registryPaymentNum > 0 && (
                   <div className={`rounded-lg px-3 py-2.5 text-xs font-medium ${
                     paymentsMatchRegistry
                       ? 'bg-emerald-50 border border-emerald-200 text-emerald-700'
@@ -2260,10 +2454,12 @@ const PlotRegistry = () => {
 
           {/* ── Footer ── */}
           <div className="px-6 py-4 border-t border-slate-200 bg-slate-50/40 flex items-center justify-between gap-2 flex-wrap">
-            {registryPaymentNum > 0 && Math.abs(financeRemaining) >= 0.01 && (
-              <p className="text-[11px] text-amber-600 flex items-center gap-1">
-                <AlertCircle className="w-3 h-3" />
-                Remaining balance: ₹{fmt(Math.abs(financeRemaining))} — a warning will appear before saving
+            {!isReraProfile && registryPaymentNum > 0 && Math.abs(financeRemaining) >= 0.01 && (
+              <p className={`flex items-center gap-1 text-[11px] ${isReraProfile ? 'text-blue-700' : 'text-amber-600'}`}>
+                {isReraProfile ? <ShieldCheck className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}
+                {isReraProfile
+                  ? `Mapped receipts must exactly match the registry amount · difference ₹${fmt(Math.abs(financeRemaining))}`
+                  : `Remaining balance: ₹${fmt(Math.abs(financeRemaining))} — a warning will appear before saving`}
               </p>
             )}
             <div className="flex gap-2 ml-auto">
@@ -2299,12 +2495,15 @@ const PlotRegistry = () => {
                 </Button>
                 <div className="min-w-0">
                   <div className="flex items-center gap-2.5 flex-wrap">
-                    <h1 className="text-2xl font-bold tracking-tight text-slate-900">Plot {r.plot_no}</h1>
+                    <h1 className="text-2xl font-bold tracking-tight text-slate-900">{propertyTerms.singular} {r.plot_no}</h1>
                     {balance > 0.005 ? (
                       <span className="px-2 py-0.5 text-[10px] font-semibold rounded-full border border-slate-300 text-slate-600 uppercase tracking-wider">Payment Pending</span>
                     ) : (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-slate-900 text-white uppercase tracking-wider"><Check className="w-3 h-3" /> Fully Paid</span>
                     )}
+                    <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-blue-700">
+                      {String(r.lifecycle_status || 'NOT_READY').replaceAll('_', ' ')}
+                    </span>
                     {workflowUnlocked && (
                       <span className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-blue-700">
                         <ShieldCheck className="h-3 w-3" /> Workflow override
@@ -2333,7 +2532,7 @@ const PlotRegistry = () => {
                     <Edit2 className="w-3.5 h-3.5 mr-1" /> Edit
                   </Button>
                 )}
-                {canManage && canWrite && (
+                {canManage && canWrite && !isReraProfile && (
                   <Button size="sm" onClick={handleOpenCreatePayment}>
                     <Plus className="w-4 h-4 mr-1.5" /> Add Payment
                   </Button>
@@ -2341,11 +2540,25 @@ const PlotRegistry = () => {
               </div>
             </div>
 
+            {isReraProfile && (
+              <ReraWorkflowNotice
+                policy={sitePolicy}
+                area="registry"
+                actions={[{ label: 'Project Payments', href: '/plot-payments' }]}
+              />
+            )}
+
             {/* The money story — one glance, four numbers */}
             <div className="grid grid-cols-2 lg:grid-cols-4 divide-x divide-slate-100 border-t border-slate-100">
               {[
-                { label: 'Registry Value', value: `₹${fmt(regPayment)}`, sub: r.bank_amount != null ? `Bank amount ₹${fmt(r.bank_amount)}` : null },
-                { label: 'Received', value: `₹${fmt(totalPaid)}`, sub: `Cash ₹${fmt(paymentReceivedBreakdown.cash)} · Bank ₹${fmt(paymentReceivedBreakdown.bank)}` },
+                { label: isReraProfile ? 'Canonical receipts' : 'Registry Value', value: `₹${fmt(regPayment)}`, sub: isReraProfile ? 'Derived from Project Payments' : (r.bank_amount != null ? `Bank amount ₹${fmt(r.bank_amount)}` : null) },
+                {
+                  label: 'Received',
+                  value: `₹${fmt(totalPaid)}`,
+                  sub: isReraProfile
+                    ? `${canonicalDetailPayments.length} mapped receipt${canonicalDetailPayments.length === 1 ? '' : 's'}`
+                    : `Cash ₹${fmt(paymentReceivedBreakdown.cash)} · Bank ₹${fmt(paymentReceivedBreakdown.bank)}`,
+                },
                 { label: 'Balance', value: `₹${fmt(balance)}`, sub: balance > 0.005 ? 'still to collect' : 'settled in full', strong: balance > 0.005 },
                 { label: 'Progress', value: `${pctPaid.toFixed(1)}%`, sub: `${payments.length} payment${payments.length === 1 ? '' : 's'} recorded` },
               ].map(({ label, value, sub, strong }, i) => (
@@ -2372,40 +2585,46 @@ const PlotRegistry = () => {
               />
             </div>
 
-            {/* Registry pipeline: entry → NOC → approval → deed → handover */}
+            {/* The same authoritative lifecycle shown in Customer & Inventory. */}
             <div className="flex items-center gap-3 flex-wrap px-5 py-3.5 bg-slate-50/60 border-t border-slate-100">
               <div className="flex items-center flex-1 min-w-[280px]">
                 {workflowSteps.map((step, i, arr) => (
                   <div key={step.label} className={`flex items-center ${i < arr.length - 1 ? 'flex-1' : ''}`}>
-                    <button
-                      type="button"
-                      disabled={!step.available || !step.action}
-                      onClick={step.action || undefined}
-                      title={step.available ? `Open ${step.label}` : `${step.label} is unavailable until the previous step is complete`}
-                      className="group flex flex-col items-start rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 disabled:cursor-not-allowed"
-                    >
+                    <div className="flex flex-col items-start rounded-md text-left">
                       <span className={`flex h-5 w-5 items-center justify-center rounded-full border-2 transition-colors ${
                         step.done
-                          ? 'border-blue-700 bg-blue-700'
-                          : step.available
-                            ? 'border-blue-300 bg-white group-hover:border-blue-600'
+                          ? 'border-emerald-600 bg-emerald-600'
+                          : step.active
+                            ? 'border-blue-600 bg-blue-50 ring-2 ring-blue-100'
                             : 'border-slate-300 bg-slate-100'
                       }`}>
                         {step.done
                           ? <Check className="w-3 h-3 text-white" />
-                          : !step.available
-                            ? <LockKeyhole className="h-2.5 w-2.5 text-slate-400" />
+                          : step.active
+                            ? <span className="h-1.5 w-1.5 rounded-full bg-blue-600" />
                             : null}
                       </span>
-                      <span className={`mt-1 text-[10px] font-semibold whitespace-nowrap ${step.done ? 'text-slate-800' : step.available ? 'text-blue-700' : 'text-slate-400'}`}>{step.label}</span>
+                      <span className={`mt-1 text-[10px] font-semibold whitespace-nowrap ${step.done ? 'text-emerald-700' : step.active ? 'text-blue-700' : 'text-slate-400'}`}>{step.label}</span>
                       <span className="text-[10px] text-slate-400 whitespace-nowrap">{step.date ? fmtDate(step.date) : '—'}</span>
-                    </button>
+                    </div>
                     {i < arr.length - 1 && (
-                      <div className={`mx-3 mb-7 h-0.5 flex-1 rounded ${arr[i + 1].done ? 'bg-blue-700' : 'bg-slate-200'}`} />
+                      <div className={`mx-3 mb-7 h-0.5 flex-1 rounded ${step.done ? 'bg-emerald-500' : 'bg-slate-200'}`} />
                     )}
                   </div>
                 ))}
               </div>
+              {nextRegistryStatus && canUpdate && (
+                <Button
+                  size="sm"
+                  onClick={handleAdvanceRegistry}
+                  disabled={advancingLifecycle || (registryAdvanceRequiresAdmin && !isAdmin)}
+                  title={registryAdvanceRequiresAdmin && !isAdmin ? 'Administrator approval is required for this stage' : undefined}
+                  className="text-xs"
+                >
+                  {advancingLifecycle && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                  Move to {nextRegistryStatus.replaceAll('_', ' ')}
+                </Button>
+              )}
               <Button variant="outline" size="sm" onClick={() => navigate(`/plot-registry/${r.id}/noc`)} className="text-xs ml-auto">
                 <ScrollText className="w-3.5 h-3.5 mr-1" /> Open NOC
               </Button>
@@ -2538,7 +2757,7 @@ const PlotRegistry = () => {
                                     <PenLine className="w-3.5 h-3.5" />
                                   </Button>
                                 )}
-                                {(canUpdate || canDelete) && (
+                                {!isReraProfile && (canUpdate || canDelete) && (
                                   <>
                                     {canUpdate && <Button variant="ghost" size="sm" onClick={() => handleOpenEditPayment(pay)} className="h-7 w-7 p-0 text-slate-400 hover:text-slate-700">
                                       <Edit2 className="w-3.5 h-3.5" />
@@ -2594,13 +2813,28 @@ const PlotRegistry = () => {
                   <DetailRow label="Firm" value={r.firm_name} />
                   <DetailRow label="Assigned To" value={getAssignedAdminLabel(r)} />
                 </div>
-                <p className="px-4 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400 border-t border-slate-100">Plot & Value</p>
+                <p className="px-4 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400 border-t border-slate-100">{propertyTerms.singular} &amp; value</p>
                 <div className="divide-y divide-slate-50">
                   <DetailRow label="Size (m²)" value={r.size_meter} />
                   <DetailRow label="Size (sq yd)" value={r.size_sqyard} />
                   {r.circle_rate != null && <DetailRow label="Circle Rate" value={`₹${fmt(r.circle_rate)}`} />}
-                  <DetailRow label="Bank Amount" value={r.bank_amount != null ? `₹${fmt(r.bank_amount)}` : null} />
+                  {!isReraProfile && <DetailRow label="Bank Amount" value={r.bank_amount != null ? `₹${fmt(r.bank_amount)}` : null} />}
                 </div>
+                {isReraProfile && (
+                  <>
+                    <p className="border-t border-slate-100 px-4 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Registration record</p>
+                    <div className="divide-y divide-slate-50">
+                      <DetailRow label="Deed number" value={r.deed_number} />
+                      <DetailRow label="Registration no." value={r.registration_number} />
+                      <DetailRow label="Sub-Registrar" value={r.sub_registrar_office} />
+                      <DetailRow label="Registrar district" value={r.registrar_district} />
+                      <DetailRow label="Deed execution" value={fmtDate(r.deed_execution_date)} />
+                      <DetailRow label="Registration" value={fmtDate(r.registration_date)} />
+                      <DetailRow label="Stamp duty" value={r.stamp_duty_amount != null ? `₹${fmt(r.stamp_duty_amount)}` : null} />
+                      <DetailRow label="Registration fee" value={r.registration_fee_amount != null ? `₹${fmt(r.registration_fee_amount)}` : null} />
+                    </div>
+                  </>
+                )}
                 <p className="px-4 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400 border-t border-slate-100">Dates & NOC</p>
                 <div className="divide-y divide-slate-50">
                   <DetailRow label="Registry Date" value={fmtDate(r.registry_date)} />
@@ -2738,7 +2972,7 @@ const PlotRegistry = () => {
             <DialogHeader>
               <DialogTitle className="text-base">Record Document Handover</DialogTitle>
               <DialogDescription className="text-sm">
-                Registry papers for Plot {r.plot_no} given offline to the client — click a photo as proof.
+                Registry papers for {propertyTerms.singular} {r.plot_no} given offline to the client — click a photo as proof.
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleSubmitHandover} className="space-y-4">
@@ -2775,12 +3009,13 @@ const PlotRegistry = () => {
           </DialogContent>
         </Dialog>
 
+        {!isReraProfile && (
         <Dialog open={paymentDialogOpen} onOpenChange={(open) => { setPaymentDialogOpen(open); if (!open) resetPayForm(); }}>
           <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="text-base">{editingPaymentId ? 'Edit Payment' : 'Record Payment'}</DialogTitle>
               <DialogDescription className="text-sm">
-                {editingPaymentId ? 'Update payment details.' : `Registry payment for Plot ${selectedRegistry.plot_no}`}
+                {editingPaymentId ? 'Update payment details.' : `Registry payment for ${propertyTerms.singular} ${selectedRegistry.plot_no}`}
               </DialogDescription>
             </DialogHeader>
 
@@ -2909,10 +3144,13 @@ const PlotRegistry = () => {
             </form>
           </DialogContent>
         </Dialog>
+        )}
 
         {registryFormDialog}
 
-        {/* Finance Warning Modal */}
+        {/* Finance Warning Modal — legacy profiles may explicitly proceed;
+            RERA profiles are stopped in handleSubmitRegistry instead. */}
+        {!isReraProfile && (
         <Dialog open={financeWarningOpen} onOpenChange={setFinanceWarningOpen}>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
@@ -2956,6 +3194,7 @@ const PlotRegistry = () => {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        )}
       </div>
       </>
     );
@@ -2964,28 +3203,46 @@ const PlotRegistry = () => {
   // ═══════════════════════════════════════════════════
   //  REGISTRY LIST VIEW
   // ═══════════════════════════════════════════════════
+  const registrySummary = filteredRegistries.reduce(
+    (summary, registry) => {
+      const registryAmount = parseFloat(registry.registry_payment) || 0;
+      const paidAmount = parseFloat(registry.total_paid) || 0;
+      summary.registryAmount += registryAmount;
+      summary.paidAmount += paidAmount;
+      summary.balanceAmount += registryAmount - paidAmount;
+      if (String(registry.lifecycle_status).toUpperCase() === 'COMPLETE') {
+        summary.complete += 1;
+      }
+      return summary;
+    },
+    { registryAmount: 0, paidAmount: 0, balanceAmount: 0, complete: 0 },
+  );
+  const registryPaidPercent = registrySummary.registryAmount > 0
+    ? (registrySummary.paidAmount / registrySummary.registryAmount) * 100
+    : 0;
+
   return (
-    <div className="max-w-350 space-y-3">
+    <div className="-mx-4 -mt-4 min-h-full min-w-0 bg-mr-surface md:-mx-6 md:-mt-6">
       {/* Header + Filters (redesigned) */}
-      <div className="sticky -top-3 md:-top-6 z-30 bg-white border-b border-slate-200 -mx-3 md:-mx-6 -mt-3 md:-mt-6 px-3 md:px-6 pt-3 md:pt-6 pb-2.5">
+      <div className="border-b border-mr-line px-4 py-5 md:px-6">
         {/* Row 1 — title + actions */}
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-blue-700 to-cyan-500 text-white shadow-sm shadow-blue-200">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-mr-ink text-white">
               <ClipboardList className="h-4 w-4" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-base font-semibold text-slate-900 leading-tight">{registryLabel}</h1>
-                <Badge variant="secondary" className="h-5 rounded-full px-2 text-[10px] font-medium tabular-nums">{filteredRegistries.length} registries</Badge>
+                <h1 className="text-[clamp(1.5rem,2.6vw,2rem)] font-semibold leading-tight tracking-[-0.035em] text-mr-text">{registryLabel}</h1>
+                <Badge variant="secondary" className="h-6 rounded-full bg-mr-surface-2 px-2.5 text-[10px] font-medium tabular-nums text-mr-muted">{filteredRegistries.length} registries</Badge>
               </div>
-              <p className="text-[11px] text-slate-500 leading-tight">
-                Registry tracking for <span className="font-medium text-slate-700">{currentSite.name}</span>
+              <p className="mt-1 text-[13px] leading-tight text-mr-muted">
+                Registry, document and possession tracking for <span className="font-medium text-mr-text">{currentSite.name}</span>
               </p>
             </div>
           </div>
           <div className="flex items-center gap-1.5">
-            <Button variant="outline" size="sm" onClick={() => navigate('/customer-inventory')} className="text-xs h-8 rounded-lg border-blue-200 text-blue-700 hover:bg-blue-50">
+            <Button variant="outline" size="sm" onClick={() => navigate('/customer-inventory')} className="h-9 rounded-full border-blue-200 px-3 text-xs text-blue-700 hover:bg-blue-50">
               <Landmark className="mr-1 h-3.5 w-3.5" /> Customer lifecycle
             </Button>
             {selectedVisibleRegs.length > 0 && (
@@ -2999,14 +3256,14 @@ const PlotRegistry = () => {
                 </button>
               </span>
             )}
-            <Button variant="outline" size="sm" onClick={printRegistryList} className="text-xs h-8 rounded-lg border-blue-200 text-blue-700 hover:bg-blue-50" disabled={filteredRegistries.length === 0}>
+            <Button variant="outline" size="sm" onClick={printRegistryList} className="h-9 rounded-full border-mr-line px-3 text-xs" disabled={filteredRegistries.length === 0}>
               <Printer className="w-3.5 h-3.5 mr-1" /> {selectedVisibleRegs.length > 0 ? `Print (${selectedVisibleRegs.length})` : 'Print'}
             </Button>
-            <Button variant="outline" size="sm" onClick={downloadAllRegistriesExcel} className="text-xs h-8 rounded-lg" disabled={filteredRegistries.length === 0}>
+            <Button variant="outline" size="sm" onClick={downloadAllRegistriesExcel} className="h-9 rounded-full border-mr-line px-3 text-xs" disabled={filteredRegistries.length === 0}>
               <Download className="w-3.5 h-3.5 mr-1" /> {selectedVisibleRegs.length > 0 ? `Excel (${selectedVisibleRegs.length})` : 'Excel'}
             </Button>
             {canWrite && (
-              <Button size="sm" onClick={handleOpenCreateRegistry} className="h-8 rounded-lg">
+              <Button size="sm" onClick={handleOpenCreateRegistry} className="h-9 rounded-full bg-mr-ink px-4 hover:bg-mr-ink-2">
                 <Plus className="w-4 h-4 mr-1.5" /> Add Registry
               </Button>
             )}
@@ -3017,9 +3274,9 @@ const PlotRegistry = () => {
         <div className="flex items-center gap-1.5 flex-wrap mt-2.5">
           <div className="relative w-full sm:w-64 mr-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-            <Input placeholder="Search plot no, customer, farmer…"
+            <Input placeholder={`Search ${propertyTerms.singular.toLowerCase()} no., customer, farmer…`}
               value={listSearch} onChange={(e) => setListSearch(e.target.value)}
-              className="pl-8 h-7 text-xs rounded-full bg-slate-50/80 border-slate-200 focus-visible:bg-white" />
+              className="h-10 rounded-full border-mr-line bg-mr-surface-2 pl-8 text-xs focus-visible:bg-mr-surface" />
           </div>
           <Filter className="h-3.5 w-3.5 text-slate-300 hidden sm:block" />
           <MultiSelectFilter
@@ -3074,34 +3331,56 @@ const PlotRegistry = () => {
         </div>
       </div>
 
+      {isReraProfile && (
+        <ReraWorkflowNotice
+          policy={sitePolicy}
+          area="registry"
+          actions={[{ label: 'Project Payments', href: '/plot-payments' }]}
+        />
+      )}
+
       {/* Summary Strip */}
       {filteredRegistries.length > 0 && (
-        <Card className="shadow-none border-slate-200 bg-slate-50/60">
-          <CardContent className="p-3">
-            <div className="flex items-center gap-6 flex-wrap text-xs">
-              <div className="flex items-center gap-1.5">
-                <MapPin className="w-3.5 h-3.5 text-slate-400" />
-                <span className="text-slate-500">Registries:</span>
-                <span className="font-bold text-slate-700">{filteredRegistries.length}</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <IndianRupee className="w-3.5 h-3.5 text-blue-500" />
-                <span className="text-slate-500">Total Registry:</span>
-                <span className="font-bold text-blue-700">₹{fmt(filteredRegistries.reduce((s, r) => s + (parseFloat(r.registry_payment) || 0), 0))}</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <Banknote className="w-3.5 h-3.5 text-emerald-500" />
-                <span className="text-slate-500">Total Paid:</span>
-                <span className="font-bold text-emerald-700">₹{fmt(filteredRegistries.reduce((s, r) => s + (parseFloat(r.total_paid) || 0), 0))}</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <Banknote className="w-3.5 h-3.5 text-red-500" />
-                <span className="text-slate-500">Total Balance:</span>
-                <span className="font-bold text-red-600">₹{fmt(filteredRegistries.reduce((s, r) => s + ((parseFloat(r.registry_payment) || 0) - (parseFloat(r.total_paid) || 0)), 0))}</span>
-              </div>
+        <section className="grid border-b border-mr-line bg-mr-line sm:grid-cols-2 xl:grid-cols-5">
+          {[
+            {
+              label: 'Visible registries',
+              value: filteredRegistries.length.toLocaleString('en-IN'),
+              helper: `${registrySummary.complete} complete`,
+              valueClass: 'text-mr-text',
+            },
+            {
+              label: 'Registry value',
+              value: `₹${fmt(registrySummary.registryAmount)}`,
+              helper: 'Across current view',
+              valueClass: 'text-mr-text',
+            },
+            {
+              label: 'Mapped receipts',
+              value: `₹${fmt(registrySummary.paidAmount)}`,
+              helper: `${registryPaidPercent.toFixed(1)}% funded`,
+              valueClass: 'text-emerald-700',
+            },
+            {
+              label: 'Remaining balance',
+              value: `₹${fmt(registrySummary.balanceAmount)}`,
+              helper: registrySummary.balanceAmount > 0 ? 'Action required' : 'Fully funded',
+              valueClass: registrySummary.balanceAmount > 0 ? 'text-rose-600' : 'text-emerald-700',
+            },
+            {
+              label: 'Workflow completion',
+              value: `${filteredRegistries.length ? Math.round((registrySummary.complete / filteredRegistries.length) * 100) : 0}%`,
+              helper: `${registrySummary.complete} of ${filteredRegistries.length}`,
+              valueClass: 'text-blue-700',
+            },
+          ].map((metric) => (
+            <div key={metric.label} className="bg-mr-surface px-4 py-4 md:px-6">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.13em] text-mr-faint">{metric.label}</p>
+              <p className={`mt-1 text-lg font-semibold tabular-nums tracking-tight ${metric.valueClass}`}>{metric.value}</p>
+              <p className="mt-0.5 text-[10px] text-mr-muted">{metric.helper}</p>
             </div>
-          </CardContent>
-        </Card>
+          ))}
+        </section>
       )}
 
       {/* Registries Table */}
@@ -3127,16 +3406,25 @@ const PlotRegistry = () => {
           )}
         </div>
       ) : (
-        <Card className="shadow-none border-slate-200">
+        <Card className="overflow-hidden rounded-none border-x-0 border-t-0 border-mr-line bg-mr-surface shadow-none">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-mr-line bg-mr-surface px-4 py-2.5 md:px-6">
+            <div>
+              <div className="flex items-center gap-2">
+                <p className="text-[12px] font-semibold text-mr-text">Registry control register</p>
+                <span className="rounded-full bg-mr-surface-2 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-mr-muted">{filteredRegistries.length} visible</span>
+              </div>
+              <p className="mt-0.5 text-[10px] text-mr-faint">Open any row to manage receipts, NOC, documents and possession</p>
+            </div>
+          </div>
           <CardContent className="p-0">
             {/* Row-colour legend: doc + payment health */}
-            <div className="flex items-center gap-4 flex-wrap px-4 py-2 border-b border-slate-100 text-[10px] text-slate-500">
-              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-red-50 border border-red-200" /> Registry document not uploaded</span>
-              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-50 border border-amber-200" /> Document uploaded · payment pending</span>
-              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-50 border border-emerald-200" /> Document uploaded · fully paid</span>
+            <div className="flex flex-wrap items-center gap-4 border-b border-mr-line bg-mr-surface-2/40 px-4 py-2 text-[10px] text-mr-muted md:px-6">
+              <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-rose-500" /> Document required</span>
+              <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-amber-500" /> Payment pending</span>
+              <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Ready and funded</span>
             </div>
-            <div className="overflow-auto relative z-0 will-change-scroll" style={{ maxHeight: 'calc(100vh - 180px)', WebkitOverflowScrolling: 'touch' }}>
-              <table className="w-full caption-bottom text-sm border-collapse">
+            <div className="relative z-0 overflow-auto overscroll-contain will-change-scroll" style={{ maxHeight: 'calc(100vh - 250px)', WebkitOverflowScrolling: 'touch' }}>
+              <table className="w-full min-w-[1680px] caption-bottom border-collapse text-sm">
                 <TableHeader className="sticky top-0 z-30 bg-slate-50" style={{ boxShadow: '0 1px 0 0 #e2e8f0' }}>
                   <TableRow className="hover:bg-transparent bg-slate-50/80">
                     <TableHead className="w-8 sticky left-0 z-40 bg-slate-50">
@@ -3148,8 +3436,8 @@ const PlotRegistry = () => {
                       />
                     </TableHead>
                     <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 w-16 sticky left-8 z-40 bg-slate-50" style={{ boxShadow: '2px 0 4px -1px rgba(0,0,0,0.08)' }}>
-                      <Button variant="ghost" size="sm" onClick={() => setSortOrderRegistries(prev => prev === 'asc' ? 'desc' : 'asc')} className="h-6 px-1 -ml-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 hover:text-slate-700" title="Sort by plot order">
-                        Plot No <ArrowUpDown className="w-3 h-3 ml-1" />
+                      <Button variant="ghost" size="sm" onClick={() => setSortOrderRegistries(prev => prev === 'asc' ? 'desc' : 'asc')} className="h-6 px-1 -ml-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 hover:text-slate-700" title={`Sort by ${propertyTerms.singular.toLowerCase()} order`}>
+                        {propertyTerms.numberLabel} <ArrowUpDown className="w-3 h-3 ml-1" />
                         <span className="text-[9px] ml-0.5">{sortOrderRegistries === 'asc' ? '▲' : '▼'}</span>
                       </Button>
                     </TableHead>
@@ -3182,20 +3470,20 @@ const PlotRegistry = () => {
                     const isSelected = selectedRegs.has(reg.id);
                     const payStatus = getRegistryPaymentStatus(reg);
                     const rowTone = !hasRegistryDoc
-                      ? 'bg-red-50/70 hover:bg-red-100/70'
+                      ? 'bg-white hover:bg-rose-50/40'
                       : bl > 0.005
-                        ? 'bg-amber-50/70 hover:bg-amber-100/70'
-                        : 'bg-emerald-50/60 hover:bg-emerald-100/60';
+                        ? 'bg-white hover:bg-amber-50/40'
+                        : 'bg-white hover:bg-emerald-50/40';
                     // Opaque variant of the same tone for the frozen columns — they need a solid
                     // backing (to occlude scrolling content behind them), so the translucent rowTone
                     // won't do. group-hover mirrors the row's own hover: since "group" is on the <tr>.
                     const stickyTone = isSelected
                       ? 'bg-blue-50 group-hover:bg-blue-100'
                       : !hasRegistryDoc
-                        ? 'bg-red-50 group-hover:bg-red-100'
+                        ? 'bg-white group-hover:bg-rose-50'
                         : bl > 0.005
-                          ? 'bg-amber-50 group-hover:bg-amber-100'
-                          : 'bg-emerald-50 group-hover:bg-emerald-100';
+                          ? 'bg-white group-hover:bg-amber-50'
+                          : 'bg-white group-hover:bg-emerald-50';
 
                     return (
                       <TableRow
@@ -3207,12 +3495,20 @@ const PlotRegistry = () => {
                           <Checkbox
                             checked={selectedRegs.has(reg.id)}
                             onCheckedChange={() => toggleSelectReg(reg.id)}
-                            aria-label={`Select plot ${reg.plot_no}`}
+                            aria-label={`Select ${propertyTerms.singular.toLowerCase()} ${reg.plot_no}`}
                             className="align-middle bg-white/80"
                           />
                         </TableCell>
                         <TableCell className={`sticky left-8 z-10 ${stickyTone}`} style={{ boxShadow: '2px 0 4px -1px rgba(0,0,0,0.08)' }}>
-                          <span className="text-sm font-bold text-blue-700">{reg.plot_no}</span>
+                          <span className="flex items-center gap-2">
+                            <span className={`h-2 w-2 shrink-0 rounded-full ${!hasRegistryDoc ? 'bg-rose-500' : bl > 0.005 ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+                            <span className="text-sm font-bold text-blue-700">{reg.plot_no}</span>
+                            {propertyTerms.isMixedUse && (
+                              <Badge variant="outline" className="h-5 rounded-full border-slate-200 bg-white px-1.5 text-[9px] font-semibold uppercase tracking-wide text-slate-600">
+                                {getPropertyTypeTerminology(reg.property_type, propertyTerms).singular}
+                              </Badge>
+                            )}
+                          </span>
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-1.5">

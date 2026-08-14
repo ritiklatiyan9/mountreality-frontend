@@ -31,6 +31,10 @@ import {
   Popover, PopoverContent, PopoverTrigger,
 } from '../components/ui/popover';
 import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
+  DropdownMenuSeparator, DropdownMenuTrigger,
+} from '../components/ui/dropdown-menu';
+import {
   Command, CommandGroup, CommandInput, CommandItem, CommandList, CommandEmpty
 } from '../components/ui/command';
 import {
@@ -39,7 +43,7 @@ import {
   Banknote, Calendar, Filter, X, Download, Printer, Tag,
   BarChart3, CreditCard, Hash, Clock, CheckCircle2, XCircle,
   UploadCloud, ExternalLink, FileImage, ImageIcon, ArrowUpDown, ChevronsUpDown,
-  Eye, User as UserIcon, Radar as RadarIcon, UserPlus, PenLine,
+  Eye, User as UserIcon, Radar as RadarIcon, UserPlus, PenLine, MoreHorizontal,
 } from 'lucide-react';
 import {
   ResponsiveContainer, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
@@ -131,7 +135,6 @@ const buildExpensesQueryFilters = ({
   search,
   mode,
   category,
-  toEntity,
   dateFrom,
   dateTo,
   missingBill,
@@ -151,7 +154,6 @@ const buildExpensesQueryFilters = ({
   } else if (category && category !== 'all') {
     filters.category = category;
   }
-  if (toEntity && toEntity !== 'all') filters.toEntity = toEntity;
   if (dateFrom) filters.dateFrom = dateFrom;
   if (dateTo) filters.dateTo = dateTo;
   if (missingBill) filters.missingBill = true;
@@ -218,7 +220,6 @@ const Expenses = () => {
   const [filterPeriod, setFilterPeriod] = useState('all');
   const [filterDateFrom, setFilterDateFrom] = useState('');
   const [filterDateTo, setFilterDateTo] = useState('');
-  const [filterTo, setFilterTo] = useState('all');
   const [filterBillStatus, setFilterBillStatus] = useState('all');
   const [filterPanelOpen, setFilterPanelOpen] = useState(false);
   const [filterCategoryOpen, setFilterCategoryOpen] = useState(false);
@@ -293,7 +294,6 @@ const Expenses = () => {
         search: debouncedSearch,
         mode: filterMode,
         category: filterCategories,
-        toEntity: filterTo,
         dateFrom: filterDateFrom,
         dateTo: filterDateTo,
         missingBill: filterBillStatus === 'missing',
@@ -334,7 +334,7 @@ const Expenses = () => {
     }
   }, [
     siteId, currentPage, itemsPerPage, debouncedSearch,
-    filterMode, filterCategories, filterTo, filterDateFrom, filterDateTo, filterBillStatus, sortOrder
+    filterMode, filterCategories, filterDateFrom, filterDateTo, filterBillStatus, sortOrder
   ]);
 
   useEffect(() => {
@@ -351,7 +351,6 @@ const Expenses = () => {
         search: debouncedSearch,
         mode: filterMode,
         category: filterCategories,
-        toEntity: filterTo,
         dateFrom: filterDateFrom,
         dateTo: filterDateTo,
         missingBill: filterBillStatus === 'missing',
@@ -373,7 +372,7 @@ const Expenses = () => {
       if (seq === breakdownSeqRef.current) setBreakdownLoading(false);
     }
   }, [
-    siteId, debouncedSearch, filterMode, filterCategories, filterTo,
+    siteId, debouncedSearch, filterMode, filterCategories,
     filterDateFrom, filterDateTo, filterBillStatus, sortOrder,
   ]);
 
@@ -644,16 +643,16 @@ const Expenses = () => {
   const clearFilters = () => {
     setSearchQuery(''); setFilterMode('all'); setFilterCategories([]);
     setFilterPeriod('all'); setFilterDateFrom(''); setFilterDateTo('');
-    setFilterTo('all'); setFilterBillStatus('all'); setSortOrder('desc');
+    setFilterBillStatus('all'); setSortOrder('desc');
   };
 
   // Reset to page 1 when filters or items per page change
   useEffect(() => {
     setCurrentPage(1);
-  }, [debouncedSearch, filterMode, filterCategories, filterTo, filterDateFrom, filterDateTo, filterBillStatus, itemsPerPage, sortOrder]);
+  }, [debouncedSearch, filterMode, filterCategories, filterDateFrom, filterDateTo, filterBillStatus, itemsPerPage, sortOrder]);
 
   const hasActiveFilters = filterMode !== 'all' || filterCategories.length > 0 ||
-    filterTo !== 'all' || filterDateFrom || filterDateTo || searchQuery || filterBillStatus !== 'all';
+    filterDateFrom || filterDateTo || searchQuery || filterBillStatus !== 'all';
 
   // The summary is already computed by the backend for the filtered results!
   const totalDebit = parseFloat(summary.total_debit) || 0;
@@ -665,11 +664,6 @@ const Expenses = () => {
   const cashIn  = parseFloat(summary.cash_credit) || 0;
   const bankOut = parseFloat(summary.bank_debit) || 0;
   const bankIn  = parseFloat(summary.bank_credit) || 0;
-
-  // Unique TO entities for filter
-  const uniqueToEntities = useMemo(() => {
-    return [...new Set(expenses.map(e => e.to_entity).filter(Boolean))].sort();
-  }, [expenses]);
 
   // ── Helpers ──
   const fmt = (val) => {
@@ -771,7 +765,6 @@ const Expenses = () => {
       search: searchQuery,
       mode: filterMode,
       category: filterCategories,
-      toEntity: filterTo,
       dateFrom: filterDateFrom,
       dateTo: filterDateTo,
       missingBill: filterBillStatus === 'missing',
@@ -818,7 +811,7 @@ const Expenses = () => {
         [],
       ];
 
-      const colHeaders = ['No', 'Date', 'FROM', 'TO', 'Mode', 'Debit (₹)', 'Credit (₹)', 'Balance (₹)', 'Remark', 'Account', 'Branch', 'Category'];
+      const colHeaders = ['No', 'Date', 'Mode', 'Debit (₹)', 'Credit (₹)', 'Balance (₹)', 'Remark', 'Account', 'Branch', 'Category'];
       headerRows.push(colHeaders);
 
       const dataRows = fullData.map((e, i) => {
@@ -826,30 +819,29 @@ const Expenses = () => {
         return [
           i + 1,
           rowDate === '—' ? '' : rowDate,
-          e.from_entity || '', e.to_entity || '', e.payment_mode || '',
+          e.payment_mode || '',
           parseFloat(e.debit) || 0, parseFloat(e.credit) || 0,
           parseFloat(e.balance) || '',
           e.remark || '', e.account_no || '', e.branch || '', e.category || '',
         ];
       });
 
-      const totRow = ['', '', '', '', 'TOTAL',
+      const totRow = ['', '', 'TOTAL',
         dlTotalDebit,
         dlTotalCredit,
-        '', '', '', '', '',
+        '', '', '', '',
       ];
 
       const allRows = [...headerRows, ...dataRows, totRow];
       const ws = XLSX.utils.aoa_to_sheet(allRows);
 
       ws['!cols'] = [
-        { wch: 6 }, { wch: 14 }, { wch: 22 }, { wch: 22 }, { wch: 12 },
-        { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 28 }, { wch: 16 },
-        { wch: 18 }, { wch: 16 },
+        { wch: 6 }, { wch: 14 }, { wch: 12 }, { wch: 16 }, { wch: 16 },
+        { wch: 16 }, { wch: 28 }, { wch: 16 }, { wch: 18 }, { wch: 16 },
       ];
       ws['!merges'] = [
-        { s: { r: 0, c: 0 }, e: { r: 0, c: 11 } },
-        { s: { r: 1, c: 0 }, e: { r: 1, c: 11 } },
+        { s: { r: 0, c: 0 }, e: { r: 0, c: 9 } },
+        { s: { r: 1, c: 0 }, e: { r: 1, c: 9 } },
       ];
 
       XLSX.utils.book_append_sheet(wb, ws, 'Expenses');
@@ -882,10 +874,9 @@ const Expenses = () => {
         const debit = parseFloat(expense.debit) || 0;
         const credit = parseFloat(expense.credit) || 0;
         const title = expense.remark || expense.category || 'Expense entry';
-        const party = expense.to_entity || expense.from_entity || '—';
         return `<tr>
           <td>${index + 1}</td><td>${esc(fmtDate(expense.date))}</td>
-          <td><strong>${esc(title)}</strong><small>${esc(expense.category || 'Uncategorised')} · ${esc(party)}</small></td>
+          <td><strong>${esc(title)}</strong><small>${esc(expense.category || 'Uncategorised')}</small></td>
           <td>${esc(expense.payment_mode || '—')}</td>
           <td class="amount debit">${debit ? `₹${esc(fmt(debit))}` : '—'}</td>
           <td class="amount credit">${credit ? `₹${esc(fmt(credit))}` : '—'}</td>
@@ -903,7 +894,7 @@ const Expenses = () => {
         table { width:100%; border-collapse:collapse; margin-top:18px; font-size:10px; } th { padding:9px 8px; border-bottom:1.5px solid #172033; color:#64748b; font-size:8px; letter-spacing:.09em; text-align:left; text-transform:uppercase; } td { padding:9px 8px; border-bottom:1px solid #e7edf4; vertical-align:top; } tbody tr:nth-child(even) { background:#f8fafc; } td small { display:block; margin-top:3px; color:#7b8aa1; font-size:9px; } .amount { font-weight:800; text-align:right; white-space:nowrap; } .debit { color:#dc2626; } .credit { color:#059669; } .status { display:inline-block; border-radius:999px; padding:3px 7px; font-size:8px; font-weight:800; text-transform:capitalize; } .status.approved { background:#dcfce7; color:#15803d; } .status.pending { background:#fef3c7; color:#b45309; } .status.rejected { background:#fee2e2; color:#dc2626; }
         .footer { display:flex; justify-content:space-between; gap:16px; margin-top:12px; color:#7b8aa1; font-size:9px; } .print-actions { position:fixed; right:20px; bottom:20px; } .print-actions button { border:0; border-radius:8px; background:#172033; color:#fff; cursor:pointer; font:700 13px Inter, sans-serif; padding:11px 18px; box-shadow:0 8px 18px rgba(15,23,42,.18); }
         @media print { .print-actions { display:none; } }
-      </style></head><body><main class="report"><header class="top"><div><p class="eyebrow">${esc(currentSite?.name || 'Site')} · Finance workspace</p><h1>Expense register</h1><p class="copy">${esc(periodLabel)} · ${rows.length} ${rows.length === 1 ? 'entry' : 'entries'} · Generated ${esc(new Date().toLocaleString('en-IN'))}</p></div><div class="stamp"><b>FINANCIAL OS</b><br/>Printable management register<br/>Use Print → Save as PDF</div></header><section class="metrics"><div class="metric"><span>Entries</span><b>${rows.length}</b></div><div class="metric"><span>Total debit</span><b class="out">₹${esc(fmt(reportDebit))}</b></div><div class="metric"><span>Total credit</span><b class="in">₹${esc(fmt(reportCredit))}</b></div><div class="metric"><span>Net position</span><b class="${reportNet >= 0 ? 'in' : 'out'}">₹${esc(fmt(Math.abs(reportNet)))}</b></div></section><table><thead><tr><th>#</th><th>Date</th><th>Expense / party</th><th>Method</th><th style="text-align:right">Debit</th><th style="text-align:right">Credit</th><th>Status</th></tr></thead><tbody>${rowsHtml}</tbody></table><footer class="footer"><span>System generated expense register · ${esc(currentSite?.name || 'Site')}</span><span>Active filters applied</span></footer></main><div class="print-actions"><button id="print-expense-register" type="button">Print / Save as PDF</button></div></body></html>`;
+      </style></head><body><main class="report"><header class="top"><div><p class="eyebrow">${esc(currentSite?.name || 'Site')} · Finance workspace</p><h1>Expense register</h1><p class="copy">${esc(periodLabel)} · ${rows.length} ${rows.length === 1 ? 'entry' : 'entries'} · Generated ${esc(new Date().toLocaleString('en-IN'))}</p></div><div class="stamp"><b>FINANCIAL OS</b><br/>Printable management register<br/>Use Print → Save as PDF</div></header><section class="metrics"><div class="metric"><span>Entries</span><b>${rows.length}</b></div><div class="metric"><span>Total debit</span><b class="out">₹${esc(fmt(reportDebit))}</b></div><div class="metric"><span>Total credit</span><b class="in">₹${esc(fmt(reportCredit))}</b></div><div class="metric"><span>Net position</span><b class="${reportNet >= 0 ? 'in' : 'out'}">₹${esc(fmt(Math.abs(reportNet)))}</b></div></section><table><thead><tr><th>#</th><th>Date</th><th>Expense detail</th><th>Method</th><th style="text-align:right">Debit</th><th style="text-align:right">Credit</th><th>Status</th></tr></thead><tbody>${rowsHtml}</tbody></table><footer class="footer"><span>System generated expense register · ${esc(currentSite?.name || 'Site')}</span><span>Active filters applied</span></footer></main><div class="print-actions"><button id="print-expense-register" type="button">Print / Save as PDF</button></div></body></html>`;
       writePrintDocument(reportWindow, html);
       toast.success('Printable expense register is ready. Choose “Save as PDF” in the print dialog.');
     } catch (error) {
@@ -930,7 +921,6 @@ const Expenses = () => {
       hour: '2-digit', minute: '2-digit', hour12: true,
     });
     const signerName = user?.full_name || user?.name || '';
-    const party = (isDebit ? exp.to_entity : exp.from_entity) || exp.to_entity || exp.from_entity || '';
     const bankDetails = [
       exp.account_no ? `Account ending ${String(exp.account_no).slice(-4)}` : '',
       exp.branch,
@@ -947,7 +937,6 @@ const Expenses = () => {
         date: dateStr,
         leadIn: `${expenseName} · ${isDebit ? 'Payment recorded from the Site expense account.' : 'Credit recorded in the Site expense account.'}`,
         rows: [
-          { field: 'party', label: isDebit ? 'Paid to' : 'Received from', value: party },
           { label: 'Expense', value: expenseName },
           { field: 'allocation', label: 'Category', value: exp.category },
           { field: 'payment_mode', label: 'Payment mode', value: exp.payment_mode },
@@ -1014,63 +1003,62 @@ const Expenses = () => {
   //  MAIN VIEW
   // ═══════════════════════════════════════════════════
   return (
-    <div className="mx-auto w-full max-w-[1800px] space-y-6 pb-6">
-      <header className="relative overflow-hidden border-y border-mr-line bg-gradient-to-r from-mr-surface via-mr-surface to-mr-blue-soft/45 px-5 py-5 sm:px-6">
-        <div className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full bg-mr-blue/10 blur-3xl" />
-        <div className="relative flex flex-col items-start justify-between gap-5 xl:flex-row xl:items-end">
+    <div className="-mx-4 -mt-4 w-[calc(100%+2rem)] pb-8 md:-mx-6 md:-mt-6 md:w-[calc(100%+3rem)]">
+      <header className="border-b border-mr-line bg-mr-surface px-5 py-5 sm:px-6">
+        <div className="flex flex-col items-start justify-between gap-5 xl:flex-row xl:items-end">
           <div className="flex min-w-0 items-start gap-3.5">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-mr-ink text-white shadow-sm"><IndianRupee className="h-5 w-5" strokeWidth={2} /></span>
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-mr-blue-soft text-mr-blue"><IndianRupee className="h-5 w-5" strokeWidth={2} /></span>
             <div className="min-w-0">
-              <p className="text-[10px] font-bold uppercase tracking-[.16em] text-mr-blue">{currentSite?.name || 'Finance workspace'} · cash control</p>
-              <h1 className="mt-1 text-[clamp(1.65rem,2.7vw,2.25rem)] font-semibold leading-tight tracking-[-0.045em] text-mr-text">Expense control</h1>
-              <p className="mt-1.5 max-w-2xl text-[13px] leading-5 text-mr-muted">Track spending, reimbursements, bills and approval evidence in one auditable register.</p>
+              <p className="text-[10px] font-bold uppercase tracking-[.16em] text-mr-blue">{currentSite?.name || 'Finance workspace'} · finance workspace</p>
+              <h1 className="mt-1 text-[clamp(1.6rem,2.7vw,2.1rem)] font-semibold leading-tight tracking-[-0.045em] text-mr-text">Expenses</h1>
+              <p className="mt-1.5 max-w-2xl text-[13px] leading-5 text-mr-muted">Track expense outflow, recoveries and supporting bills in one approval-ready register.</p>
+              <p className="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-mr-muted">
+                <span className="inline-flex items-center gap-1.5 font-medium text-mr-text"><span className="h-1.5 w-1.5 rounded-full bg-mr-lime-ink" aria-hidden="true" /> Live register</span>
+                <span className="text-mr-faint">•</span>
+                <span className="tabular-nums">{totalItems} {totalItems === 1 ? 'entry' : 'entries'} in view</span>
+              </p>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-          <BulkActionsBar
-            count={selection.count}
-            onClear={selection.clear}
-            onEdit={canUpdate ? handleBulkEdit : undefined}
-            onDelete={canDelete ? handleBulkDelete : undefined}
-            onPrint={handleBulkPrint}
-            entityLabel="expense"
-            deleting={bulkDeleting}
-          />
-          <Button
-            variant="outline"
-            onClick={() => setRadarOpen(true)}
-            className="h-10 rounded-full border-mr-line text-[13px]"
-            title="Category radar chart"
-          >
-              <RadarIcon className="mr-1.5 h-4 w-4" strokeWidth={1.9} /> Radar
-            </Button>
-            <Button
-              variant="outline"
-              onClick={printExpenseReport}
-              disabled={expenses.length === 0 || printingReport}
-              className="h-10 rounded-full border-mr-line bg-mr-surface text-[13px]"
-              title="Open a printable register. Choose Save as PDF in the system print dialog."
-            >
-              {printingReport ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" strokeWidth={1.9} /> : <Printer className="mr-1.5 h-4 w-4" strokeWidth={1.9} />}
-              Print PDF
-            </Button>
-            <Button
-              variant="outline"
-              onClick={downloadExcel}
-            disabled={expenses.length === 0}
-            className="h-10 rounded-full border-mr-line text-[13px]"
-          >
-            <Download className="mr-1.5 h-4 w-4" strokeWidth={1.9} /> Excel
-          </Button>
-          {canWrite && (
-            <Button
-              onClick={handleOpenCreate}
-              className="h-10 rounded-full bg-mr-ink px-4 text-[13px] font-semibold text-white hover:bg-mr-ink-2"
-            >
-              <Plus className="mr-1.5 h-4 w-4" strokeWidth={2} /> Add expense
-            </Button>
-          )}
-        </div>
+            <BulkActionsBar
+              count={selection.count}
+              onClear={selection.clear}
+              onEdit={canUpdate ? handleBulkEdit : undefined}
+              onDelete={canDelete ? handleBulkDelete : undefined}
+              onPrint={handleBulkPrint}
+              entityLabel="expense"
+              deleting={bulkDeleting}
+            />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="h-10 rounded-full border-mr-line bg-mr-surface px-3.5 text-[13px]">
+                  <MoreHorizontal className="mr-1.5 h-4 w-4" strokeWidth={2} /> More
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-52">
+                <DropdownMenuLabel className="text-[12px]">Workspace tools</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => setRadarOpen(true)}>
+                  <RadarIcon className="text-mr-blue" strokeWidth={1.9} /> Spend analysis
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={printExpenseReport} disabled={expenses.length === 0 || printingReport}>
+                  {printingReport ? <Loader2 className="animate-spin text-mr-muted" strokeWidth={1.9} /> : <Printer className="text-mr-muted" strokeWidth={1.9} />}
+                  Print register
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={downloadExcel} disabled={expenses.length === 0}>
+                  <Download className="text-mr-muted" strokeWidth={1.9} /> Export Excel
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            {canWrite && (
+              <Button
+                onClick={handleOpenCreate}
+                className="h-10 rounded-full bg-mr-ink px-4 text-[13px] font-semibold text-white shadow-sm hover:bg-mr-ink-2"
+              >
+                <Plus className="mr-1.5 h-4 w-4" strokeWidth={2} /> Add expense
+              </Button>
+            )}
+          </div>
         </div>
       </header>
 
@@ -1088,10 +1076,10 @@ const Expenses = () => {
 
       {/* Breakdown */}
       <Collapsible open={breakdownOpen} onOpenChange={setBreakdownOpen}>
-        <section className="overflow-hidden rounded-panel border border-mr-line bg-mr-surface">
+        <section className="border-b border-mr-line">
           <CollapsibleTrigger asChild>
             <button
-              className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left transition-colors hover:bg-mr-surface-2/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue focus-visible:ring-inset sm:px-6"
+              className="flex w-full items-center justify-between gap-3 px-5 py-3.5 text-left transition-colors hover:bg-mr-surface-2/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue focus-visible:ring-inset sm:px-6"
               aria-expanded={breakdownOpen}
             >
               <span>
@@ -1105,7 +1093,7 @@ const Expenses = () => {
             </button>
           </CollapsibleTrigger>
           <CollapsibleContent>
-            <div className="border-t border-mr-line px-5 pb-5 pt-4 sm:px-6">
+            <div className="border-t border-mr-line bg-mr-surface-2/30 px-5 pb-5 pt-4 sm:px-6">
               {breakdownLoading && !breakdownLoaded ? (
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
                   {[0, 1, 2, 3, 4].map((i) => <SkeletonBlock key={i} className="h-20 w-full" />)}
@@ -1115,7 +1103,7 @@ const Expenses = () => {
               ) : (() => {
                 const maxCatDebit = Math.max(...sortedCategoryBreakdown.map((c) => parseFloat(c.total_debit) || 0), 1);
                 return (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
+                <div className="grid grid-cols-2 gap-x-5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
                   {sortedCategoryBreakdown.map((c) => {
                     const key = c.category;
                     const isActive = filterCategories.includes(key);
@@ -1126,27 +1114,27 @@ const Expenses = () => {
                         key={key}
                         onClick={() => toggleFilterCategory(key)}
                         aria-pressed={isActive}
-                        className={`group rounded-control border p-3 text-left transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue ${isActive
-                          ? 'border-transparent bg-mr-ink text-white'
-                          : 'border-mr-line bg-mr-surface hover:bg-mr-surface-2'
+                        className={`group border-b px-1 py-3 text-left transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue ${isActive
+                          ? 'border-mr-blue text-mr-blue'
+                          : 'border-mr-line text-mr-text hover:border-mr-muted'
                         }`}
                       >
                         <div className="mb-2 flex items-center gap-2">
-                          <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${isActive ? 'bg-white/15 text-white' : 'bg-mr-blue-soft text-mr-blue'}`}>
+                          <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${isActive ? 'bg-mr-blue text-white' : 'bg-mr-blue-soft text-mr-blue'}`}>
                             {letter}
                           </span>
-                          <p className={`truncate text-[12px] font-medium ${isActive ? 'text-white' : 'text-mr-text'}`}>{key}</p>
+                          <p className="truncate text-[12px] font-medium">{key}</p>
                         </div>
-                        <p className={`text-[17px] font-semibold tabular-nums ${isActive ? 'text-white' : 'text-mr-text'}`}>
+                        <p className="text-[17px] font-semibold tabular-nums text-mr-text">
                           ₹{fmt(c.total_debit)}
                         </p>
-                        <div className={`mt-2 h-1.5 overflow-hidden rounded-full ${isActive ? 'bg-white/20' : 'bg-mr-surface-2'}`}>
-                          <div className={`h-full rounded-full ${isActive ? 'bg-white/70' : 'bg-mr-coral'}`} style={{ width: `${share}%` }} />
+                        <div className="mt-2 h-px overflow-hidden bg-mr-line">
+                          <div className={`h-full ${isActive ? 'bg-mr-blue' : 'bg-mr-coral'}`} style={{ width: `${share}%` }} />
                         </div>
                         <div className="mt-1.5 flex items-center justify-between gap-2">
-                          <span className={`text-[12px] ${isActive ? 'text-white/60' : 'text-mr-faint'}`}>{c.entries} {c.entries === 1 ? 'entry' : 'entries'}</span>
+                          <span className="text-[12px] text-mr-faint">{c.entries} {c.entries === 1 ? 'entry' : 'entries'}</span>
                           {c.total_credit > 0 && (
-                            <span className={`text-[12px] ${isActive ? 'text-mr-lime' : 'text-mr-lime-ink'}`}>+₹{fmt(c.total_credit)}</span>
+                            <span className="text-[12px] text-mr-lime-ink">+₹{fmt(c.total_credit)}</span>
                           )}
                         </div>
                       </button>
@@ -1161,28 +1149,34 @@ const Expenses = () => {
       </Collapsible>
 
       {/* Filter Bar */}
-      <section className="rounded-panel border border-mr-line bg-mr-surface">
+      <section className="border-b border-mr-line bg-mr-surface">
         <div className="space-y-3 p-4 sm:p-5">
-          <div className="flex items-center justify-between gap-2 flex-wrap">
-            <div role="radiogroup" aria-label="Reporting period" className="mr-rail inline-flex max-w-full items-center gap-0.5 overflow-x-auto rounded-full border border-mr-line bg-mr-surface-2 p-1">
-              {PERIOD_OPTIONS.map((pr) => (
-                <button
-                  key={pr.key}
-                  type="button"
-                  role="radio"
-                  aria-checked={filterPeriod === pr.key}
-                  onClick={() => { handlePeriodChange(pr.key); if (pr.key === 'custom') setFilterPanelOpen(true); }}
-                  className={`whitespace-nowrap rounded-full px-3 py-1.5 text-[12px] font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue focus-visible:ring-offset-1 ${
-                    filterPeriod === pr.key ? 'bg-mr-ink text-white' : 'text-mr-muted hover:text-mr-text'
-                  }`}
-                >
-                  {pr.label}
-                </button>
-              ))}
+          <div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-center">
+            <div>
+              <h2 className="text-[15px] font-semibold tracking-[-.01em] text-mr-text">Find and review</h2>
+              <p className="mt-0.5 text-[12px] text-mr-muted">Search the register or narrow it by a reporting period, method and category.</p>
             </div>
-            <span className="px-1 text-[12px] tabular-nums text-mr-muted">
-              {totalItems} {totalItems === 1 ? 'entry' : 'entries'}
-            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <div role="radiogroup" aria-label="Reporting period" className="mr-rail inline-flex max-w-full items-center gap-0.5 overflow-x-auto rounded-full border border-mr-line bg-mr-surface-2 p-1">
+                {PERIOD_OPTIONS.map((pr) => (
+                  <button
+                    key={pr.key}
+                    type="button"
+                    role="radio"
+                    aria-checked={filterPeriod === pr.key}
+                    onClick={() => { handlePeriodChange(pr.key); if (pr.key === 'custom') setFilterPanelOpen(true); }}
+                    className={`whitespace-nowrap rounded-full px-3 py-1.5 text-[12px] font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue focus-visible:ring-offset-1 ${
+                      filterPeriod === pr.key ? 'bg-mr-ink text-white' : 'text-mr-muted hover:text-mr-text'
+                    }`}
+                  >
+                    {pr.label}
+                  </button>
+                ))}
+              </div>
+              <span className="rounded-full border border-mr-line bg-mr-surface-2 px-2.5 py-1 text-[11px] font-medium tabular-nums text-mr-muted">
+                {totalItems} {totalItems === 1 ? 'entry' : 'entries'}
+              </span>
+            </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -1191,7 +1185,7 @@ const Expenses = () => {
               <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-mr-faint" strokeWidth={1.9} aria-hidden="true" />
               <Input
                 id="mr-expense-search"
-                placeholder="Search party, remark or account…"
+                placeholder="Search expense, remark or account…"
                 value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
                 className="h-10 rounded-full border-mr-line bg-mr-surface-2 pl-10 text-[13px] shadow-none focus-visible:border-mr-blue focus-visible:bg-mr-surface focus-visible:ring-2 focus-visible:ring-mr-blue/25"
               />
@@ -1325,18 +1319,6 @@ const Expenses = () => {
               </PopoverContent>
             </Popover>
 
-            <Select value={filterTo} onValueChange={setFilterTo}>
-              <SelectTrigger className="h-9 w-36 rounded-full border-mr-line bg-mr-surface text-[12px]" aria-label="Filter by recipient">
-                <SelectValue placeholder="All recipients" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Recipients</SelectItem>
-                {uniqueToEntities.map((t) => (
-                  <SelectItem key={t} value={t}>{t}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
             <button
               onClick={() => setFilterBillStatus(filterBillStatus === 'missing' ? 'all' : 'missing')}
               type="button"
@@ -1387,12 +1369,6 @@ const Expenses = () => {
                   {filterCategories.length} categories · AND
                 </Badge>
               )}
-              {filterTo !== 'all' && (
-                <Badge variant="secondary" className="gap-1 rounded-full border-mr-line bg-mr-surface-2 text-[12px] font-medium text-mr-muted">
-                  TO: {filterTo}
-                  <X className="w-3 h-3 cursor-pointer ml-0.5" onClick={() => setFilterTo('all')} />
-                </Badge>
-              )}
               {searchQuery && (
                 <Badge variant="secondary" className="gap-1 rounded-full border-mr-line bg-mr-surface-2 text-[12px] font-medium text-mr-muted">
                   <Search className="w-3 h-3" /> &quot;{searchQuery}&quot;
@@ -1417,14 +1393,26 @@ const Expenses = () => {
       </section>
 
       {/* Expenses Table */}
-      <section className="overflow-hidden rounded-panel border border-mr-line bg-mr-surface">
-        <div className="p-0">
+      <section className="mx-4 mt-5 overflow-hidden rounded-xl border border-mr-line bg-mr-surface shadow-[0_1px_2px_rgba(15,23,42,.03)] sm:mx-6">
+          <div className="p-0">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-mr-line px-5 py-4 sm:px-6">
             <div>
-              <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-mr-text">Expense entries</h2>
-              <p className="mt-0.5 text-[12px] text-mr-muted">Every payment, bill and approval in one place</p>
+              <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-mr-text">Expense register</h2>
+              <p className="mt-0.5 text-[12px] text-mr-muted">Open an entry for its evidence, approval trail and print-ready voucher.</p>
             </div>
-            <span className="text-[12px] text-mr-muted">{totalItems} record{totalItems === 1 ? '' : 's'}</span>
+            <div className="flex items-center gap-2">
+              <span className="hidden text-[12px] text-mr-muted sm:inline">{totalItems} record{totalItems === 1 ? '' : 's'}</span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
+                className="h-8 rounded-full border-mr-line bg-mr-surface px-3 text-[11px] font-medium text-mr-muted"
+                title={sortOrder === 'asc' ? 'Show newest entries first' : 'Show oldest entries first'}
+              >
+                <ArrowUpDown className="mr-1.5 h-3.5 w-3.5" strokeWidth={1.9} />
+                {sortOrder === 'asc' ? 'Oldest first' : 'Newest first'}
+              </Button>
+            </div>
           </div>
           {loading ? (
             <div className="space-y-3 p-5 sm:p-6">
@@ -1601,8 +1589,6 @@ const Expenses = () => {
                     </div>
                   )}
                   {kv('Date', fmtDate(v.date))}
-                  {kv('From / Source', v.from_entity)}
-                  {kv('To / Recipient', v.to_entity)}
                   {kv('Assigned Admin', v.assigned_admin_name)}
                   {kv('Assigned User', v.assigned_user_name)}
                   {kv('Category', v.category)}
@@ -1667,7 +1653,7 @@ const Expenses = () => {
         onSave={handleSaveSignature}
         askAuthority={!nameSignOn}
         signeeLabel={signEntry
-          ? `${signEntry.to_entity || signEntry.from_entity || 'Customer'} · ₹${fmt(Math.abs(parseFloat(signEntry.debit) || parseFloat(signEntry.credit) || 0))}`
+          ? `${signEntry.category || signEntry.remark || 'Expense entry'} · ₹${fmt(Math.abs(parseFloat(signEntry.debit) || parseFloat(signEntry.credit) || 0))}`
           : ''}
       />
 

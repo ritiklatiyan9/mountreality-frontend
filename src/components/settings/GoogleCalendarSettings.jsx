@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { CalendarCheck2, Loader2, Mail, Plus, Trash2, Unplug } from 'lucide-react';
+import { CalendarCheck2, Loader2, Mail, Plus, RefreshCw, Trash2, Unplug } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSearchParams } from 'react-router-dom';
 import api from '../../api/api';
@@ -10,7 +10,7 @@ import {
 
 const errMessage = (err) => err?.response?.data?.message || 'Something went wrong';
 
-export default function GoogleCalendarSettings() {
+export default function GoogleCalendarSettings({ onStatusChange }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState({ configured: false, connection: null, emails: [] });
@@ -30,6 +30,10 @@ export default function GoogleCalendarSettings() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    onStatusChange?.({ loading, connected: Boolean(data.connection) });
+  }, [data.connection, loading, onStatusChange]);
 
   /* One-shot toast for the OAuth redirect landing (?google=connected|error). */
   useEffect(() => {
@@ -62,6 +66,18 @@ export default function GoogleCalendarSettings() {
       await api.post('/settings/google-calendar/disconnect');
       toast.success('Google Calendar disconnected');
       await load();
+    } catch (err) {
+      toast.error(errMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const syncFutureEvents = async () => {
+    setBusy(true);
+    try {
+      const { data: result } = await api.post('/settings/google-calendar/sync');
+      toast.success(`${result.synced || 0} future event${result.synced === 1 ? '' : 's'} refreshed`);
     } catch (err) {
       toast.error(errMessage(err));
     } finally {
@@ -124,6 +140,10 @@ export default function GoogleCalendarSettings() {
                 <CalendarCheck2 className="h-4 w-4 text-mr-blue" aria-hidden="true" />
                 {data.connection.google_account_email}
               </span>
+              <button type="button" className={GHOST_BTN} onClick={syncFutureEvents} disabled={busy}>
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <RefreshCw className="h-4 w-4" aria-hidden="true" />}
+                Refresh future events
+              </button>
               <button type="button" className={DANGER_BTN} onClick={disconnect} disabled={busy}>
                 <Unplug className="h-4 w-4" aria-hidden="true" /> Disconnect
               </button>

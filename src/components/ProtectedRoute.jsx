@@ -21,6 +21,32 @@ export const ProtectedRoute = ({
     );
   }
 
+  if (currentSite && sitePolicy.status === SITE_POLICY_STATUSES.ERROR) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-slate-50 px-5 py-12">
+        <section className="w-full max-w-lg rounded-2xl border border-red-100 bg-white p-7 text-center shadow-sm">
+          <p className="text-[12px] font-semibold uppercase tracking-[0.12em] text-red-600">Site settings unavailable</p>
+          <h1 className="mt-2 text-[22px] font-semibold tracking-[-0.025em] text-slate-950">
+            Regulated actions are temporarily paused
+          </h1>
+          <p className="mt-2 text-[14px] leading-relaxed text-slate-600">
+            {sitePolicy.error || 'The selected Site operating profile could not be verified.'}
+          </p>
+          <p className="mt-2 text-[12px] leading-relaxed text-slate-500">
+            No finance, payment, or registry mode will be assumed until the Site policy is available again.
+          </p>
+          <button
+            type="button"
+            onClick={() => sitePolicy.refreshPolicy()}
+            className="mt-6 inline-flex h-10 items-center rounded-full bg-slate-950 px-5 text-[13px] font-semibold text-white hover:bg-slate-800"
+          >
+            Retry Site settings
+          </button>
+        </section>
+      </main>
+    );
+  }
+
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
   }

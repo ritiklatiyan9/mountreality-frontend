@@ -1,64 +1,68 @@
-import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { createElement, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { SitePolicyContext } from '../context/SitePolicyContext';
 import api from '../api/api';
 import { cn } from '../lib/utils';
-import { Card, CardContent } from '../components/ui/card';
+import { getPropertyTerminology, unitCountLabel } from '../lib/propertyTerminology';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
+import PaymentAnalytics from './PaymentAnalytics';
 import {
-  IndianRupee, AlertTriangle, CalendarClock, TrendingUp, Wallet, Bell, MapPin, CheckCircle2,
+  AlertTriangle, BarChart3, Bell, CalendarClock, CheckCircle2,
+  IndianRupee, LayoutDashboard, MapPin, TrendingUp, Wallet,
 } from 'lucide-react';
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as ChartTooltip, ResponsiveContainer, LabelList, Cell,
+  Bar, BarChart, CartesianGrid, Cell, LabelList, ResponsiveContainer,
+  Tooltip as ChartTooltip, XAxis, YAxis,
 } from 'recharts';
 
-// Chart colours — validated (dataviz method): single blue for collections,
-// ordinal blue ramp for the overdue aging buckets.
 const C_BLUE = '#2a78d6';
 const AGING_RAMP = ['#86b6ef', '#5598e7', '#2a78d6', '#1c5cab'];
 const CHART_GRID = '#e2e8f0';
 const CHART_INK = '#898781';
 const compactINR = new Intl.NumberFormat('en-IN', { notation: 'compact', maximumFractionDigits: 1 });
-const fmtCompact = (v) => `₹${compactINR.format(parseFloat(v) || 0)}`;
+const fmtCompact = (value) => `₹${compactINR.format(parseFloat(value) || 0)}`;
+const fmt = (value) => Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
 const chartTooltipStyle = {
-  borderRadius: 8, border: `1px solid ${CHART_GRID}`, fontSize: 12,
-  boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
-};
-const fmt = (n) => Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
-
-// Per-metric accent colors for the KPI cards — a colored top strip + icon
-// badge per card so the four tiles scan distinctly at a glance.
-const KPI_COLORS = {
-  sky:     { badge: 'bg-sky-100 text-sky-600',         accent: 'bg-sky-500' },
-  red:     { badge: 'bg-red-100 text-red-600',         accent: 'bg-red-500' },
-  amber:   { badge: 'bg-amber-100 text-amber-600',      accent: 'bg-amber-500' },
-  emerald: { badge: 'bg-emerald-100 text-emerald-600',  accent: 'bg-emerald-500' },
+  borderRadius: 10,
+  border: `1px solid ${CHART_GRID}`,
+  fontSize: 12,
+  boxShadow: '0 10px 30px rgba(15,23,42,0.1)',
 };
 
-const CARD_SHELL = 'rounded-2xl border-slate-200/80 shadow-sm shadow-slate-900/[0.04]';
+const VIEW_OPTIONS = [
+  { value: 'overview', label: 'Overview', icon: LayoutDashboard },
+  { value: 'analytics', label: 'Analysis', icon: BarChart3 },
+];
 
 export default function PaymentManagement() {
   const { currentSite } = useAuth();
-  const siteId = currentSite?.id;
+  const sitePolicy = useContext(SitePolicyContext);
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const siteId = currentSite?.id;
+  const view = searchParams.get('view') === 'analytics' ? 'analytics' : 'overview';
+  const propertyTerms = useMemo(
+    () => getPropertyTerminology(sitePolicy),
+    [sitePolicy],
+  );
 
   const [summary, setSummary] = useState({});
   const [collections, setCollections] = useState([]);
   const [loading, setLoading] = useState(true);
   const [reminderTotal, setReminderTotal] = useState(0);
 
-  // Unfiltered overview — this page is analytics-only, so it always reflects
-  // every plot, not whatever filter was last set on the All Plots table.
   const fetchOverview = useCallback(async () => {
     if (!siteId) return;
     setLoading(true);
     try {
-      const res = await api.get(`/plots/payment-management?site_id=${siteId}`);
-      setSummary(res.data.summary || {});
-      setCollections(res.data.collections || []);
+      const { data } = await api.get(`/plots/payment-management?site_id=${siteId}`);
+      setSummary(data.summary || {});
+      setCollections(data.collections || []);
     } catch {
-      // Overview is non-critical decoration for this page; fail quietly.
+      setSummary({});
+      setCollections([]);
     } finally {
       setLoading(false);
     }
@@ -67,20 +71,33 @@ export default function PaymentManagement() {
   const fetchReminderCount = useCallback(async () => {
     if (!siteId) return;
     try {
-      const res = await api.get(`/plots/payment-reminders?site_id=${siteId}&page=1&limit=1`);
-      setReminderTotal(res.data.summary?.total || 0);
+      const { data } = await api.get(`/plots/payment-reminders?site_id=${siteId}&page=1&limit=1`);
+      setReminderTotal(data.summary?.total || 0);
     } catch {
       setReminderTotal(0);
     }
   }, [siteId]);
 
-  useEffect(() => { fetchOverview(); fetchReminderCount(); }, [fetchOverview, fetchReminderCount]);
+  useEffect(() => {
+    fetchReminderCount();
+  }, [fetchReminderCount]);
+
+  useEffect(() => {
+    if (view === 'overview') fetchOverview();
+  }, [fetchOverview, view]);
+
+  const changeView = (nextView) => {
+    const next = new URLSearchParams(searchParams);
+    if (nextView === 'overview') next.delete('view');
+    else next.set('view', nextView);
+    setSearchParams(next, { replace: true });
+  };
 
   if (!currentSite) {
     return (
-      <div className="flex flex-col items-center justify-center h-full min-h-[60vh] text-slate-400 gap-3">
-        <IndianRupee className="w-10 h-10" />
-        <p className="text-sm">Select a site to manage payments</p>
+      <div className="flex min-h-[60vh] flex-col items-center justify-center gap-3 text-mr-faint">
+        <IndianRupee className="h-10 w-10" />
+        <p className="text-sm">Select a Site to manage payments</p>
       </div>
     );
   }
@@ -91,154 +108,144 @@ export default function PaymentManagement() {
     { bucket: '61–90 days', amount: summary.aging?.d61_90 || 0 },
     { bucket: '90+ days', amount: summary.aging?.d90_plus || 0 },
   ];
-  const collectionsData = collections.map((c) => ({
-    month: new Date(`${c.month}-01`).toLocaleDateString('en-IN', { month: 'short' }),
-    amount: c.amount,
+  const collectionsData = collections.map((collection) => ({
+    month: new Date(`${collection.month}-01`).toLocaleDateString('en-IN', { month: 'short' }),
+    amount: collection.amount,
   }));
-  const prevMonthAmt = collections.length > 1 ? collections[collections.length - 2].amount : null;
-  const collectedDelta = prevMonthAmt > 0
-    ? (((summary.collected_this_month || 0) - prevMonthAmt) / prevMonthAmt) * 100
+  const previousMonth = collections.length > 1 ? collections[collections.length - 2].amount : null;
+  const collectedDelta = previousMonth > 0
+    ? (((summary.collected_this_month || 0) - previousMonth) / previousMonth) * 100
     : null;
 
-  const kpis = [
+  const metrics = [
     {
-      label: 'Outstanding', icon: Wallet, color: 'sky', value: `₹${fmt(summary.outstanding_amount)}`,
-      sub: `across ${summary.total_count ?? 0} plots`,
+      label: 'Outstanding', icon: Wallet, value: `₹${fmt(summary.outstanding_amount)}`,
+      helper: unitCountLabel(summary.total_count, propertyTerms), tone: 'text-mr-text',
     },
     {
-      label: 'Overdue', icon: AlertTriangle, color: 'red', tone: 'text-red-600', value: `₹${fmt(summary.overdue_amount)}`,
-      sub: `${summary.overdue_count ?? 0} plots${summary.interest_due > 0 ? ` · +₹${fmt(summary.interest_due)} interest` : ''}`,
+      label: 'Overdue', icon: AlertTriangle, value: `₹${fmt(summary.overdue_amount)}`,
+      helper: `${unitCountLabel(summary.overdue_count, propertyTerms)}${summary.interest_due > 0 ? ` · ₹${fmt(summary.interest_due)} interest` : ''}`,
+      tone: 'text-rose-600',
     },
     {
-      label: 'Due This Month', icon: CalendarClock, color: 'amber', value: `₹${fmt(summary.due_this_month_amount)}`,
-      sub: `${summary.due_this_month_count ?? 0} installment${(summary.due_this_month_count ?? 0) === 1 ? '' : 's'}`,
+      label: 'Due this month', icon: CalendarClock, value: `₹${fmt(summary.due_this_month_amount)}`,
+      helper: `${summary.due_this_month_count ?? 0} installment${Number(summary.due_this_month_count) === 1 ? '' : 's'}`,
+      tone: 'text-amber-700',
     },
     {
-      label: 'Collected This Month', icon: TrendingUp, color: 'emerald', tone: 'text-emerald-700', value: `₹${fmt(summary.collected_this_month)}`,
-      sub: collectedDelta === null ? 'both payment sources' : 'vs last month',
-      trend: collectedDelta,
+      label: 'Collected this month', icon: TrendingUp, value: `₹${fmt(summary.collected_this_month)}`,
+      helper: collectedDelta == null ? 'Across approved receipts' : `${collectedDelta >= 0 ? '+' : ''}${collectedDelta.toFixed(0)}% vs last month`,
+      tone: 'text-emerald-700',
     },
   ];
 
   return (
-    <div className="space-y-4">
-      {/* ── Header ── */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div>
-          <h1 className="text-lg font-bold text-slate-900">Payment Tracker</h1>
-          <p className="text-xs text-slate-500">
-            Installments, collections & overdue interest{currentSite?.name ? ` · ${currentSite.name}` : ''}
-          </p>
-        </div>
-        <div className="flex items-center gap-2.5">
-          <Button
-            variant="outline"
-            className="h-11 gap-2 rounded-xl border-slate-200 px-4 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
-            onClick={() => navigate('/payment-management/reminders')}
-          >
-            <span className={cn('flex h-7 w-7 items-center justify-center rounded-full', reminderTotal > 0 ? 'bg-red-100 text-red-600' : 'bg-emerald-100 text-emerald-600')}>
-              <Bell className="w-3.5 h-3.5" />
-            </span>
-            Payment Reminders
-            {reminderTotal > 0 && (
-              <Badge variant="outline" className="h-5 min-w-5 justify-center rounded-full border-red-300 bg-red-100 px-1.5 text-[10px] font-bold text-red-700">
-                {reminderTotal}
+    <div className="-mx-4 -mt-4 min-w-0 bg-mr-surface md:-mx-6 md:-mt-6">
+      <header className="border-b border-mr-line px-4 pb-0 pt-5 md:px-6">
+        <div className="flex flex-wrap items-start justify-between gap-4 pb-4">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-[clamp(1.5rem,2.6vw,2rem)] font-semibold tracking-[-0.035em] text-mr-text">Payments workspace</h1>
+              <Badge variant="outline" className="rounded-full border-mr-line bg-mr-surface-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-mr-muted">
+                {propertyTerms.isMixedUse ? 'Mixed-use portfolio' : `${propertyTerms.singular} portfolio`}
               </Badge>
-            )}
-          </Button>
-          <Button
-            className="h-11 gap-2 rounded-xl bg-blue-600 px-4 text-sm font-semibold shadow-sm shadow-blue-600/25 hover:bg-blue-700"
-            onClick={() => navigate('/payment-management/plots')}
-          >
-            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/20">
-              <MapPin className="w-3.5 h-3.5" />
-            </span>
-            All Plots
-          </Button>
+            </div>
+            <p className="mt-1 text-[13px] text-mr-muted">
+              Collections, outstanding balances and payment analysis for <span className="font-medium text-mr-text">{currentSite.name}</span>
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" onClick={() => navigate('/payment-management/reminders')} className="h-9 rounded-full border-mr-line px-3 text-xs">
+              <Bell className="mr-1.5 h-3.5 w-3.5" /> Reminders
+              {reminderTotal > 0 && <span className="ml-1.5 rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-bold text-rose-700">{reminderTotal}</span>}
+            </Button>
+            <Button onClick={() => navigate('/payment-management/plots')} className="h-9 rounded-full bg-mr-ink px-4 text-xs hover:bg-mr-ink-2">
+              <MapPin className="mr-1.5 h-3.5 w-3.5" /> All {propertyTerms.plural}
+            </Button>
+          </div>
         </div>
-      </div>
-
-      {/* ── KPI tiles (₹) ── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {kpis.map(({ label, icon: Icon, color, value, sub, tone, trend }) => (
-          <Card key={label} className={cn('relative overflow-hidden transition-shadow hover:shadow-md', CARD_SHELL)}>
-            <span className={cn('absolute inset-x-0 top-0 h-1', KPI_COLORS[color].accent)} />
-            <CardContent className="p-4 pt-5">
-              <div className="flex items-start justify-between">
-                <span className={cn('flex h-9 w-9 items-center justify-center rounded-full', KPI_COLORS[color].badge)}>
-                  <Icon className="w-4 h-4" />
-                </span>
-                {trend != null && (
-                  <span className={cn(
-                    'inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold',
-                    trend >= 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
-                  )}>
-                    {trend >= 0 ? '▲' : '▼'} {Math.abs(trend).toFixed(0)}%
-                  </span>
-                )}
-              </div>
-              {loading ? (
-                <div className="mt-3 h-7 w-24 animate-pulse rounded bg-slate-100" />
-              ) : (
-                <p className={cn('mt-3 text-2xl font-bold tracking-tight', tone || 'text-slate-900')}>{value}</p>
+        <nav className="flex gap-6" aria-label="Payments workspace views">
+          {VIEW_OPTIONS.map(({ value, label, icon: Icon }) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => changeView(value)}
+              className={cn(
+                'flex items-center gap-2 border-b-2 px-0.5 py-3 text-sm font-semibold transition-colors',
+                view === value ? 'border-blue-600 text-blue-700' : 'border-transparent text-mr-muted hover:text-mr-text',
               )}
-              <p className="mt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">{label}</p>
-              <p className="mt-0.5 text-[11px] text-slate-400 truncate">{sub}</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+              aria-current={view === value ? 'page' : undefined}
+            >
+              {createElement(Icon, { className: 'h-4 w-4' })} {label}
+            </button>
+          ))}
+        </nav>
+      </header>
 
-      {/* ── Analytics: collections trend + overdue aging ── */}
-      <div className="grid lg:grid-cols-2 gap-3 items-start">
-        <Card className={CARD_SHELL}>
-          <CardContent className="p-4">
-            <h2 className="text-sm font-semibold text-slate-800">Collections — last 6 months</h2>
-            <p className="text-[11px] text-slate-400 mb-2">All plot & installment payments received</p>
-            {collectionsData.length === 0 ? (
-              <p className="py-10 text-center text-sm text-slate-400">No collections yet</p>
-            ) : (
-              <ResponsiveContainer width="100%" height={190}>
-                <BarChart data={collectionsData} margin={{ top: 18, right: 8, left: 8, bottom: 0 }}>
-                  <CartesianGrid vertical={false} stroke={CHART_GRID} />
-                  <XAxis dataKey="month" tick={{ fontSize: 11, fill: CHART_INK }} axisLine={{ stroke: CHART_GRID }} tickLine={false} />
-                  <YAxis tickFormatter={fmtCompact} tick={{ fontSize: 11, fill: CHART_INK }} axisLine={false} tickLine={false} width={54} />
-                  <ChartTooltip formatter={(v) => [`₹${fmt(v)}`, 'Collected']} contentStyle={chartTooltipStyle} cursor={{ fill: 'rgba(0,0,0,0.03)' }} />
-                  <Bar dataKey="amount" fill={C_BLUE} barSize={26} radius={[4, 4, 0, 0]}>
-                    <LabelList dataKey="amount" position="top" formatter={fmtCompact} style={{ fontSize: 10, fill: CHART_INK }} />
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className={CARD_SHELL}>
-          <CardContent className="p-4">
-            <h2 className="text-sm font-semibold text-slate-800">Overdue aging</h2>
-            <p className="text-[11px] text-slate-400 mb-2">How long overdue money has been outstanding</p>
-            {(summary.overdue_amount || 0) <= 0 ? (
-              <div className="py-10 text-center">
-                <CheckCircle2 className="w-8 h-8 text-emerald-400 mx-auto mb-2" />
-                <p className="text-sm text-slate-500">Nothing overdue — great!</p>
+      {view === 'analytics' ? (
+        <PaymentAnalytics embedded />
+      ) : (
+        <main>
+          <section className="grid border-b border-mr-line bg-mr-line sm:grid-cols-2 xl:grid-cols-4" aria-label="Payment summary">
+            {metrics.map(({ label, icon: Icon, value, helper, tone }) => (
+              <div key={label} className="bg-mr-surface px-4 py-5 md:px-6">
+                <div className="flex items-center gap-2 text-mr-muted">
+                  {createElement(Icon, { className: 'h-3.5 w-3.5' })}
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.13em]">{label}</p>
+                </div>
+                {loading ? <div className="mt-3 h-7 w-28 animate-pulse rounded bg-mr-surface-2" /> : <p className={cn('mt-2 text-xl font-semibold tabular-nums tracking-tight', tone)}>{value}</p>}
+                <p className="mt-1 truncate text-[11px] text-mr-faint">{helper}</p>
               </div>
-            ) : (
-              <ResponsiveContainer width="100%" height={190}>
-                <BarChart data={agingData} layout="vertical" margin={{ top: 0, right: 56, left: 8, bottom: 0 }}>
-                  <CartesianGrid horizontal={false} stroke={CHART_GRID} />
-                  <XAxis type="number" tickFormatter={fmtCompact} tick={{ fontSize: 11, fill: CHART_INK }} axisLine={{ stroke: CHART_GRID }} tickLine={false} />
-                  <YAxis type="category" dataKey="bucket" width={80} tick={{ fontSize: 11, fill: '#52514e' }} axisLine={false} tickLine={false} />
-                  <ChartTooltip formatter={(v) => [`₹${fmt(v)}`, 'Overdue']} contentStyle={chartTooltipStyle} cursor={{ fill: 'rgba(0,0,0,0.03)' }} />
-                  <Bar dataKey="amount" barSize={16} radius={[0, 4, 4, 0]}>
-                    {agingData.map((_, i) => <Cell key={i} fill={AGING_RAMP[i]} />)}
-                    <LabelList dataKey="amount" position="right" formatter={fmtCompact} style={{ fontSize: 10, fill: CHART_INK }} />
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+            ))}
+          </section>
+
+          <section className="grid divide-y divide-mr-line border-b border-mr-line lg:grid-cols-2 lg:divide-x lg:divide-y-0">
+            <div className="min-w-0 px-4 py-5 md:px-6">
+              <h2 className="text-sm font-semibold text-mr-text">Collection trend</h2>
+              <p className="mt-0.5 text-[11px] text-mr-faint">Approved receipts across the last six months</p>
+              {collectionsData.length === 0 ? (
+                <p className="py-14 text-center text-sm text-mr-faint">No collections yet</p>
+              ) : (
+                <ResponsiveContainer width="100%" height={230}>
+                  <BarChart data={collectionsData} margin={{ top: 28, right: 8, left: 8, bottom: 0 }}>
+                    <CartesianGrid vertical={false} stroke={CHART_GRID} />
+                    <XAxis dataKey="month" tick={{ fontSize: 11, fill: CHART_INK }} axisLine={{ stroke: CHART_GRID }} tickLine={false} />
+                    <YAxis tickFormatter={fmtCompact} tick={{ fontSize: 11, fill: CHART_INK }} axisLine={false} tickLine={false} width={54} />
+                    <ChartTooltip formatter={(value) => [`₹${fmt(value)}`, 'Collected']} contentStyle={chartTooltipStyle} cursor={{ fill: 'rgba(15,23,42,0.03)' }} />
+                    <Bar dataKey="amount" fill={C_BLUE} barSize={26} radius={[5, 5, 0, 0]}>
+                      <LabelList dataKey="amount" position="top" formatter={fmtCompact} style={{ fontSize: 10, fill: CHART_INK }} />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+
+            <div className="min-w-0 px-4 py-5 md:px-6">
+              <h2 className="text-sm font-semibold text-mr-text">Overdue aging</h2>
+              <p className="mt-0.5 text-[11px] text-mr-faint">How long scheduled money has remained outstanding</p>
+              {(summary.overdue_amount || 0) <= 0 ? (
+                <div className="py-14 text-center">
+                  <CheckCircle2 className="mx-auto mb-2 h-8 w-8 text-emerald-500" />
+                  <p className="text-sm font-medium text-mr-muted">No overdue installments</p>
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height={230}>
+                  <BarChart data={agingData} layout="vertical" margin={{ top: 12, right: 64, left: 8, bottom: 0 }}>
+                    <CartesianGrid horizontal={false} stroke={CHART_GRID} />
+                    <XAxis type="number" tickFormatter={fmtCompact} tick={{ fontSize: 11, fill: CHART_INK }} axisLine={{ stroke: CHART_GRID }} tickLine={false} />
+                    <YAxis type="category" dataKey="bucket" width={82} tick={{ fontSize: 11, fill: '#52514e' }} axisLine={false} tickLine={false} />
+                    <ChartTooltip formatter={(value) => [`₹${fmt(value)}`, 'Overdue']} contentStyle={chartTooltipStyle} cursor={{ fill: 'rgba(15,23,42,0.03)' }} />
+                    <Bar dataKey="amount" barSize={16} radius={[0, 5, 5, 0]}>
+                      {agingData.map((item, index) => <Cell key={item.bucket} fill={AGING_RAMP[index]} />)}
+                      <LabelList dataKey="amount" position="right" formatter={fmtCompact} style={{ fontSize: 10, fill: CHART_INK }} />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          </section>
+        </main>
+      )}
     </div>
   );
 }

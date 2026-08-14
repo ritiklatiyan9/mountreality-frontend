@@ -13,6 +13,62 @@ export const SITE_POLICY_STATUSES = Object.freeze({
   ERROR: 'error',
 });
 
+export const FINANCE_PAYMENT_MODES = Object.freeze({
+  ALL_MODES: 'ALL_MODES',
+  BANK_ONLY: 'BANK_ONLY',
+});
+
+export const RERA_OPERATING_MODELS = Object.freeze([
+  'RERA_PROJECT_PROMOTER',
+  'RERA_ONGOING_PROJECT_REGULARISATION',
+]);
+
+const RERA_OPERATING_MODEL_SET = new Set(RERA_OPERATING_MODELS);
+
+export function isReraOperatingProfile(policy) {
+  const operatingModel = policy?.profile?.operating_model
+    ?? policy?.profile?.operatingModel;
+  return RERA_OPERATING_MODEL_SET.has(String(operatingModel || '').trim().toUpperCase());
+}
+
+export function getReraOperatingContext(policy) {
+  const profile = policy?.profile || {};
+  const enabled = isReraOperatingProfile(policy);
+  const authority = profile.authority_name || profile.authority_code || '';
+  const jurisdiction = [profile.district, profile.jurisdiction_state]
+    .filter(Boolean)
+    .join(', ');
+  const rulesetVersionId = profile.ruleset_version_id ?? profile.rulesetVersionId ?? null;
+  const regulatoryStatus = String(profile.regulatory_status || '')
+    .trim()
+    .toUpperCase();
+
+  return {
+    enabled,
+    operatingModel: profile.operating_model || profile.operatingModel || '',
+    authority,
+    jurisdiction,
+    rulesetVersionId,
+    regulatoryStatus,
+    setupComplete: Boolean(authority && profile.jurisdiction_state && rulesetVersionId),
+  };
+}
+
+const normalizeFinancePolicy = (input, profile) => {
+  const requested = input?.payment_mode
+    ?? input?.paymentMode
+    ?? profile?.finance_payment_mode
+    ?? profile?.financePaymentMode;
+  const paymentMode = String(requested || '').trim().toUpperCase()
+    === FINANCE_PAYMENT_MODES.BANK_ONLY
+    ? FINANCE_PAYMENT_MODES.BANK_ONLY
+    : FINANCE_PAYMENT_MODES.ALL_MODES;
+  return {
+    paymentMode,
+    cashAllowed: paymentMode !== FINANCE_PAYMENT_MODES.BANK_ONLY,
+  };
+};
+
 export const DEFAULT_FIELD_POLICY = Object.freeze({
   visible: true,
   label: null,
@@ -274,6 +330,7 @@ export function createSafeSitePolicy(siteId = null) {
     mode: null,
     policyRevision: null,
     profile: null,
+    finance: normalizeFinancePolicy(),
     modules: Object.create(null),
     modulesDeclared: false,
     capabilities: Object.create(null),
@@ -304,11 +361,13 @@ export function normalizeSitePolicy(payload, expectedSiteId) {
   const modules = normalizeGateCollection(payload.modules);
   const capabilities = normalizeGateCollection(payload.capabilities);
 
+  const profile = isObject(payload.profile) ? payload.profile : null;
   return {
     siteId: String(siteId),
     mode,
     policyRevision: payload.policy_revision ?? payload.policyRevision ?? null,
-    profile: isObject(payload.profile) ? payload.profile : null,
+    profile,
+    finance: normalizeFinancePolicy(payload.finance, profile),
     modules: modules.values,
     modulesDeclared: modules.declared,
     capabilities: capabilities.values,

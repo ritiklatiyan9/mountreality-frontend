@@ -7,7 +7,7 @@ import {
   CurrencyValue, FinancialMetric, IconButton, SectionHeader, StatusPill,
 } from './primitives';
 import { ACCENT, toneFor } from './accents';
-import { money, moneyCompact } from '@/lib/utils';
+import { money } from '@/lib/utils';
 
 /* ── Module split bar ────────────────────────────────────────────────
    The existing kpi.breakdown, drawn as one stacked bar instead of a
@@ -54,7 +54,7 @@ function ModuleSplit({ breakdown, loading }) {
               <span className="shrink-0 text-mr-faint">{r.count}</span>
             </span>
             <span className={`shrink-0 font-semibold tabular-nums ${r.incoming ? 'text-mr-text' : 'text-mr-coral-ink'}`} title={money(r.value)}>
-              {r.incoming ? '+' : '−'}{moneyCompact(r.value)}
+              {r.incoming ? '+' : '−'}{money(r.value)}
             </span>
           </li>
         ))}
@@ -103,8 +103,8 @@ export default function FinancialPulseBoard({
       key: 'registryPayments', icon: FileText, label: 'Registry mapping', accent: 'blue',
       value: registry,
       hint: registryIncludeOld
-        ? `New ${moneyCompact(regNew)} + old ${moneyCompact(regOld)}`
-        : `New plots only · ${moneyCompact(regOld)} old hidden`,
+        ? `New ${money(regNew)} + old ${money(regOld)}`
+        : `New plots only · ${money(regOld)} old hidden`,
       registry: true,
     },
   ].filter(Boolean);
@@ -172,7 +172,7 @@ export default function FinancialPulseBoard({
               <span className="text-[12px] font-medium text-mr-muted">Net profit</span>
               {loading
                 ? <span className="mt-3 block h-12 w-44 animate-pulse rounded-lg bg-mr-surface-2" />
-                : <CurrencyValue value={profit} size="lg" tone={profit >= 0 ? 'default' : 'negative'} className="mt-2" compactAbove={1e7} />}
+                : <CurrencyValue value={profit} size="lg" tone={profit >= 0 ? 'default' : 'negative'} className="mt-2" />}
               <span className="mt-2.5 flex flex-wrap items-center gap-2">
                 <StatusPill tone={profit >= 0 ? 'positive' : 'negative'}>
                   {profit >= 0 ? 'Surplus' : 'Deficit'}
@@ -180,7 +180,7 @@ export default function FinancialPulseBoard({
                 {margin !== 0 && <StatusPill>{margin}% margin</StatusPill>}
               </span>
               <span className="mt-2 block text-[12px] text-mr-faint">
-                Plot revenue {moneyCompact(revenue)} − outgoing {moneyCompact(expense)}
+                Plot revenue {money(revenue)} − outgoing {money(expense)}
               </span>
             </button>
 

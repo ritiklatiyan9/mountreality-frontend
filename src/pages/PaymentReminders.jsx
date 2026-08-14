@@ -1,6 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useContext, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { SitePolicyContext } from '../context/SitePolicyContext';
+import { getPropertyTerminology } from '../lib/propertyTerminology';
 import { toast } from 'sonner';
 import api from '../api/api';
 import { Card, CardContent } from '../components/ui/card';
@@ -35,6 +37,8 @@ const LIMIT = 10;
 
 export default function PaymentReminders() {
   const { currentSite, isAdmin } = useAuth();
+  const sitePolicy = useContext(SitePolicyContext);
+  const propertyTerms = useMemo(() => getPropertyTerminology(sitePolicy), [sitePolicy]);
   const siteId = currentSite?.id;
   const navigate = useNavigate();
   const [sending, setSending] = useState(false);
@@ -96,7 +100,7 @@ export default function PaymentReminders() {
         <div className="flex-1">
           <h1 className="text-lg font-bold text-slate-900">Payment Reminders</h1>
           <p className="text-xs text-slate-500">
-            Overdue, upcoming & at-risk plots{currentSite?.name ? ` · ${currentSite.name}` : ''}
+            Overdue, upcoming &amp; at-risk {propertyTerms.plural.toLowerCase()}{currentSite?.name ? ` · ${currentSite.name}` : ''}
           </p>
         </div>
         {isAdmin && (
@@ -165,8 +169,8 @@ export default function PaymentReminders() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-semibold text-slate-800">Plot {r.plot_no}</span>
-                        {r.block && <span className="text-xs text-slate-400">Block {r.block}</span>}
+                        <span className="text-sm font-semibold text-slate-800">{propertyTerms.singular} {r.plot_no}</span>
+                        {r.block && <span className="text-xs text-slate-400">{propertyTerms.blockLabel} {r.block}</span>}
                         <Badge variant="outline" className={`text-[9px] font-bold uppercase ${sev.badge}`}>
                           {r.severity}
                         </Badge>

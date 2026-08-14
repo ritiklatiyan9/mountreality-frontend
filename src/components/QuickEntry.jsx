@@ -73,7 +73,7 @@ const MODULES = [
   { key: 'vendor', label: 'Vendor payment', hint: 'Settle a vendor commitment', icon: ShoppingBag, tone: 'coral', appKey: 'vendors', perm: 'vendors', directions: ['debit'] },
   { key: 'expense', label: 'Expense', hint: 'Site or office expense voucher', icon: CreditCard, tone: 'coral', appKey: 'expenses', perm: 'expenses' },
   { key: 'daybook', label: 'Day book', hint: 'General entry with no other home', icon: BookOpen, tone: 'blue', appKey: 'daybook', perm: 'daybook' },
-  { key: 'plot', label: 'Plot payment', hint: 'Booking, installment or refund', icon: LayoutGrid, tone: 'aqua', appKey: 'plot_payments', perm: 'plot_payments' },
+  { key: 'plot', label: 'Project payment', hint: 'Booking, installment or refund', icon: LayoutGrid, tone: 'aqua', appKey: 'plot_payments', perm: 'plot_payments' },
   { key: 'plot_commission', label: 'Plot commission', hint: 'Agent commission or recovery', icon: Landmark, tone: 'blue', appKey: 'plot_commission', perm: 'commissions' },
 ];
 
@@ -331,8 +331,6 @@ export default function QuickEntry() {
         await api.post('/expenses', {
           site_id: siteId,
           date: form.date,
-          from_entity: form.from_entity.trim(),
-          to_entity: form.to_entity.trim(),
           payment_mode: form.particular,
           cheque_no: isCheque ? form.cheque_no.trim() || null : null,
           ...debitCredit,
@@ -481,7 +479,7 @@ export default function QuickEntry() {
         )}
       </QField>
     ),
-    (moduleKey === 'expense' || moduleKey === 'daybook') && (
+    moduleKey === 'daybook' && (
       <QField key="from" label={<QLabel icon={ArrowLeftRight}>Paid from</QLabel>}>
         <Input placeholder="e.g. OFFICE CASH" value={form.from_entity} onChange={(e) => setF({ from_entity: e.target.value })} className={INPUT_ROUNDED} />
       </QField>
@@ -502,7 +500,7 @@ export default function QuickEntry() {
       label: pl.plot_no ? `Plot ${pl.plot_no}` : `#${pl.plot_id}`,
       sublabel: pl.buyer_name || undefined,
     }), MapPin, handleCommissionPlotSelected, 'Select plot'),
-    (moduleKey === 'expense' || moduleKey === 'daybook') && (
+    moduleKey === 'daybook' && (
       <QField key="to" label={<QLabel icon={User}>Paid to</QLabel>}>
         <Input placeholder="Person or business" value={form.to_entity} onChange={(e) => setF({ to_entity: e.target.value })} className={INPUT_ROUNDED} />
       </QField>

@@ -1,105 +1,81 @@
-import { ArrowDownLeft, ArrowUpRight, Banknote, Landmark } from 'lucide-react';
-import { CurrencyValue, StatusPill } from '../dashboard/primitives';
+import { ArrowDownLeft, ArrowUpRight } from 'lucide-react';
+import { CurrencyValue } from '../dashboard/primitives';
 import { money, moneyCompact } from '@/lib/utils';
 
-/* ── Expense position ────────────────────────────────────────────────
-   One surface: net balance dominates, debit/credit sit beside it, and
-   the cash/bank split runs along the bottom as a quiet strip rather
-   than four more boxes. Every figure is passed in already computed. ── */
+/* A quiet financial strip: the numbers are useful context for the register,
+   not a separate dashboard competing with the work below. */
 export default function ExpenseSummary({
-  totalDebit, totalCredit, netBalance, entryCount,
+  totalDebit, totalCredit, entryCount,
   cashIn, cashOut, bankIn, bankOut, siteName,
 }) {
-  const surplus = netBalance >= 0;
-  const flow = [
-    { label: 'Cash in', value: cashIn, tone: 'text-mr-aqua-ink', icon: ArrowDownLeft, note: 'Cash, incl. split leg' },
-    { label: 'Cash out', value: cashOut, tone: 'text-mr-coral-ink', icon: ArrowUpRight, note: 'Cash, incl. split leg' },
-    { label: 'Bank in', value: bankIn, tone: 'text-mr-blue', icon: ArrowDownLeft, note: 'NEFT, RTGS, UPI, cheque' },
-    { label: 'Bank out', value: bankOut, tone: 'text-mr-amber-ink', icon: ArrowUpRight, note: 'NEFT, RTGS, UPI, cheque' },
+  const netSpend = totalDebit - totalCredit;
+  const isNetOutflow = netSpend >= 0;
+  const reimbursedPercent = totalDebit > 0
+    ? Math.min(100, Math.max(0, (totalCredit / totalDebit) * 100))
+    : 0;
+  const paymentRails = [
+    { label: 'Cash paid', value: cashOut, tone: 'text-mr-coral-ink', icon: ArrowUpRight },
+    { label: 'Bank paid', value: bankOut, tone: 'text-mr-amber-ink', icon: ArrowUpRight },
+    { label: 'Cash received', value: cashIn, tone: 'text-mr-aqua-ink', icon: ArrowDownLeft },
+    { label: 'Bank received', value: bankIn, tone: 'text-mr-blue', icon: ArrowDownLeft },
   ];
 
   return (
-    <section
-      aria-labelledby="mr-expense-position"
-      className="overflow-hidden rounded-panel border border-mr-line bg-mr-surface"
-    >
-      <div className="grid lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.6fr)]">
-        <div
-          className="relative flex flex-col justify-between gap-5 border-b border-mr-line p-6 sm:p-7 lg:border-b-0 lg:border-r"
-          style={{
-            background: surplus
-              ? 'radial-gradient(115% 85% at 0% 100%, rgba(185,255,69,.40) 0%, rgba(255,255,255,0) 68%)'
-              : 'radial-gradient(115% 85% at 0% 100%, rgba(255,101,74,.28) 0%, rgba(255,255,255,0) 68%)',
-          }}
-        >
+    <section aria-labelledby="mr-expense-snapshot" className="border-b border-mr-line">
+      <div className="grid gap-7 px-5 py-6 sm:px-6 lg:grid-cols-[minmax(260px,.9fr)_minmax(0,1.6fr)] lg:items-end lg:gap-10 lg:py-7">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[.14em] text-mr-muted">Current selection</p>
+          <div className="mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <h2 id="mr-expense-snapshot" className="text-[15px] font-semibold tracking-[-.015em] text-mr-text">Net spend</h2>
+            <span className={`text-[11px] font-medium ${isNetOutflow ? 'text-mr-coral-ink' : 'text-mr-lime-ink'}`}>
+              {isNetOutflow ? 'Outflow' : 'Net credit'}
+            </span>
+          </div>
+          <CurrencyValue
+            value={Math.abs(netSpend)}
+            size="xl"
+            tone={isNetOutflow ? 'negative' : 'positive'}
+            className="mt-2"
+          />
+          <p className="mt-1.5 text-[12px] text-mr-muted">
+            {siteName ? `${siteName} · ` : ''}{entryCount} entr{entryCount === 1 ? 'y' : 'ies'} in this view
+          </p>
+        </div>
+
+        <div className="grid gap-5 sm:grid-cols-3 lg:border-l lg:border-mr-line lg:pl-10">
           <div>
-            <h2 id="mr-expense-position" className="text-[12px] font-medium text-mr-muted">
-              Net balance{siteName ? ` · ${siteName}` : ''}
-            </h2>
-            <CurrencyValue
-              value={Math.abs(netBalance)}
-              size="xl"
-              tone={surplus ? 'positive' : 'negative'}
-              className="mt-2"
-            />
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <StatusPill tone={surplus ? 'positive' : 'negative'}>
-                {surplus ? 'Surplus' : 'Deficit'}
-              </StatusPill>
-              <StatusPill>{entryCount} entr{entryCount === 1 ? 'y' : 'ies'}</StatusPill>
+            <span className="flex items-center gap-1.5 text-[12px] font-medium text-mr-muted">
+              <ArrowUpRight className="h-3.5 w-3.5 text-mr-coral-ink" strokeWidth={2} aria-hidden="true" /> Total paid
+            </span>
+            <CurrencyValue value={totalDebit} size="lg" tone="negative" className="mt-1.5" />
+            <span className="mt-1 block text-[11px] text-mr-faint">Recorded expense outflow</span>
+          </div>
+          <div>
+            <span className="flex items-center gap-1.5 text-[12px] font-medium text-mr-muted">
+              <ArrowDownLeft className="h-3.5 w-3.5 text-mr-lime-ink" strokeWidth={2} aria-hidden="true" /> Recovered
+            </span>
+            <CurrencyValue value={totalCredit} size="lg" tone="positive" className="mt-1.5" />
+            <span className="mt-1 block text-[11px] text-mr-faint">Credits and reimbursements</span>
+          </div>
+          <div>
+            <span className="text-[12px] font-medium text-mr-muted">Recovery rate</span>
+            <p className="mt-1 text-[26px] font-semibold leading-none tracking-[-.04em] tabular-nums text-mr-text">{reimbursedPercent.toFixed(0)}%</p>
+            <span className="mt-1 block text-[11px] text-mr-faint">Of recorded payments</span>
+          </div>
+        </div>
+      </div>
+
+      <dl className="flex flex-wrap gap-x-7 gap-y-3 border-t border-mr-line px-5 py-3.5 sm:px-6">
+        {paymentRails.map((rail) => (
+          <div key={rail.label} className="flex min-w-[128px] items-center gap-2">
+            <rail.icon className={`h-3.5 w-3.5 shrink-0 ${rail.tone}`} strokeWidth={2} aria-hidden="true" />
+            <div className="min-w-0">
+              <dt className="text-[11px] text-mr-muted">{rail.label}</dt>
+              <dd className={`truncate text-[13px] font-semibold tabular-nums ${rail.tone}`} title={money(rail.value)}>{moneyCompact(rail.value)}</dd>
             </div>
           </div>
-          <p className="text-[12px] text-mr-faint">Credit received minus debit paid, in the current view</p>
-        </div>
-
-        <div className="-mb-px -mr-px grid sm:grid-cols-2 [&>*]:border-b [&>*]:border-r [&>*]:border-mr-line">
-          <div className="flex flex-col gap-1.5 px-5 py-5">
-            <span className="flex items-center gap-2.5 text-[12px] font-medium text-mr-muted">
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-mr-coral-soft text-mr-coral-ink">
-                <ArrowUpRight className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
-              </span>
-              Total debit
-            </span>
-            <CurrencyValue value={totalDebit} size="lg" tone="negative" />
-            <span className="text-[12px] text-mr-faint">Money paid out</span>
-          </div>
-
-          <div className="flex flex-col gap-1.5 px-5 py-5">
-            <span className="flex items-center gap-2.5 text-[12px] font-medium text-mr-muted">
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-mr-lime-soft text-mr-lime-ink">
-                <ArrowDownLeft className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
-              </span>
-              Total credit
-            </span>
-            <CurrencyValue value={totalCredit} size="lg" tone="positive" />
-            <span className="text-[12px] text-mr-faint">Received or reimbursed</span>
-          </div>
-
-          {/* Cash vs bank — a strip inside the same surface, not four cards */}
-          <div className="col-span-full grid grid-cols-2 gap-x-6 gap-y-3 bg-mr-surface-2/60 px-5 py-4 sm:grid-cols-4">
-            {flow.map((f) => (
-              <div key={f.label} className="min-w-0">
-                <span className="flex items-center gap-1.5 text-[12px] text-mr-muted">
-                  <f.icon className={`h-3.5 w-3.5 shrink-0 ${f.tone}`} strokeWidth={2} aria-hidden="true" />
-                  <span className="truncate">{f.label}</span>
-                </span>
-                <span
-                  className={`mt-0.5 block truncate text-[15px] font-semibold tabular-nums ${f.tone}`}
-                  title={`${money(f.value)} — ${f.note}`}
-                >
-                  {moneyCompact(f.value)}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="flex items-center gap-2 border-t border-mr-line px-5 py-3 text-[12px] text-mr-faint sm:px-6">
-        <Banknote className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden="true" />
-        Cash and bank legs always add up to the totals above
-        <Landmark className="ml-auto h-3.5 w-3.5" strokeWidth={1.9} aria-hidden="true" />
-      </div>
+        ))}
+      </dl>
     </section>
   );
 }

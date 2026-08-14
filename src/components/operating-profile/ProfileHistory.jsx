@@ -38,7 +38,10 @@ export default function ProfileHistory({ rows = [] }) {
               {rows.map((row) => (
                 <tr key={row.id} className="align-top hover:bg-mr-surface-2/45">
                   <td className="px-4 py-3 font-semibold tabular-nums text-mr-text">v{row.revision_number ?? row.revision}</td>
-                  <td className="px-4 py-3 text-mr-text">{readable(row.operating_model)}</td>
+                  <td className="px-4 py-3 text-mr-text">
+                    <p>{readable(row.operating_model)}</p>
+                    <p className="mt-0.5 text-[11px] text-mr-faint">Finance · {readable(row.finance_payment_mode || 'ALL_MODES')}</p>
+                  </td>
                   <td className="px-4 py-3"><StatusDot tone={statusTone(row.lifecycle_status)}>{readable(row.lifecycle_status)}</StatusDot></td>
                   <td className="px-4 py-3 text-mr-muted">{row.effective_from ? new Date(row.effective_from).toLocaleDateString('en-IN') : 'Not published'}</td>
                   <td className="px-4 py-3 text-mr-muted">{row.published_by_name || row.updated_by_name || row.created_by_name || '—'}</td>
