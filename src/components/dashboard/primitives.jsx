@@ -7,8 +7,8 @@ import { cn, money, moneyCompact } from '@/lib/utils';
 import { ACCENT } from './accents';
 
 
-/* Long values get abbreviated automatically; the exact amount stays
-   reachable via the native tooltip and the screen-reader label. */
+/* Values print in full; the exact amount also stays reachable via the
+   native tooltip and the screen-reader label. */
 const VALUE_SIZES = {
   xl: 'text-[clamp(2rem,4.2vw,3rem)] leading-[0.95] tracking-[-0.045em] font-semibold',
   lg: 'text-[clamp(1.5rem,2.6vw,2rem)] leading-[1] tracking-[-0.04em] font-semibold',
@@ -69,7 +69,11 @@ function useCountUp(value, duration = 720) {
   return displayValue;
 }
 
-export function CurrencyValue({ value, size = 'md', tone = 'default', className, compactAbove = 1e7 }) {
+/* Exact by default — ₹7,00,00,000, never ₹7 Cr. A figure rounded to two
+   significant digits cannot be reconciled against the ledger it came from,
+   which is the only reason to put it on a dashboard. compactAbove stays for
+   the marketing mockups, where the box is fixed and nobody reconciles. */
+export function CurrencyValue({ value, size = 'md', tone = 'default', className, compactAbove = Infinity }) {
   const n = Number(value) || 0;
   const animatedValue = useCountUp(n);
   const exact = money(n);

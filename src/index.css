@@ -388,9 +388,7 @@
   border-color: #3f3f46 !important;
 }
 
-.mr-dark-table thead th *,
-.mr-dark-table tfoot td *,
-.mr-dark-table tfoot th * {
+.mr-dark-table thead th * {
   color: inherit !important;
 }
 
@@ -714,9 +712,13 @@
     line-height: 1.3;
   }
 
-  /* Ensure tables print correctly */
+  /* Ensure tables print correctly.
+
+     No page-break-inside here: a table taller than one sheet cannot honour
+     "avoid", so the browser pushes it to a fresh page and then clips the
+     overflow — blank pages and missing rows. Rows are the unit that must
+     stay whole (below); the table itself has to be free to flow. */
   table {
-    page-break-inside: avoid;
     border-collapse: collapse;
     width: 100%;
   }
@@ -766,4 +768,84 @@
   input[type="submit"] {
     display: none;
   }
+
+  /* ── Printable document regions ──────────────────────────────────
+     A screen that is already a document needs a letterhead and a way
+     to drop the controls. The blanket button hide above does most of
+     that for free — every action button, row menu and icon button is
+     already gone by the time we get here.
+
+     The one exception is a list row that happens to be a <button>.
+     Those opt back in by name and get an explicit display: reverting
+     to the UA default would drop them out of flex layout and shear
+     the row apart, which is exactly what an icon button in a table
+     cell does to the column beside it. ── */
+
+  [data-print-doc] [data-print-row] {
+    display: flex !important;
+  }
+
+  [data-print-hide],
+  [data-print-doc] [role="tablist"],
+  [data-print-doc] [data-radix-popper-content-wrapper] {
+    display: none !important;
+  }
+
+  /* Screen chrome that means nothing on paper. */
+  [data-print-doc] {
+    max-width: 100% !important;
+    padding-bottom: 0 !important;
+  }
+
+  /* Same trap as tables: a long section must flow across sheets. Only the
+     short, self-contained blocks are worth keeping whole. */
+  [data-print-doc] section {
+    break-inside: auto;
+  }
+
+  [data-print-doc] .recharts-wrapper,
+  [data-print-doc] header,
+  [data-print-doc] li {
+    break-inside: avoid;
+  }
+
+  /* Horizontal scrollers clip on paper — a wide register would print with
+     its right-hand columns simply cut off. Only the scrollers: .overflow-hidden
+     is doing real work elsewhere (avatars, truncation) and must keep clipping. */
+  [data-print-doc] .overflow-x-auto,
+  [data-print-doc] .overflow-auto {
+    overflow: visible !important;
+  }
+
+  /* The letterhead repeats context; keep it with the content it heads. */
+  .print-only {
+    break-after: avoid;
+  }
+
+  [data-print-doc] th {
+    border-bottom: 1px solid #000;
+    font-size: 10px;
+    text-align: left;
+  }
+
+  [data-print-doc] td {
+    border-bottom: 1px solid #d4d4d4;
+    font-size: 10px;
+  }
+
+  /* Recharts sizes itself from the on-screen box, so pin a print width
+     rather than letting the SVG collapse to zero in the print layout. */
+  [data-print-doc] .recharts-wrapper,
+  [data-print-doc] .recharts-surface {
+    max-width: 100% !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+}
+
+/* The letterhead exists only on paper. */
+.print-only {
+  display: none;
 }

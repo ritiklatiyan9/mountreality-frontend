@@ -46,7 +46,6 @@ const PlotPayments = lazy(() => import('./pages/PlotPayments.jsx'));
 const PaymentManagement = lazy(() => import('./pages/PaymentManagement.jsx'));
 const PaymentManagementPlots = lazy(() => import('./pages/PaymentManagementPlots.jsx'));
 const PaymentReminders = lazy(() => import('./pages/PaymentReminders.jsx'));
-const PaymentAnalytics = lazy(() => import('./pages/PaymentAnalytics.jsx'));
 const Construction = lazy(() => import('./pages/Construction.jsx'));
 const Inventory = lazy(() => import('./pages/Inventory.jsx'));
 const PlotDetail = lazy(() => import('./pages/PlotDetail.jsx'));
@@ -202,7 +201,7 @@ function App() {
             <Route path="/payment-management" element={<ProtectedRoute requiredModule="plot_payments"><PaymentManagement /></ProtectedRoute>} />
             <Route path="/payment-management/plots" element={<ProtectedRoute requiredModule="plot_payments"><PaymentManagementPlots /></ProtectedRoute>} />
             <Route path="/payment-management/reminders" element={<ProtectedRoute requiredModule="plot_payments"><PaymentReminders /></ProtectedRoute>} />
-            <Route path="/payment-analytics" element={<ProtectedRoute requiredModule="plot_payments"><PaymentAnalytics /></ProtectedRoute>} />
+            <Route path="/payment-analytics" element={<Navigate to="/payment-management?view=analytics" replace />} />
             <Route path="/construction" element={<ProtectedRoute requiredModule="construction"><Construction /></ProtectedRoute>} />
             <Route path="/construction/governance" element={<ProtectedRoute requiredModule="construction"><Suspense fallback={<LazyRouteFallback />}><ConstructionGovernance /></Suspense></ProtectedRoute>} />
             <Route path="/inventory" element={<ProtectedRoute requiredModule="inventory"><Inventory /></ProtectedRoute>} />
@@ -232,6 +231,7 @@ function App() {
             <Route path="/compliance/reports" element={<ProtectedRoute requiredModule="compliance"><ComplianceLegal /></ProtectedRoute>} />
             <Route path="/compliance/templates" element={<ProtectedRoute requiredModule="compliance_templates"><ComplianceLegal /></ProtectedRoute>} />
             <Route path="/compliance/filings" element={<ProtectedRoute requiredModule="compliance_templates"><ComplianceLegal /></ProtectedRoute>} />
+            <Route path="/compliance/categories" element={<ProtectedRoute requiredModule="compliance_settings"><ComplianceLegal /></ProtectedRoute>} />
             <Route path="/compliance/authorities" element={<ProtectedRoute requiredModule="compliance_settings"><ComplianceLegal /></ProtectedRoute>} />
             <Route path="/compliance/settings" element={<ProtectedRoute requiredModule="compliance_settings"><ComplianceLegal /></ProtectedRoute>} />
             <Route path="/legal/cases" element={<ProtectedRoute requiredModule="legal"><ComplianceLegal /></ProtectedRoute>} />

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft, ArrowRight, Banknote, Building2, CheckCircle2, Link2, Plus, RefreshCw,
 } from 'lucide-react';
@@ -16,7 +16,23 @@ import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetT
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
+import EvidenceDocumentSelect from '@/components/project-finance/EvidenceDocumentSelect';
+import ReraWorkflowNotice from '@/components/policy/ReraWorkflowNotice';
 import { cn } from '@/lib/utils';
+import { getFinancePaymentPolicy } from '@/lib/financePaymentPolicy';
+import { isReraOperatingProfile } from '@/lib/sitePolicy';
+
+const ReraFundControls = lazy(() => import('@/components/project-finance/ReraFundControls'));
+
+// ponytail: module-level stale-while-revalidate cache. Survives route changes so
+// returning to this page paints the last view instantly instead of flashing the
+// setup wizard, then skeletons, then data. Swap for react-query if more pages need it.
+const cache = new Map();
+const EMPTY = {
+  metrics: {}, collections: [], expenses: [], accounts: [], allocations: [], evidence_documents: [],
+};
+const bootKeyOf = (siteId) => `pf:boot:${siteId}`;
+const dataKeyOf = (siteId, projectId, phaseId) => `pf:data:${siteId}:${projectId}:${phaseId}`;
 
 const currency = (value) => `₹${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
 const date = (value) => value
@@ -24,6 +40,13 @@ const date = (value) => value
   : '—';
 const title = (value) => String(value || 'Not set').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 const today = () => new Date().toISOString().slice(0, 10);
+const bankTransactionLabel = (transaction) => {
+  const direction = Number(transaction.debit || 0) > 0 ? 'Debit' : 'Credit';
+  const amount = Number(transaction.debit || transaction.credit || 0);
+  const reference = transaction.reference || transaction.transaction_no
+    || transaction.cheque_no || transaction.description || 'Bank transaction';
+  return `${date(transaction.date)} · ${direction} ${currency(amount)} · ${reference}`;
+};
 
 function Field({ label, children }) {
   return <label className="block space-y-1.5"><Label className="text-xs font-medium text-slate-600">{label}</Label>{children}</label>;
@@ -33,15 +56,30 @@ function Empty({ children }) {
   return <TableRow><TableCell colSpan={8} className="h-44 text-center text-sm text-slate-500">{children}</TableCell></TableRow>;
 }
 
-function AccountSheet({ open, onOpenChange, siteId, project, phaseId, firms, onSaved }) {
+function AccountSheet({ open, onOpenChange, siteId, project, phaseId, firms, evidenceDocuments, isReraProfile, onSaved }) {
   const [form, setForm] = useState({ firm_id: '', purpose: '', effective_from: today(), evidence_document_id: '' });
   const [busy, setBusy] = useState(false);
+  const eligibleFirms = isReraProfile
+    ? firms.filter((firm) => String(firm.bank_name || '').trim() && String(firm.account_number || '').trim())
+    : firms;
+  const selectedFirm = firms.find((firm) => String(firm.id) === String(form.firm_id));
   useEffect(() => {
-    if (open) setForm({ firm_id: '', purpose: '', effective_from: today(), evidence_document_id: '' });
-  }, [open]);
+    if (open) setForm({
+      firm_id: '',
+      purpose: isReraProfile ? 'RERA_SEPARATE_ACCOUNT' : '',
+      effective_from: today(),
+      evidence_document_id: '',
+    });
+  }, [isReraProfile, open]);
 
   const submit = async () => {
     if (!form.firm_id || !form.purpose.trim()) return toast.error('Select an existing account and enter its project purpose.');
+    if (isReraProfile && (!selectedFirm?.bank_name || !selectedFirm?.account_number)) {
+      return toast.error('Choose a bank account with both bank name and account number.');
+    }
+    if (isReraProfile && (!Number.isInteger(Number(form.evidence_document_id)) || Number(form.evidence_document_id) <= 0)) {
+      return toast.error('Link the bank letter or account-proof document before mapping a RERA designated account.');
+    }
     setBusy(true);
     try {
       await api.post('/property-lifecycle/project-finance/accounts', {
@@ -51,7 +89,7 @@ function AccountSheet({ open, onOpenChange, siteId, project, phaseId, firms, onS
         rera_project_phase_id: phaseId === 'all' ? null : phaseId,
         purpose: form.purpose,
         effective_from: form.effective_from,
-        evidence_document_id: form.evidence_document_id || null,
+        evidence_document_id: form.evidence_document_id ? Number(form.evidence_document_id) : null,
       });
       toast.success(`${firms.find((firm) => String(firm.id) === String(form.firm_id))?.name || 'Account'} mapped to ${project.name}.`);
       onOpenChange(false);
@@ -76,33 +114,99 @@ function AccountSheet({ open, onOpenChange, siteId, project, phaseId, firms, onS
               <SelectTrigger><SelectValue placeholder="Select account" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">Select account</SelectItem>
-                {firms.map((firm) => <SelectItem key={firm.id} value={String(firm.id)}>{firm.name} · {firm.account_number || firm.bank_name || 'Account'}</SelectItem>)}
+                {eligibleFirms.map((firm) => <SelectItem key={firm.id} value={String(firm.id)}>{firm.name} · {isReraProfile ? `${firm.bank_name} · ${firm.account_number}` : (firm.account_number || firm.bank_name || 'Account')}</SelectItem>)}
               </SelectContent>
             </Select>
           </Field>
-          <Field label="Purpose"><Input value={form.purpose} onChange={(event) => setForm((current) => ({ ...current, purpose: event.target.value }))} placeholder="Customer collections / project expenses" /></Field>
+          {isReraProfile && !eligibleFirms.length && <p className="border-y border-amber-100 bg-amber-50/60 px-3 py-2 text-xs text-amber-800">Create a bank ledger with bank name and account number before mapping the RERA separate account.</p>}
+          <Field label="Purpose">
+            {isReraProfile ? (
+              <Select value={form.purpose} onValueChange={(value) => setForm((current) => ({ ...current, purpose: value }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="RERA_SEPARATE_ACCOUNT">RERA separate account · recommended</SelectItem>
+                  <SelectItem value="SEPARATE_ACCOUNT">Separate account</SelectItem>
+                  <SelectItem value="DESIGNATED_COLLECTION_ACCOUNT">Designated collection account</SelectItem>
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input value={form.purpose} onChange={(event) => setForm((current) => ({ ...current, purpose: event.target.value }))} placeholder="Customer collections / project expenses" />
+            )}
+          </Field>
           <Field label="Effective from"><Input type="date" value={form.effective_from} onChange={(event) => setForm((current) => ({ ...current, effective_from: event.target.value }))} /></Field>
-          <Field label="Evidence document ID (optional)"><Input inputMode="numeric" value={form.evidence_document_id} onChange={(event) => setForm((current) => ({ ...current, evidence_document_id: event.target.value }))} placeholder="Existing document ID" /></Field>
+          <EvidenceDocumentSelect
+            label={isReraProfile ? 'Bank letter / account proof' : 'Evidence document'}
+            value={form.evidence_document_id}
+            onChange={(value) => setForm((current) => ({ ...current, evidence_document_id: value }))}
+            documents={evidenceDocuments}
+            required={isReraProfile}
+            placeholder={isReraProfile ? 'Choose bank letter or account proof' : 'No evidence document'}
+            hint={isReraProfile ? 'Use a bank-issued letter, statement, cancelled cheque, or equivalent account proof retained in DMS.' : 'Optional supporting record from Document Search.'}
+          />
           <p className="border-l-2 border-blue-300 bg-blue-50/60 px-3 py-2 text-xs text-blue-800">A reviewer must verify this mapping before it is treated as reviewed project-account evidence.</p>
         </div>
         <SheetFooter className="border-t border-slate-200 px-6 py-4">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={submit} disabled={busy}>{busy ? 'Mapping…' : 'Map account'}</Button>
+          <Button onClick={submit} disabled={busy || (isReraProfile && !eligibleFirms.length)}>{busy ? 'Mapping…' : 'Map account'}</Button>
         </SheetFooter>
       </SheetContent>
     </Sheet>
   );
 }
 
-function AllocationSheet({ open, onOpenChange, siteId, project, phaseId, onSaved }) {
+function AllocationSheet({ open, onOpenChange, siteId, project, phaseId, isReraProfile, onSaved }) {
   const [form, setForm] = useState({ source_module: 'EXPENSE', source_id: '', allocation_method: 'DIRECT', amount: '', percentage: '', reason: '' });
   const [busy, setBusy] = useState(false);
+  const [eligibleTransactions, setEligibleTransactions] = useState([]);
+  const [transactionsLoading, setTransactionsLoading] = useState(false);
+  const [transactionsError, setTransactionsError] = useState('');
+  const complianceRequest = useRef(0);
   useEffect(() => {
-    if (open) setForm({ source_module: 'EXPENSE', source_id: '', allocation_method: 'DIRECT', amount: '', percentage: '', reason: '' });
-  }, [open]);
+    if (!open) {
+      complianceRequest.current += 1;
+      return undefined;
+    }
+    setForm({ source_module: isReraProfile ? 'FIRM_TRANSACTION' : 'EXPENSE', source_id: '', allocation_method: 'DIRECT', amount: '', percentage: '', reason: '' });
+    setEligibleTransactions([]);
+    setTransactionsError('');
+    if (!isReraProfile || !siteId || !project?.id) {
+      setTransactionsLoading(false);
+      return undefined;
+    }
+
+    const sequence = ++complianceRequest.current;
+    setTransactionsLoading(true);
+    api.get('/property-lifecycle/project-finance/rera-compliance', {
+      params: {
+        site_id: siteId,
+        project_id: project.id,
+        ...(phaseId !== 'all' ? { phase_id: phaseId } : {}),
+      },
+    }).then(({ data }) => {
+      if (sequence !== complianceRequest.current) return;
+      const credits = Array.isArray(data.eligible_bank_credits) ? data.eligible_bank_credits : [];
+      const debits = Array.isArray(data.eligible_bank_debits) ? data.eligible_bank_debits : [];
+      setEligibleTransactions([...debits, ...credits].sort((left, right) => (
+        String(right.date || '').localeCompare(String(left.date || '')) || Number(right.id) - Number(left.id)
+      )));
+    }).catch((error) => {
+      if (sequence !== complianceRequest.current) return;
+      setEligibleTransactions([]);
+      setTransactionsError(error.response?.data?.message || 'Eligible bank transactions could not be loaded.');
+    }).finally(() => {
+      if (sequence === complianceRequest.current) setTransactionsLoading(false);
+    });
+
+    return () => {
+      if (sequence === complianceRequest.current) complianceRequest.current += 1;
+    };
+  }, [isReraProfile, open, phaseId, project?.id, siteId]);
 
   const submit = async () => {
     if (!form.source_id || !form.reason.trim()) return toast.error('Enter the source transaction and allocation reason.');
+    if (isReraProfile && !eligibleTransactions.some((transaction) => String(transaction.id) === String(form.source_id))) {
+      return toast.error('Choose an eligible transaction from the designated-account bank feed.');
+    }
     setBusy(true);
     try {
       await api.post('/property-lifecycle/project-finance/allocations', {
@@ -113,7 +217,9 @@ function AllocationSheet({ open, onOpenChange, siteId, project, phaseId, onSaved
         amount: form.allocation_method === 'DIRECT' ? undefined : form.amount,
         percentage: form.allocation_method === 'PERCENTAGE' ? form.percentage : undefined,
       });
-      toast.success(`Source ${form.source_module} #${form.source_id} linked to ${project.name}.`);
+      toast.success(isReraProfile
+        ? `Selected designated-account transaction linked to ${project.name}.`
+        : `Source ${form.source_module} #${form.source_id} linked to ${project.name}.`);
       onOpenChange(false);
       onSaved();
     } catch (error) {
@@ -131,15 +237,37 @@ function AllocationSheet({ open, onOpenChange, siteId, project, phaseId, onSaved
           <SheetDescription>The original accounting row remains authoritative; this only adds project/phase context.</SheetDescription>
         </SheetHeader>
         <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Source module">
-              <Select value={form.source_module} onValueChange={(value) => setForm((current) => ({ ...current, source_module: value }))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>{['EXPENSE', 'VENDOR_PAYMENT', 'FARMER_PAYMENT', 'FIRM_TRANSACTION', 'DAY_BOOK'].map((value) => <SelectItem key={value} value={value}>{title(value)}</SelectItem>)}</SelectContent>
+          {isReraProfile ? (
+            <Field label="Eligible designated-account transaction">
+              <Select
+                value={form.source_id || 'none'}
+                onValueChange={(value) => setForm((current) => ({ ...current, source_id: value === 'none' ? '' : value }))}
+                disabled={transactionsLoading || Boolean(transactionsError)}
+              >
+                <SelectTrigger><SelectValue placeholder={transactionsLoading ? 'Loading eligible transactions…' : 'Choose a bank transaction'} /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Choose a bank transaction</SelectItem>
+                  {eligibleTransactions.map((transaction) => (
+                    <SelectItem key={transaction.id} value={String(transaction.id)}>{bankTransactionLabel(transaction)}</SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
+              {transactionsError && <p className="mt-1 text-xs text-red-600">{transactionsError}</p>}
+              {!transactionsLoading && !transactionsError && !eligibleTransactions.length && (
+                <p className="mt-1 text-xs text-amber-700">No eligible transaction is available in the selected project and phase.</p>
+              )}
             </Field>
-            <Field label="Source transaction ID"><Input inputMode="numeric" value={form.source_id} onChange={(event) => setForm((current) => ({ ...current, source_id: event.target.value }))} /></Field>
-          </div>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Source module">
+                <Select value={form.source_module} onValueChange={(value) => setForm((current) => ({ ...current, source_module: value }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>{['EXPENSE', 'VENDOR_PAYMENT', 'FARMER_PAYMENT', 'FIRM_TRANSACTION', 'DAY_BOOK'].map((value) => <SelectItem key={value} value={value}>{title(value)}</SelectItem>)}</SelectContent>
+                </Select>
+              </Field>
+              <Field label="Source transaction ID"><Input inputMode="numeric" value={form.source_id} onChange={(event) => setForm((current) => ({ ...current, source_id: event.target.value }))} /></Field>
+            </div>
+          )}
           <Field label="How should it be linked?">
             <Select value={form.allocation_method} onValueChange={(value) => setForm((current) => ({ ...current, allocation_method: value }))}>
               <SelectTrigger><SelectValue /></SelectTrigger>
@@ -160,7 +288,7 @@ function AllocationSheet({ open, onOpenChange, siteId, project, phaseId, onSaved
         </div>
         <SheetFooter className="border-t border-slate-200 px-6 py-4">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={submit} disabled={busy}>{busy ? 'Linking…' : 'Link transaction'}</Button>
+          <Button onClick={submit} disabled={busy || transactionsLoading || (isReraProfile && (!eligibleTransactions.length || Boolean(transactionsError)))}>{busy ? 'Linking…' : 'Link transaction'}</Button>
         </SheetFooter>
       </SheetContent>
     </Sheet>
@@ -199,17 +327,23 @@ function ProjectSetup({ projects, canCreateProject, onOpenSetup, onCreateProject
 export default function ProjectFinance() {
   const navigate = useNavigate();
   const { currentSite, user, hasPermission } = useAuth();
-  const { canUseCapability, getTerm } = useSitePolicy();
+  const sitePolicy = useSitePolicy();
+  const { canUseCapability, getTerm } = sitePolicy;
+  const financePaymentPolicy = getFinancePaymentPolicy(sitePolicy);
   const siteId = currentSite?.id;
-  const isReraWorkspace = canUseCapability('rera_workspace');
+  const isReraProfile = isReraOperatingProfile(sitePolicy);
+  const isReraWorkspace = isReraProfile || canUseCapability('rera_workspace');
   const projectTerm = getTerm('project', isReraWorkspace ? 'RERA Project' : 'Development Project');
-  const [projects, setProjects] = useState([]);
-  const [firms, setFirms] = useState([]);
-  const [projectId, setProjectId] = useState('');
+  const boot = cache.get(bootKeyOf(siteId));
+  const [projects, setProjects] = useState(boot?.projects || []);
+  const [firms, setFirms] = useState(boot?.firms || []);
+  const [projectId, setProjectId] = useState(boot?.selected || '');
   const [phaseId, setPhaseId] = useState('all');
   const [tab, setTab] = useState('collections');
-  const [data, setData] = useState({ metrics: {}, collections: [], expenses: [], accounts: [], allocations: [] });
-  const [loading, setLoading] = useState(true);
+  const [ready, setReady] = useState(Boolean(boot));
+  const [loadedSiteId, setLoadedSiteId] = useState(boot ? String(siteId) : '');
+  const [data, setData] = useState(() => cache.get(dataKeyOf(siteId, boot?.selected || '', 'all')) || EMPTY);
+  const [loading, setLoading] = useState(!cache.has(dataKeyOf(siteId, boot?.selected || '', 'all')));
   const [error, setError] = useState('');
   const [accountOpen, setAccountOpen] = useState(false);
   const [allocationOpen, setAllocationOpen] = useState(false);
@@ -222,45 +356,105 @@ export default function ProjectFinance() {
   const createProjectPath = '/rera?tab=projects-phases&create=project';
 
   useEffect(() => {
+    setPhaseId('all');
+    setAccountOpen(false);
+    setAllocationOpen(false);
     if (!siteId) {
       setProjects([]);
       setFirms([]);
+      setProjectId('');
+      setLoadedSiteId('');
+      setReady(true);
       setLoading(false);
-      return;
+      return undefined;
     }
+    const cached = cache.get(bootKeyOf(siteId));
+    if (cached) {
+      setProjects(cached.projects);
+      setFirms(cached.firms);
+      setProjectId((current) => (cached.projects.some((row) => String(row.id) === String(current))
+        ? current
+        : (cached.selected || (cached.projects[0]?.id ? String(cached.projects[0].id) : ''))));
+      setLoadedSiteId(String(siteId));
+      setReady(true);
+    } else {
+      setProjects([]);
+      setFirms([]);
+      setProjectId('');
+      setLoadedSiteId('');
+      setReady(false);
+      setLoading(true);
+    }
+    let alive = true;
     Promise.allSettled([
-      api.get('/rera/control-centre', { params: { site_id: siteId } }),
+      // projects_only skips the control centre's per-project workspace queries;
+      // this page needs nothing but the project list and its phases.
+      api.get('/rera/control-centre', { params: { site_id: siteId, projects_only: 1 } }),
       api.get('/firms', { params: { site_id: siteId } }),
     ]).then(([projectResult, firmResult]) => {
-      if (projectResult.status === 'fulfilled') {
-        const rows = projectResult.value.data.projects || [];
-        setProjects(rows);
-        setProjectId((current) => current || (rows[0]?.id ? String(rows[0].id) : ''));
-      }
-      if (firmResult.status === 'fulfilled') setFirms(firmResult.value.data.firms || []);
+      if (!alive) return;
+      const rows = projectResult.status === 'fulfilled' ? (projectResult.value.data.projects || []) : (cached?.projects || []);
+      const firmRows = firmResult.status === 'fulfilled' ? (firmResult.value.data.firms || []) : (cached?.firms || []);
+      setProjects(rows);
+      setFirms(firmRows);
+      // A project carried over from another Site would 404 the finance request.
+      setProjectId((current) => (rows.some((row) => String(row.id) === String(current))
+        ? current
+        : (rows[0]?.id ? String(rows[0].id) : '')));
+      setLoadedSiteId(String(siteId));
+      setReady(true);
     });
+    return () => { alive = false; };
   }, [siteId]);
 
+  useEffect(() => {
+    if (siteId && ready && loadedSiteId === String(siteId)) {
+      cache.set(bootKeyOf(siteId), { projects, firms, selected: projectId });
+    }
+  }, [firms, loadedSiteId, projectId, projects, ready, siteId]);
+
+  const financeRequest = useRef(0);
   const load = useCallback(async () => {
-    if (!siteId || !projectId) {
-      setLoading(false);
+    if (!siteId || !projectId || !ready || loadedSiteId !== String(siteId)) {
+      if (ready) setLoading(false);
       return;
     }
-    setLoading(true);
+    const sequence = ++financeRequest.current;
+    const key = dataKeyOf(siteId, projectId, phaseId);
+    const cached = cache.get(key);
     setError('');
+    // Keep the last good view on screen while revalidating; only an uncached
+    // combination is allowed to fall back to skeletons.
+    setData(cached || EMPTY);
+    setLoading(!cached);
     try {
       const { data: response } = await api.get('/property-lifecycle/project-finance', {
         params: { site_id: siteId, project_id: projectId, ...(phaseId !== 'all' ? { phase_id: phaseId } : {}) },
       });
+      if (sequence !== financeRequest.current) return;
+      cache.set(key, response);
       setData(response);
     } catch (requestError) {
+      if (sequence !== financeRequest.current) return;
       setError(requestError.response?.data?.message || 'Project Finance could not be loaded.');
     } finally {
-      setLoading(false);
+      if (sequence === financeRequest.current) setLoading(false);
     }
-  }, [phaseId, projectId, siteId]);
+  }, [loadedSiteId, phaseId, projectId, ready, siteId]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+    return () => {
+      financeRequest.current += 1;
+    };
+  }, [load]);
+
+  // A write invalidates more than the current project/phase view, so drop every view.
+  const reload = useCallback(() => {
+    cache.forEach((_, key) => { if (key.startsWith('pf:data:')) cache.delete(key); });
+    load();
+  }, [load]);
+  const busy = loading || !ready;
 
   const metrics = useMemo(() => [
     ['Booked', data.metrics?.booked],
@@ -274,12 +468,17 @@ export default function ProjectFinance() {
     ['expenses', 'Costs', data.expenses?.length],
     ['accounts', 'Accounts', data.accounts?.length],
     ['allocations', 'Source links', data.allocations?.length],
+    ...(isReraProfile ? [['rera-funds', 'RERA fund controls', null]] : []),
   ];
+
+  useEffect(() => {
+    if (!isReraProfile && tab === 'rera-funds') setTab('collections');
+  }, [isReraProfile, tab]);
   const review = async (mapping, decision) => {
     try {
       await api.patch(`/property-lifecycle/project-finance/accounts/${mapping.id}/review`, { decision, reason: `${decision} from Project Finance` });
       toast.success(`Account mapping marked ${title(decision)}.`);
-      load();
+      reload();
     } catch (requestError) {
       toast.error(requestError.response?.data?.message || 'Account review could not be saved.');
     }
@@ -293,7 +492,14 @@ export default function ProjectFinance() {
             <button onClick={() => navigate('/customer-inventory')} className="mb-2 flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-900">
               <ArrowLeft className="h-3.5 w-3.5" />Customer & inventory
             </button>
-            <h1 className="text-2xl font-semibold tracking-tight text-slate-950">Project finance</h1>
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-2xl font-semibold tracking-tight text-slate-950">Project finance</h1>
+              <Badge variant="outline" className={financePaymentPolicy.bankOnly
+                ? 'border-blue-200 bg-blue-50 text-blue-700'
+                : 'border-slate-200 bg-white text-slate-600'}>
+                {financePaymentPolicy.bankOnly ? 'Bank-only entry' : 'All payment modes'}
+              </Badge>
+            </div>
             <p className="mt-1 text-sm text-slate-500">Select one {projectTerm.toLowerCase()} to see its existing customer collections, costs and linked accounts.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -314,13 +520,23 @@ export default function ProjectFinance() {
                 {phases.map((phase) => <SelectItem key={phase.id} value={String(phase.id)}>{phase.name}</SelectItem>)}
               </SelectContent>
             </Select>
-            <Button variant="ghost" size="icon" onClick={load} aria-label="Refresh">
-              <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin motion-reduce:animate-none')} />
+            <Button variant="ghost" size="icon" onClick={reload} aria-label="Refresh">
+              <RefreshCw className={cn('h-4 w-4', busy && 'animate-spin motion-reduce:animate-none')} />
             </Button>
           </div>
         </header>
 
-        {!projectId ? (
+        {isReraProfile && (
+          <div className="mb-5 overflow-hidden rounded-xl">
+            <ReraWorkflowNotice
+              policy={sitePolicy}
+              area="finance"
+              actions={[{ label: 'RERA project workspace', href: projectSetupPath }]}
+            />
+          </div>
+        )}
+
+        {ready && !projectId ? (
           <ProjectSetup
             projects={projects}
             canCreateProject={canCreateProject}
@@ -334,7 +550,7 @@ export default function ProjectFinance() {
               {metrics.map(([label, value], index) => (
                 <div key={label} className={cn('min-w-[150px] flex-1 px-5 py-3', index && 'border-l border-slate-100')}>
                   <p className="text-[10px] font-semibold uppercase tracking-[0.13em] text-slate-400">{label}</p>
-                  {loading ? <Skeleton className="mt-1 h-5 w-24" /> : <p className="mt-0.5 text-lg font-semibold tabular-nums text-slate-950">{currency(value)}</p>}
+                  {busy ? <Skeleton className="mt-1 h-5 w-24" /> : <p className="mt-0.5 text-lg font-semibold tabular-nums text-slate-950">{currency(value)}</p>}
                 </div>
               ))}
             </div>
@@ -342,7 +558,7 @@ export default function ProjectFinance() {
               <div className="flex gap-5 overflow-x-auto">
                 {tabs.map(([value, label, count]) => (
                   <button key={value} onClick={() => setTab(value)} className={cn('border-b-2 py-3 text-xs font-medium transition-colors', tab === value ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-900')}>
-                    {label}<span className="ml-1 tabular-nums text-slate-400">{count || 0}</span>
+                    {label}{count !== null && <span className="ml-1 tabular-nums text-slate-400">{count || 0}</span>}
                   </button>
                 ))}
               </div>
@@ -356,9 +572,9 @@ export default function ProjectFinance() {
               <div className="py-20 text-center">
                 <p className="text-sm font-semibold text-red-700">Project Finance is unavailable</p>
                 <p className="mt-1 text-xs text-slate-500">{error}</p>
-                <Button className="mt-4" variant="outline" size="sm" onClick={load}>Try again</Button>
+                <Button className="mt-4" variant="outline" size="sm" onClick={reload}>Try again</Button>
               </div>
-            ) : loading ? (
+            ) : busy ? (
               <div className="space-y-px">{Array.from({ length: 7 }).map((_, index) => <div key={index} className="grid grid-cols-5 gap-5 border-b border-slate-100 px-4 py-3"><Skeleton className="h-8 w-36" /><Skeleton className="h-8 w-28" /><Skeleton className="h-8 w-32" /><Skeleton className="h-8 w-24" /><Skeleton className="h-8 w-20" /></div>)}</div>
             ) : tab === 'collections' ? (
               <Table>
@@ -406,7 +622,7 @@ export default function ProjectFinance() {
                   )) : <Empty>No existing bank account is mapped to this project yet.</Empty>}
                 </TableBody>
               </Table>
-            ) : (
+            ) : tab === 'allocations' ? (
               <Table>
                 <TableHeader><TableRow><TableHead>Source</TableHead><TableHead>Method</TableHead><TableHead>Phase</TableHead><TableHead>Reason</TableHead><TableHead className="text-right">Amount</TableHead></TableRow></TableHeader>
                 <TableBody>
@@ -421,11 +637,24 @@ export default function ProjectFinance() {
                   )) : <Empty>No source transactions are linked to this project or phase.</Empty>}
                 </TableBody>
               </Table>
+            ) : (
+              <Suspense fallback={<div className="space-y-px">{Array.from({ length: 6 }).map((_, index) => <Skeleton key={index} className="h-14 w-full rounded-none" />)}</div>}>
+                <ReraFundControls
+                  siteId={siteId}
+                  project={project}
+                  phaseId={phaseId}
+                  collections={data.collections || []}
+                  evidenceDocuments={data.evidence_documents || []}
+                  canUpdate={canUpdate}
+                  isAdmin={isAdmin}
+                  onFinanceReload={reload}
+                />
+              </Suspense>
             )}
           </section>
         )}
-        <AccountSheet open={accountOpen} onOpenChange={setAccountOpen} siteId={siteId} project={project} phaseId={phaseId} firms={firms} onSaved={load} />
-        <AllocationSheet open={allocationOpen} onOpenChange={setAllocationOpen} siteId={siteId} project={project} phaseId={phaseId} onSaved={load} />
+        <AccountSheet open={accountOpen} onOpenChange={setAccountOpen} siteId={siteId} project={project} phaseId={phaseId} firms={firms} evidenceDocuments={data.evidence_documents || []} isReraProfile={isReraProfile} onSaved={reload} />
+        <AllocationSheet open={allocationOpen} onOpenChange={setAllocationOpen} siteId={siteId} project={project} phaseId={phaseId} isReraProfile={isReraProfile} onSaved={reload} />
       </div>
     </div>
   );

@@ -3,7 +3,7 @@ import {
   ArrowDownLeft, ArrowRight, ArrowUpRight, Clock, MapPin, TrendingDown, TrendingUp,
 } from 'lucide-react';
 import { CurrencyValue, StatusPill } from './primitives';
-import { money, moneyCompact } from '@/lib/utils';
+import { money } from '@/lib/utils';
 
 /* ── Financial position ──────────────────────────────────────────────
    The panel states the period's cash arithmetic rather than scoring it:
@@ -24,7 +24,7 @@ function FlowRow({ label, value, tone, icon, sign }) {
         <span className="truncate">{label}</span>
       </span>
       <span className={`shrink-0 text-[14px] font-semibold tabular-nums ${colour}`} title={money(value)}>
-        {sign}{moneyCompact(Math.abs(value))}
+        {sign}{money(Math.abs(value))}
       </span>
     </div>
   );
@@ -34,7 +34,7 @@ export function FinancialPositionPanel({
   balance, opening, incoming, outgoing, loading,
   /* The same arithmetic reads as "site balance" on the dashboard and
      "closing balance" on a statement — only the noun changes. */
-  label = 'Site balance', compactAbove = 1e5,
+  label = 'Site balance',
 }) {
   const open = Number(opening) || 0;
   const inc = Number(incoming) || 0;
@@ -68,14 +68,14 @@ export function FinancialPositionPanel({
             {net >= 0
               ? <TrendingUp className="h-3.5 w-3.5" strokeWidth={2.2} aria-hidden="true" />
               : <TrendingDown className="h-3.5 w-3.5" strokeWidth={2.2} aria-hidden="true" />}
-            {net >= 0 ? '+' : '−'}{moneyCompact(Math.abs(net))}
+            {net >= 0 ? '+' : '−'}{money(Math.abs(net))}
           </span>
         )}
       </div>
 
       {loading
         ? <span className="mt-2 block h-10 w-44 animate-pulse rounded-md bg-white/10" />
-        : <CurrencyValue value={bal} size="lg" tone="invert" className="mt-1.5" compactAbove={compactAbove} />}
+        : <CurrencyValue value={bal} size="lg" tone="invert" className="mt-1.5" />}
 
       <div className="mt-4">
         <div className="flex h-2 w-full gap-1 overflow-hidden rounded-full" aria-hidden="true">
@@ -100,9 +100,9 @@ export function FinancialPositionPanel({
       <figcaption className="mt-2.5 flex items-center justify-between gap-3 border-t border-white/10 pt-2.5 text-[12px] text-white/55">
         <span>Opening balance</span>
         <span className="flex items-center gap-1.5 tabular-nums">
-          <span className="font-semibold text-white/85" title={money(open)}>{moneyCompact(open)}</span>
+          <span className="font-semibold text-white/85" title={money(open)}>{money(open)}</span>
           <ArrowRight className="h-3 w-3 text-white/35" strokeWidth={2.2} aria-hidden="true" />
-          <span className="font-semibold text-white" title={money(bal)}>{moneyCompact(bal)}</span>
+          <span className="font-semibold text-white" title={money(bal)}>{money(bal)}</span>
         </span>
       </figcaption>
 

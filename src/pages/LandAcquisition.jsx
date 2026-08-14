@@ -5,6 +5,10 @@ import {
   CircleDollarSign, FileWarning, LandPlot, MoreHorizontal, Plus, RefreshCw,
   Search, UsersRound,
 } from 'lucide-react';
+import {
+  Bar, BarChart, CartesianGrid, ResponsiveContainer,
+  Tooltip as RechartsTooltip, XAxis, YAxis,
+} from 'recharts';
 import api from '@/api/api';
 import { useAuth } from '@/context/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -19,7 +23,9 @@ import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
-import { EmptyBlock, PageHeader, PageTabs, SectionHead, StatusDot } from '@/components/ui/page';
+import {
+  EmptyBlock, PageHeader, PageTabs, PrintButton, PrintDocHead, SectionHead, StatusDot,
+} from '@/components/ui/page';
 import LandAcquisitionProgress from '@/components/land-acquisition/LandAcquisitionProgress';
 import AcquisitionActivityTimeline from '@/components/land-acquisition/AcquisitionActivityTimeline';
 import {
@@ -29,7 +35,78 @@ import {
   apiMessage, areaLabel, dateLabel, initials, money, readable, statusTone, WORKSPACE_VIEWS,
 } from '@/components/land-acquisition/landAcquisitionUtils';
 
-const EMPTY = { acquisitions: [], transactions: [], pagination: {}, summary: {}, attention: [], recent_activity: [], recent_acquisitions: [] };
+const EMPTY = { acquisitions: [], transactions: [], pagination: {}, summary: {}, chart: [], attention: [], recent_activity: [], recent_acquisitions: [] };
+
+const AGREED = '#2563eb';
+const PAID = '#15803d';
+const DUE = '#f59e0b';
+const AXIS_TICK = { fontSize: 11, fill: '#98a0ad' };
+const TOOLTIP_STYLE = {
+  borderRadius: 10, border: '1px solid rgba(16,17,20,0.08)', background: '#fff',
+  boxShadow: '0 8px 24px rgba(16,17,20,0.08)', fontSize: 12, padding: '8px 10px',
+};
+// ponytail: same L/Cr short-form the money() helper uses, minus the ₹ — axis ticks need the room.
+const axisMoney = (value) => money(value, true).replace('₹', '');
+
+function AgreedVsPaidChart({ rows, onOpen }) {
+  if (!rows.length) return <EmptyBlock icon={BarChart3} title="No agreed values yet" description="Confirm financial terms on an acquisition to see it here." />;
+  return (
+    <div className="h-[280px] w-full">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={rows} barGap={3} barCategoryGap="28%" margin={{ top: 8, right: 4, bottom: 0, left: -8 }}>
+          <CartesianGrid stroke="rgba(16,17,20,0.06)" vertical={false} />
+          <XAxis dataKey="label" tick={AXIS_TICK} axisLine={false} tickLine={false} interval={0} tickFormatter={(value) => (String(value).length > 12 ? `${String(value).slice(0, 11)}…` : value)} />
+          <YAxis tick={AXIS_TICK} axisLine={false} tickLine={false} tickFormatter={axisMoney} width={56} />
+          <RechartsTooltip
+            cursor={{ fill: 'rgba(16,17,20,0.04)' }}
+            contentStyle={TOOLTIP_STYLE}
+            formatter={(value, name) => [money(value, true), name]}
+            labelStyle={{ fontWeight: 600, color: '#101114' }}
+          />
+          <Bar dataKey="agreed" name="Agreed" fill={AGREED} radius={[5, 5, 0, 0]} maxBarSize={26} className="cursor-pointer" onClick={(bar) => onOpen?.(bar?.payload?.id)} />
+          <Bar dataKey="paid" name="Paid" fill={PAID} radius={[5, 5, 0, 0]} maxBarSize={26} className="cursor-pointer" onClick={(bar) => onOpen?.(bar?.payload?.id)} />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+// ponytail: one stacked row instead of two columns — part-of-whole reads instantly and costs ~60px of page.
+function OverallPaidChart({ summary }) {
+  const paid = Math.max(Number(summary.total_paid ?? summary.paid) || 0, 0);
+  const due = Math.max(Number(summary.outstanding) || 0, 0);
+  if (!paid && !due) return null;
+  const total = paid + due;
+  return (
+    <section className="border-b border-mr-line pb-5">
+      <SectionHead
+        title="Overall position"
+        meta={`${money(total, true)} agreed`}
+        actions={(
+          <span className="flex items-center gap-3 text-[11px] text-mr-muted">
+            <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{ background: PAID }} />Paid {money(paid, true)}</span>
+            <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{ background: DUE }} />To pay {money(due, true)}</span>
+          </span>
+        )}
+      />
+      <div className="h-[64px] w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart layout="vertical" data={[{ name: 'Total', paid, due }]} margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
+            <XAxis type="number" hide domain={[0, total]} />
+            <YAxis type="category" dataKey="name" hide />
+            <RechartsTooltip
+              cursor={{ fill: 'rgba(16,17,20,0.04)' }}
+              contentStyle={TOOLTIP_STYLE}
+              formatter={(value, name) => [`${money(value, true)} · ${((value / total) * 100).toFixed(1)}%`, name]}
+            />
+            <Bar dataKey="paid" name="Paid" stackId="total" fill={PAID} radius={[6, 0, 0, 6]} maxBarSize={34} />
+            <Bar dataKey="due" name="To pay" stackId="total" fill={DUE} radius={[0, 6, 6, 0]} maxBarSize={34} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </section>
+  );
+}
 
 function WorkspaceLoading() {
   return <div className="space-y-4"><Skeleton className="h-20 w-full" /><Skeleton className="h-12 w-full" /><Skeleton className="h-80 w-full" /></div>;
@@ -116,67 +193,127 @@ export default function LandAcquisition() {
     ];
   }, [data.summary]);
 
+  // Each view prints as its own report — same letterhead, its own title and applied filters.
+  const printDoc = useMemo(() => ({
+    overview: {
+      title: 'Land Acquisition — Overview',
+      subtitle: 'Position, exceptions and recent movement across all acquisitions at this Site.',
+      meta: [],
+    },
+    acquisitions: {
+      title: 'Land Acquisition — Acquisition Register',
+      subtitle: 'Landowner agreements with agreed value, amount paid and outstanding balance.',
+      meta: [
+        { label: 'Search', value: filters.q },
+        { label: 'Status', value: filters.status === 'all' ? 'All acquisitions' : readable(filters.status) },
+        { label: 'Page', value: data.pagination?.pages > 1 ? `${data.pagination.page} of ${data.pagination.pages}` : '' },
+      ],
+    },
+    transactions: {
+      title: 'Land Acquisition — Transaction Register',
+      subtitle: 'Payments recorded against landowner acquisitions.',
+      meta: [
+        { label: 'Search', value: filters.q },
+        { label: 'Mode', value: filters.mode === 'all' ? 'All modes' : readable(filters.mode) },
+        { label: 'Page', value: data.pagination?.pages > 1 ? `${data.pagination.page} of ${data.pagination.pages}` : '' },
+      ],
+    },
+    reports: {
+      title: 'Land Acquisition — Reports & Analytics',
+      subtitle: 'Landowner outstanding, payment modes, village summary and scheduled dues.',
+      meta: [],
+    },
+  }[view]), [data.pagination, filters.mode, filters.q, filters.status, view]);
+
   if (!siteId) {
     return <EmptyBlock icon={Building2} title="Select a Site" description="Land Acquisition is Site-scoped. Select a Site to view its acquisitions and transactions." tall />;
   }
 
   return (
-    <div className="mx-auto w-full max-w-[1500px] space-y-6 pb-12">
-      <PageHeader
-        title="Land Acquisition"
-        description={`Landowner agreements, terms and payments · ${currentSite?.name || 'Selected Site'}`}
-        actions={(
-          <>
-            <Button variant="outline" size="icon" onClick={refresh} disabled={loading} title="Refresh"><RefreshCw className={loading ? 'animate-spin' : ''} /></Button>
-            {canCreate && <Button onClick={() => setCreateOpen(true)}><Plus className="mr-2 h-4 w-4" />Create acquisition</Button>}
-          </>
-        )}
-      />
-      <PageTabs items={WORKSPACE_VIEWS} value={view} onChange={setView} label="Land Acquisition sections" />
+    <div data-print-doc className="mx-auto w-full max-w-[1500px] space-y-6 pb-12">
+      <div data-print-hide className="space-y-6">
+        <PageHeader
+          title="Land Acquisition"
+          description={`Landowner agreements, terms and payments · ${currentSite?.name || 'Selected Site'}`}
+          actions={(
+            <>
+              <Button variant="outline" size="icon" onClick={refresh} disabled={loading} title="Refresh"><RefreshCw className={loading ? 'animate-spin' : ''} /></Button>
+              <PrintButton />
+              {canCreate && <Button onClick={() => setCreateOpen(true)}><Plus className="mr-2 h-4 w-4" />Create acquisition</Button>}
+            </>
+          )}
+        />
+        <PageTabs items={WORKSPACE_VIEWS} value={view} onChange={setView} label="Land Acquisition sections" />
+      </div>
+      <PrintDocHead title={printDoc.title} subtitle={printDoc.subtitle} meta={printDoc.meta} />
 
       {state.error && <div className="border-y border-mr-coral-ink/20 bg-mr-coral-soft px-4 py-3 text-[13px] text-mr-coral-ink">{state.error}</div>}
       {loading ? <WorkspaceLoading /> : (
         <>
           {view === 'overview' && (
-            <div className="space-y-8">
+            <div className="space-y-6">
               <MetricStrip values={metrics} />
-              <div className="grid gap-8 lg:grid-cols-[minmax(0,1.3fr)_minmax(300px,.7fr)]">
+              <OverallPaidChart summary={data.summary || {}} />
+              <div className="grid gap-6 lg:grid-cols-[minmax(0,1.45fr)_minmax(300px,.55fr)]">
                 <section>
-                  <SectionHead title="Needs attention" meta={`${data.attention.length} items`} description="Each item opens the exact acquisition that needs action." />
+                  <SectionHead
+                    title="Agreed vs paid"
+                    description="Top acquisitions by agreed value. Click a bar to open it."
+                    actions={(
+                      <span className="flex items-center gap-3 text-[11px] text-mr-muted">
+                        <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{ background: AGREED }} />Agreed</span>
+                        <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{ background: PAID }} />Paid</span>
+                      </span>
+                    )}
+                  />
+                  <AgreedVsPaidChart rows={data.chart} onOpen={openAcquisition} />
+                </section>
+                <section>
+                  <SectionHead title="Needs attention" meta={`${data.attention.length} items`} />
                   {data.attention.length ? (
-                    <div className="divide-y divide-mr-line">
-                      {data.attention.map((item, index) => (
-                        <button key={`${item.acquisition_id}-${index}`} type="button" onClick={() => openAcquisition(item.acquisition_id)} className="flex w-full items-center gap-3 py-4 text-left hover:bg-mr-surface-2">
-                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-mr-amber-soft text-mr-amber-ink"><AlertTriangle className="h-4 w-4" /></span>
-                          <span className="min-w-0 flex-1"><span className="block text-[13px] font-medium text-mr-text">{item.message}</span><span className="mt-0.5 block text-[12px] text-mr-muted">{item.acquisition_reference} · {item.landowner_name}</span></span>
-                          <ArrowRight className="h-4 w-4 text-mr-faint" />
+                    <>
+                      <div className="divide-y divide-mr-line">
+                        {data.attention.slice(0, 5).map((item, index) => (
+                          <button key={`${item.acquisition_id}-${index}`} type="button" data-print-row onClick={() => openAcquisition(item.acquisition_id)} className="flex w-full items-center gap-3 py-3 text-left hover:bg-mr-surface-2">
+                            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-mr-amber-soft text-mr-amber-ink"><AlertTriangle className="h-3.5 w-3.5" /></span>
+                            <span className="min-w-0 flex-1"><span className="block truncate text-[13px] font-medium text-mr-text">{item.message}</span><span className="mt-0.5 block truncate text-[11px] text-mr-muted">{item.acquisition_reference} · {item.landowner_name}</span></span>
+                            <ArrowRight className="h-4 w-4 shrink-0 text-mr-faint" />
+                          </button>
+                        ))}
+                      </div>
+                      {data.attention.length > 5 && (
+                        <button type="button" data-print-hide onClick={() => setView('acquisitions')} className="pt-3 text-[12px] font-medium text-mr-blue hover:underline">
+                          {data.attention.length - 5} more · view all acquisitions
                         </button>
-                      ))}
-                    </div>
+                      )}
+                    </>
                   ) : <EmptyBlock icon={FileWarning} title="Nothing needs attention" description="Active acquisitions have no current workflow warnings." />}
                 </section>
+              </div>
+              <div className="grid gap-6 lg:grid-cols-2">
                 <section>
                   <SectionHead title="Recent acquisitions" />
                   <div className="divide-y divide-mr-line">
                     {data.recent_acquisitions.map((item) => (
-                      <button key={item.id} type="button" onClick={() => openAcquisition(item.id)} className="flex w-full items-center justify-between gap-4 py-3 text-left hover:bg-mr-surface-2">
+                      <button key={item.id} type="button" data-print-row onClick={() => openAcquisition(item.id)} className="flex w-full items-center justify-between gap-4 py-2.5 text-left hover:bg-mr-surface-2">
                         <span className="min-w-0"><span className="block truncate text-[13px] font-medium text-mr-text">{item.acquisition_reference}</span><span className="block truncate text-[11px] text-mr-muted">{item.landowner_name} · {areaLabel(item)}</span></span>
                         <StatusDot tone={statusTone(item.financial_status)}>{readable(item.financial_status)}</StatusDot>
                       </button>
                     ))}
+                    {!data.recent_acquisitions.length && <EmptyBlock icon={LandPlot} title="No acquisitions yet" description="Created acquisitions appear here." />}
                   </div>
                 </section>
+                <section>
+                  <SectionHead title="Recent activity" />
+                  <AcquisitionActivityTimeline items={data.recent_activity.slice(0, 6)} onOpen={openActivity} />
+                </section>
               </div>
-              <section>
-                <SectionHead title="Recent activity" description="Payments, agreement revisions and lifecycle changes at this Site." />
-                <AcquisitionActivityTimeline items={data.recent_activity} onOpen={openActivity} />
-              </section>
             </div>
           )}
 
           {view === 'acquisitions' && (
             <section>
-              <div className="flex flex-wrap items-center gap-3 border-b border-mr-line pb-4">
+              <div data-print-hide className="flex flex-wrap items-center gap-3 border-b border-mr-line pb-4">
                 <div className="relative min-w-[260px] flex-1 max-w-lg"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-mr-faint" /><Input value={filters.q} onChange={(event) => setFilters((current) => ({ ...current, q: event.target.value, page: 1 }))} placeholder="Search reference, landowner, village or Khasra…" className="pl-9" /></div>
                 <Select value={filters.status} onValueChange={(status) => setFilters((current) => ({ ...current, status, page: 1 }))}>
                   <SelectTrigger className="w-[180px]"><SelectValue /></SelectTrigger>
@@ -188,7 +325,7 @@ export default function LandAcquisition() {
               ) : (
                 <div className="overflow-x-auto">
                   <Table>
-                    <TableHeader><TableRow><TableHead>Acquisition</TableHead><TableHead>Landowner</TableHead><TableHead>Land</TableHead><TableHead>Agreement</TableHead><TableHead className="text-right">Agreed</TableHead><TableHead className="text-right">Paid</TableHead><TableHead className="text-right">Outstanding</TableHead><TableHead>Progress</TableHead><TableHead>Status</TableHead><TableHead className="w-10" /></TableRow></TableHeader>
+                    <TableHeader><TableRow><TableHead>Acquisition</TableHead><TableHead>Landowner</TableHead><TableHead>Land</TableHead><TableHead>Agreement</TableHead><TableHead className="text-right">Agreed</TableHead><TableHead className="text-right">Paid</TableHead><TableHead className="text-right">Outstanding</TableHead><TableHead>Progress</TableHead><TableHead>Status</TableHead><TableHead data-print-hide className="w-10" /></TableRow></TableHeader>
                     <TableBody>
                       {data.acquisitions.map((item) => (
                         <TableRow key={item.id} className="cursor-pointer" onClick={() => openAcquisition(item.id)}>
@@ -201,7 +338,7 @@ export default function LandAcquisition() {
                           <TableCell className="text-right font-medium tabular-nums">{money(item.outstanding, true)}</TableCell>
                           <TableCell className="min-w-[250px]"><LandAcquisitionProgress status={item.effective_lifecycle_status} compact /></TableCell>
                           <TableCell><StatusDot tone={statusTone(item.effective_lifecycle_status)}>{readable(item.effective_lifecycle_status)}</StatusDot></TableCell>
-                          <TableCell onClick={(event) => event.stopPropagation()}>
+                          <TableCell data-print-hide onClick={(event) => event.stopPropagation()}>
                             <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onClick={() => openAcquisition(item.id)}>Open</DropdownMenuItem>{canCreate && item.financial_terms_status === 'CONFIRMED' && item.effective_lifecycle_status !== 'COMPLETED' && <DropdownMenuItem onClick={() => navigate(`/land-acquisition/${item.id}?action=payment`)}>Record payment</DropdownMenuItem>}{canUpdate && item.effective_lifecycle_status !== 'COMPLETED' && <DropdownMenuItem onClick={() => navigate(`/land-acquisition/${item.id}?action=land`)}>Edit land details</DropdownMenuItem>}<DropdownMenuItem onClick={() => navigate(`/land-acquisition/${item.id}?tab=agreement`)}>View agreement</DropdownMenuItem><DropdownMenuItem onClick={() => navigate(`/land-acquisition/${item.id}?tab=transactions`)}>View transactions</DropdownMenuItem><DropdownMenuItem onClick={() => navigate(`/land-acquisition/${item.id}?tab=documents`)}>View documents</DropdownMenuItem>{canUpdate && item.completion?.eligible && item.effective_lifecycle_status !== 'COMPLETED' && <DropdownMenuItem onClick={() => navigate(`/land-acquisition/${item.id}?action=complete`)}>Mark complete</DropdownMenuItem>}</DropdownMenuContent></DropdownMenu>
                           </TableCell>
                         </TableRow>
@@ -216,7 +353,7 @@ export default function LandAcquisition() {
 
           {view === 'transactions' && (
             <section>
-              <div className="flex flex-wrap items-center gap-3 border-b border-mr-line pb-4">
+              <div data-print-hide className="flex flex-wrap items-center gap-3 border-b border-mr-line pb-4">
                 <div className="relative min-w-[260px] flex-1 max-w-lg"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-mr-faint" /><Input value={filters.q} onChange={(event) => setFilters((current) => ({ ...current, q: event.target.value, page: 1 }))} placeholder="Search acquisition, landowner or reference…" className="pl-9" /></div>
                 <Select value={filters.mode} onValueChange={(mode) => setFilters((current) => ({ ...current, mode, page: 1 }))}><SelectTrigger className="w-[150px]"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All modes</SelectItem><SelectItem value="CASH">Cash</SelectItem><SelectItem value="BANK">Bank</SelectItem><SelectItem value="CHEQUE">Cheque</SelectItem><SelectItem value="SPLIT">Split</SelectItem></SelectContent></Select>
               </div>
@@ -243,7 +380,7 @@ export default function LandAcquisition() {
 function Pagination({ pagination = {}, onPage }) {
   if (!pagination.pages || pagination.pages <= 1) return null;
   return (
-    <div className="flex items-center justify-between border-t border-mr-line py-4 text-[12px] text-mr-muted">
+    <div data-print-hide className="flex items-center justify-between border-t border-mr-line py-4 text-[12px] text-mr-muted">
       <span>Page {pagination.page} of {pagination.pages} · {pagination.total} records</span>
       <div className="flex gap-2"><Button variant="outline" size="sm" disabled={pagination.page <= 1} onClick={() => onPage(pagination.page - 1)}><ChevronLeft className="mr-1 h-4 w-4" />Previous</Button><Button variant="outline" size="sm" disabled={pagination.page >= pagination.pages} onClick={() => onPage(pagination.page + 1)}>Next<ChevronRight className="ml-1 h-4 w-4" /></Button></div>
     </div>

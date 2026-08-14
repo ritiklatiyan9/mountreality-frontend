@@ -177,12 +177,13 @@ export default function AppSidebar({
 }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { getTerm } = useSitePolicy();
+  const sitePolicy = useSitePolicy();
+  const { getTerm } = sitePolicy;
   const [query, setQuery] = useState('');
 
   const groups = useMemo(
-    () => buildNavigation({ hasPermission, isAdmin, getTerm }),
-    [getTerm, hasPermission, isAdmin],
+    () => buildNavigation({ hasPermission, isAdmin, getTerm, sitePolicy }),
+    [getTerm, hasPermission, isAdmin, sitePolicy],
   );
   const flat = useMemo(() => flattenNavigation(groups), [groups]);
   const results = useMemo(() => {

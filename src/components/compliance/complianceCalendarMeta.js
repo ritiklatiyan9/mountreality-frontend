@@ -9,7 +9,31 @@ export const COMPLIANCE_EVENT_META = {
   LICENCE_EXPIRY: { label: 'Licence expiry', Icon: ShieldCheck, chip: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/80 dark:bg-emerald-950/55 dark:text-emerald-300', icon: 'bg-emerald-600 text-white' },
 };
 
-export const complianceEventDate = (value) => new Date(`${String(value).slice(0, 10)}T00:00:00`);
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+const IST_DATE_FORMATTER = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit',
+});
+
+// Calendar dates are business dates in India. Timed records arrive as UTC
+// timestamps (e.g. an 18th-at-midnight event may be 17th in UTC), so never
+// derive their calendar day by slicing an ISO string.
+export const complianceEventDate = (value) => {
+  const raw = String(value ?? '').trim();
+  if (DATE_ONLY.test(raw)) return new Date(`${raw}T00:00:00`);
+
+  // Datetimes without an offset are already a local wall-clock date.
+  if (/^\d{4}-\d{2}-\d{2}T/.test(raw) && !/(Z|[+-]\d{2}:?\d{2})$/i.test(raw)) {
+    return new Date(`${raw.slice(0, 10)}T00:00:00`);
+  }
+
+  const instant = value instanceof Date ? value : new Date(raw);
+  if (Number.isNaN(instant.getTime())) return new Date('');
+  const parts = Object.fromEntries(IST_DATE_FORMATTER
+    .formatToParts(instant)
+    .filter(({ type }) => type !== 'literal')
+    .map(({ type, value: part }) => [type, part]));
+  return new Date(`${parts.year}-${parts.month}-${parts.day}T00:00:00`);
+};
 export const calendarIsoDate = (value) => format(value, 'yyyy-MM-dd');
 export const calendarEventTime = (event) => String(event?.event_time || '').trim();
 

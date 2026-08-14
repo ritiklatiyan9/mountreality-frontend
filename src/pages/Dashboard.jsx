@@ -808,10 +808,10 @@ export const Dashboard = () => {
   ) : null;
 
   return (
-    /* Every child here is a rounded, bordered panel, so the page keeps the
-       gutter <main> gives it — bleeding to the edge clipped the panel corners
-       against the viewport and left the left edge tighter than the right. */
-    <div className="w-full space-y-6">
+    /* Every child here is a rounded, bordered panel, so the page keeps a gutter
+       — bleeding to the edge clipped the panel corners against the viewport.
+       ponytail: trims <main>'s p-4/md:p-6 to ~12px/16px, not to zero. */
+    <div className="-mx-1 -mt-1 w-auto space-y-5 md:-mx-2 md:-mt-2">
       <FinancialHero
         userName={user?.name}
         siteName={currentSite?.name}

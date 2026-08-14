@@ -18,8 +18,12 @@ import { useDocViewer } from '../components/DocViewer';
 
 const ACCEPT = '.jpg,.jpeg,.png,.webp,.pdf,.doc,.docx';
 const MAX_BYTES = 25 * 1024 * 1024;
-const REGISTRY_CATEGORIES = ['REGISTRY', 'NOC'];
-const categoryLabel = (value) => value === 'REGISTRY' ? 'Registry deed' : 'NOC';
+const REGISTRY_CATEGORIES = ['REGISTRY_SUPPORT', 'REGISTRY', 'NOC'];
+const categoryLabel = (value) => ({
+  REGISTRY_SUPPORT: 'Photos / supporting files',
+  REGISTRY: 'Registry deed',
+  NOC: 'NOC',
+}[value] || value);
 
 const docIcon = (mime = '') =>
   /image\//.test(mime) ? <FileImage className="w-4 h-4 text-blue-500" /> : <FileText className="w-4 h-4 text-blue-600" />;
@@ -32,13 +36,17 @@ const RegistryDocuments = ({
   canWrite = false,
   canDelete = false,
   registryDeedAllowed = false,
+  defaultCategory = 'REGISTRY_SUPPORT',
   onDocumentsChange,
+  embedded = false,
 }) => {
   const [docs, setDocs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [dragOver, setDragOver] = useState(false);
-  const [category, setCategory] = useState('REGISTRY');
+  const [category, setCategory] = useState(
+    REGISTRY_CATEGORIES.includes(defaultCategory) ? defaultCategory : 'REGISTRY_SUPPORT',
+  );
   // upload stage: null | { stage: 'optimizing'|'uploading', name, note }
   const [job, setJob] = useState(null);
   const fileInputRef = useRef(null);
@@ -152,23 +160,25 @@ const RegistryDocuments = ({
   };
 
   return (
-    <Card className="shadow-none border-slate-200 overflow-hidden">
+    <Card className={embedded ? 'overflow-hidden border-0 shadow-none' : 'overflow-hidden border-slate-200 shadow-none'}>
       <CardContent className="p-0">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50/60">
-          <div className="flex items-center gap-2">
-            <FolderOpen className="w-4 h-4 text-slate-500" />
-            <h2 className="text-sm font-semibold text-slate-800">Registry Documents</h2>
-            <Badge variant="outline" className="text-[10px] h-5 px-1.5 text-slate-500">{docs.length}</Badge>
+        {!embedded && (
+          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50/60">
+            <div className="flex items-center gap-2">
+              <FolderOpen className="w-4 h-4 text-slate-500" />
+              <h2 className="text-sm font-semibold text-slate-800">Registry Documents</h2>
+              <Badge variant="outline" className="text-[10px] h-5 px-1.5 text-slate-500">{docs.length}</Badge>
+            </div>
+            {plotNo && <span className="text-[10px] text-slate-400">Plot {plotNo}</span>}
           </div>
-          {plotNo && <span className="text-[10px] text-slate-400">Plot {plotNo}</span>}
-        </div>
+        )}
 
         {!plotId ? (
           <div className="px-4 py-6 text-center text-xs text-slate-400">
             No plot record is linked to this registry — link a plot to upload its registry documents.
           </div>
         ) : (
-          <div className="p-4 space-y-3">
+          <div className={embedded ? 'space-y-3' : 'p-4 space-y-3'}>
             {canWrite && (
               <div className="flex gap-2 items-stretch flex-wrap sm:flex-nowrap">
                 <div
@@ -217,7 +227,7 @@ const RegistryDocuments = ({
                   </AnimatePresence>
                 </div>
                 <Select value={category} onValueChange={setCategory} disabled={!!job}>
-                  <SelectTrigger className="h-auto w-28 text-xs shrink-0"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="h-auto w-40 text-xs shrink-0"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {REGISTRY_CATEGORIES.map((c) => <SelectItem key={c} value={c} className="text-xs">{categoryLabel(c)}</SelectItem>)}
                   </SelectContent>
@@ -253,8 +263,8 @@ const RegistryDocuments = ({
                           {[humanSize(d.file_size), d.created_at ? new Date(d.created_at).toLocaleDateString('en-IN') : '', d.uploaded_by_name].filter(Boolean).join(' · ')}
                         </p>
                       </div>
-                      <Badge variant="outline" className={`text-[9px] h-4 px-1.5 uppercase ${d.category === 'NOC' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-blue-50 text-blue-700 border-blue-200'}`}>
-                        {d.category}
+                      <Badge variant="outline" className={`text-[9px] h-4 px-1.5 ${d.category === 'NOC' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-blue-50 text-blue-700 border-blue-200'}`}>
+                        {categoryLabel(d.category)}
                       </Badge>
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
                       {d.file_url && (

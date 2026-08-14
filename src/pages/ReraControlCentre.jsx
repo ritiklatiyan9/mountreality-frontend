@@ -241,7 +241,7 @@ export default function ReraControlCentre() {
           : `${isReraWorkspace ? 'Regulatory' : 'Development'} project workspace for ${currentSite?.name || 'the selected Site'}.`}
         actions={(
           <div className="flex flex-wrap items-center gap-2">
-            <Select value={effectiveProjectId || undefined} onValueChange={handleProjectSelected} disabled={!projects.length}>
+            {activeTab !== 'projects-phases' && <Select value={effectiveProjectId || undefined} onValueChange={handleProjectSelected} disabled={!projects.length}>
               <SelectTrigger className="h-10 min-w-[240px] rounded-control border-mr-line bg-mr-surface">
                 <SelectValue placeholder={projects.length ? `Select ${projectTerm}` : `No ${projectPlural}`} />
               </SelectTrigger>
@@ -251,7 +251,7 @@ export default function ReraControlCentre() {
                   return id ? <SelectItem key={`${id}-${index}`} value={String(id)}>{firstValue(project, ['name', 'project_name'], `Project ${id}`)}</SelectItem> : null;
                 })}
               </SelectContent>
-            </Select>
+            </Select>}
             <Button type="button" variant="outline" size="icon" onClick={refresh} disabled={displayLoading} title="Refresh workspace">
               <RefreshCw className={displayLoading ? 'animate-spin' : ''} />
               <span className="sr-only">Refresh workspace</span>

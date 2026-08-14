@@ -9,17 +9,16 @@ import { money } from '@/lib/utils';
 const HEAD = 'border-b border-mr-line bg-mr-surface-2 px-4 py-3 text-[12px] font-medium text-mr-muted';
 
 /* ── Expense table (desktop) ─────────────────────────────────────────
-   The register keeps the accounting essentials visible: date, mode,
-   amounts, approval state and actions. Party details are intentionally
-   omitted from this view. ── */
+   The register keeps the accounting essentials visible: date, category,
+   mode, amounts, approval state and actions. ── */
 export default function ExpenseTable({
   expenses, selection, visibleNativeIds, sortOrder, onToggleSort,
   isAdmin, canUpdate, canDelete, uploadingBillId,
   onRefreshCheque, actions,
 }) {
   return (
-    <div className="hidden max-h-[calc(100dvh-320px)] overflow-auto overscroll-contain md:block">
-      <table className="w-full min-w-[1180px] border-collapse text-left">
+    <div className="hidden w-full max-h-[calc(100dvh-286px)] overflow-auto overscroll-contain md:block">
+      <table className="w-full min-w-[1024px] border-collapse text-left">
         <caption className="sr-only">Expense entries</caption>
         <thead className="sticky top-0 z-20">
           <tr>
@@ -36,7 +35,7 @@ export default function ExpenseTable({
                 aria-label="Select all expenses"
               />
             </th>
-            <th scope="col" className={`${HEAD} min-w-[280px]`}>Expense / party</th>
+            <th scope="col" className={`${HEAD} min-w-[300px]`}>Expense detail</th>
             <th scope="col" className={`${HEAD} w-28`}>
               <button
                 type="button"
@@ -82,8 +81,10 @@ export default function ExpenseTable({
                 <td className="px-4 py-3.5">
                   <button type="button" onClick={() => actions.onView(exp)} className="block max-w-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue">
                     <span className="block truncate text-[13px] font-semibold text-mr-text hover:text-mr-blue">{exp.remark || exp.category || 'Expense entry'}</span>
-                    <span className="mt-1 block truncate text-[12px] text-mr-muted">{exp.to_entity ? `Paid to · ${exp.to_entity}` : exp.from_entity ? `Received from · ${exp.from_entity}` : 'No party recorded'}</span>
-                    <span className="mt-1 flex items-center gap-1.5 text-[11px] text-mr-faint">{exp.category && <><Tag className="h-3 w-3" strokeWidth={1.9} />{exp.category}</>}{source && <>{exp.category && <span aria-hidden="true">·</span>}<span>{source.label}</span></>}</span>
+                    <span className="mt-1 flex items-center gap-1.5 text-[11px] text-mr-faint">
+                      {exp.category ? <><Tag className="h-3 w-3" strokeWidth={1.9} />{exp.category}</> : <span>Uncategorised</span>}
+                      {source && <><span aria-hidden="true">·</span><span>{source.label}</span></>}
+                    </span>
                   </button>
                 </td>
 

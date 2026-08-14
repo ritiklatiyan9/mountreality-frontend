@@ -1,36 +1,31 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useContext, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { SitePolicyContext } from '../context/SitePolicyContext';
 import api from '../api/api';
 import { encodeCsvCell } from '../lib/spreadsheetSecurity';
-import { Card, CardContent } from '../components/ui/card';
+import { getPropertyTerminology } from '../lib/propertyTerminology';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
-import { Separator } from '../components/ui/separator';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import {
-  Search, Filter, X, Loader2, IndianRupee, Calendar, AlertTriangle,
-  CheckCircle2, Clock, CalendarClock, TrendingDown, Users, Eye,
-  ArrowDownRight, ChevronDown, ChevronRight, BarChart3, Banknote, Percent,
+  Search, Filter, X, Loader2, Calendar, AlertTriangle,
+  CheckCircle2, CalendarClock, TrendingDown,
+  ChevronDown, ChevronRight, BarChart3, Banknote,
   Download,
 } from 'lucide-react';
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '../components/ui/collapsible';
 
 const fmt = (n) => Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—';
 
 const MODES = [
-  { value: 'overall_pending', label: 'Overall Pending', icon: Banknote, desc: 'All plots with balance remaining' },
+  { value: 'overall_pending', label: 'Overall Pending', icon: Banknote, desc: 'Every balance that remains collectible' },
   { value: 'installment_pending', label: 'By Installment', icon: CalendarClock, desc: 'Pending by specific installment number' },
   { value: 'overdue_till_date', label: 'Overdue Till Date', icon: AlertTriangle, desc: 'All overdue installments as of today' },
   { value: 'month_pending', label: 'Month-wise Pending', icon: Calendar, desc: 'Installments due in a specific month' },
-  { value: 'no_payment_since', label: 'No Payment in Month', icon: TrendingDown, desc: 'Plots with no payment in a specific month' },
+  { value: 'no_payment_since', label: 'No Payment in Month', icon: TrendingDown, desc: 'No receipt recorded in a specific month' },
   { value: 'custom_range', label: 'Custom Date Range', icon: Filter, desc: 'Installments due within custom range' },
 ];
 
@@ -48,9 +43,14 @@ const STATUS_COLORS = {
   paid: 'bg-emerald-50 text-emerald-700 border-emerald-200',
 };
 
-export default function PaymentAnalytics() {
+export default function PaymentAnalytics({ embedded = false }) {
   const { currentSite } = useAuth();
+  const sitePolicy = useContext(SitePolicyContext);
   const siteId = currentSite?.id;
+  const propertyTerms = useMemo(
+    () => getPropertyTerminology(sitePolicy),
+    [sitePolicy],
+  );
 
   const now = new Date();
   const currentMonth = now.getMonth() + 1;
@@ -135,7 +135,7 @@ export default function PaymentAnalytics() {
   // ─── Download CSV ───
   const downloadCSV = () => {
     if (filtered.length === 0) return;
-    const headers = ['Plot No', 'Block', 'Buyer Name', 'Sale Price', 'Received', 'Remaining', 'Interest Due', 'Status', 'Last Payment'];
+    const headers = [propertyTerms.numberLabel, propertyTerms.blockLabel, 'Buyer Name', 'Sale Price', 'Received', 'Remaining', 'Interest Due', 'Status', 'Last Payment'];
     const rows = filtered.map(r => [
       r.plot_no, r.block || '', r.buyer_name || '', r.sale_price, r.total_received, r.total_remaining,
       r.interest_due || 0, r.plot_status || '', r.last_payment_date || '',
@@ -151,9 +151,9 @@ export default function PaymentAnalytics() {
   };
 
   return (
-    <div className="max-w-350 space-y-5 p-1">
+    <div className={embedded ? 'min-w-0' : 'max-w-350 space-y-5 p-1'}>
       {/* Header */}
-      <div className="flex items-center justify-between">
+      {!embedded && <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold text-slate-900 flex items-center gap-2">
             <BarChart3 className="w-5 h-5 text-violet-600" />
@@ -164,34 +164,41 @@ export default function PaymentAnalytics() {
         <Button variant="outline" size="sm" onClick={downloadCSV} disabled={filtered.length === 0} className="text-xs h-8">
           <Download className="w-3.5 h-3.5 mr-1.5" /> Export CSV
         </Button>
-      </div>
+      </div>}
 
       {/* Mode Selector */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+      <div className="flex min-w-0 gap-5 overflow-x-auto border-b border-mr-line px-4 md:px-6">
         {MODES.map((m) => {
           const Icon = m.icon;
           return (
             <button
               key={m.value}
               onClick={() => setMode(m.value)}
-              className={`p-3 rounded-lg border text-left transition-all ${mode === m.value
-                ? 'border-violet-400 bg-violet-50 ring-1 ring-violet-200'
-                : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
+              className={`min-w-max border-b-2 px-0.5 py-4 text-left transition-colors ${mode === m.value
+                ? 'border-blue-600 text-blue-700'
+                : 'border-transparent text-mr-muted hover:text-mr-text'
                 }`}
             >
-              <div className="flex items-center gap-2 mb-1">
-                <Icon className={`w-4 h-4 ${mode === m.value ? 'text-violet-600' : 'text-slate-400'}`} />
-                <span className={`text-xs font-semibold ${mode === m.value ? 'text-violet-700' : 'text-slate-700'}`}>{m.label}</span>
+              <div className="flex items-center gap-2">
+                <Icon className="h-3.5 w-3.5" />
+                <span className="text-xs font-semibold">{m.label}</span>
               </div>
-              <p className="text-[10px] text-slate-400 leading-tight">{m.desc}</p>
             </button>
           );
         })}
+        {embedded && <div className="ml-auto flex items-center py-3">
+          <Button variant="outline" size="sm" onClick={downloadCSV} disabled={filtered.length === 0} className="h-8 min-w-max rounded-full border-mr-line text-xs">
+            <Download className="mr-1.5 h-3.5 w-3.5" /> Export CSV
+          </Button>
+        </div>}
       </div>
 
       {/* Filters Bar */}
-      <Card className="shadow-none border-slate-200">
-        <CardContent className="p-3">
+      <section className="border-b border-mr-line px-4 py-4 md:px-6">
+          <div className="mb-3">
+            <h2 className="text-sm font-semibold text-mr-text">{currentMode?.label}</h2>
+            <p className="mt-0.5 text-[11px] text-mr-faint">{currentMode?.desc}</p>
+          </div>
           <div className="flex items-end gap-3 flex-wrap">
             {/* Search */}
             <div className="space-y-1 flex-1 min-w-48">
@@ -199,7 +206,7 @@ export default function PaymentAnalytics() {
               <div className="relative">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
                 <Input
-                  placeholder="Plot no, buyer name, block..."
+                  placeholder={`${propertyTerms.singular} no., buyer name, ${propertyTerms.blockLabel.toLowerCase()}...`}
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="pl-8 h-8 text-xs"
@@ -270,60 +277,25 @@ export default function PaymentAnalytics() {
               </Button>
             )}
           </div>
-        </CardContent>
-      </Card>
+      </section>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <Card className="shadow-none border-slate-200">
-          <CardContent className="p-3">
-            <div className="flex items-center justify-between">
-              <p className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Persons</p>
-              <div className="w-6 h-6 rounded bg-violet-50 flex items-center justify-center">
-                <Users className="w-3 h-3 text-violet-600" />
-              </div>
-            </div>
-            <p className="text-lg font-bold text-slate-900 mt-1">{summary.total_persons || 0}</p>
-          </CardContent>
-        </Card>
-        <Card className="shadow-none border-slate-200">
-          <CardContent className="p-3">
-            <div className="flex items-center justify-between">
-              <p className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Pending Amount</p>
-              <div className="w-6 h-6 rounded bg-red-50 flex items-center justify-center">
-                <IndianRupee className="w-3 h-3 text-red-600" />
-              </div>
-            </div>
-            <p className="text-lg font-bold text-red-600 mt-1">₹{fmt(summary.total_pending_amount)}</p>
-          </CardContent>
-        </Card>
-        <Card className="shadow-none border-slate-200">
-          <CardContent className="p-3">
-            <div className="flex items-center justify-between">
-              <p className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Interest Due</p>
-              <div className="w-6 h-6 rounded bg-amber-50 flex items-center justify-center">
-                <Percent className="w-3 h-3 text-amber-600" />
-              </div>
-            </div>
-            <p className="text-lg font-bold text-amber-600 mt-1">₹{fmt(summary.total_interest_due)}</p>
-          </CardContent>
-        </Card>
-        <Card className="shadow-none border-slate-200">
-          <CardContent className="p-3">
-            <div className="flex items-center justify-between">
-              <p className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Overdue Persons</p>
-              <div className="w-6 h-6 rounded bg-red-50 flex items-center justify-center">
-                <AlertTriangle className="w-3 h-3 text-red-600" />
-              </div>
-            </div>
-            <p className="text-lg font-bold text-red-600 mt-1">{summary.overdue_persons || 0}</p>
-          </CardContent>
-        </Card>
-      </div>
+      {/* Compact summary strip */}
+      <section className="grid border-b border-mr-line bg-mr-line sm:grid-cols-2 xl:grid-cols-4" aria-label="Analysis summary">
+        {[
+          { label: 'Customers', value: summary.total_persons || 0, tone: 'text-mr-text' },
+          { label: 'Pending amount', value: `₹${fmt(summary.total_pending_amount)}`, tone: 'text-rose-600' },
+          { label: 'Interest due', value: `₹${fmt(summary.total_interest_due)}`, tone: 'text-amber-700' },
+          { label: 'Overdue customers', value: summary.overdue_persons || 0, tone: 'text-rose-600' },
+        ].map((metric) => (
+          <div key={metric.label} className="bg-mr-surface px-4 py-4 md:px-6">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.13em] text-mr-faint">{metric.label}</p>
+            <p className={`mt-1 text-lg font-semibold tabular-nums tracking-tight ${metric.tone}`}>{metric.value}</p>
+          </div>
+        ))}
+      </section>
 
       {/* Results Table */}
-      <Card className="shadow-none border-slate-200">
-        <CardContent className="p-0">
+      <section className="border-b border-mr-line">
           {loading ? (
             <div className="flex items-center justify-center py-16">
               <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
@@ -341,7 +313,7 @@ export default function PaymentAnalytics() {
                   <TableRow className="bg-slate-50/80 hover:bg-slate-50/80">
                     <TableHead className="w-8" />
                     <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">#</TableHead>
-                    <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Plot</TableHead>
+                    <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{propertyTerms.singular}</TableHead>
                     <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Buyer</TableHead>
                     <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-right">Sale Price</TableHead>
                     <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-right">Received</TableHead>
@@ -504,8 +476,7 @@ export default function PaymentAnalytics() {
               </Table>
             </div>
           )}
-        </CardContent>
-      </Card>
+      </section>
     </div>
   );
 }

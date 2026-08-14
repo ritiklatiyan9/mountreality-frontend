@@ -7,7 +7,7 @@ import {
 import { GET_CONSTRUCTION_DASHBOARD, GET_INVENTORY_DASHBOARD } from '../../graphql/queries';
 import { useAuth } from '../../context/AuthContext';
 import { CurrencyValue, ErrorState, SkeletonBlock, StatusPill } from './primitives';
-import { money, moneyCompact } from '@/lib/utils';
+import { money } from '@/lib/utils';
 
 /* One row inside the shared surface — no card, no coloured tile. */
 const Signal = ({ icon, label, value, attention, onClick }) => (
@@ -109,7 +109,7 @@ export default function ConstructionInventoryCards({ siteId }) {
                     <span className="text-mr-muted">Budget consumption</span>
                     <span className="flex items-center gap-2">
                       <span className="font-medium text-mr-text" title={`${money(actual)} of ${money(budget)}`}>
-                        {moneyCompact(actual)} of {moneyCompact(budget)}
+                        {money(actual)} of {money(budget)}
                       </span>
                       {overBudget && <StatusPill tone="negative">Over budget · {spent}%</StatusPill>}
                     </span>
@@ -152,7 +152,7 @@ export default function ConstructionInventoryCards({ siteId }) {
                   className="mt-5 w-full border-b border-mr-line pb-5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue"
                 >
                   <span className="block text-[12px] text-mr-muted">Current inventory value</span>
-                  <CurrencyValue value={inventory?.totalValue} size="lg" className="mt-1" compactAbove={1e5} />
+                  <CurrencyValue value={inventory?.totalValue} size="lg" className="mt-1" />
                 </button>
                 <div className="divide-y divide-mr-line">
                   <Signal icon={AlertTriangle} label="Low-stock materials" value={`${inventory?.lowStockCount ?? 0} need attention`} attention={(inventory?.lowStockCount ?? 0) > 0} onClick={() => navigate('/inventory?low=1')} />

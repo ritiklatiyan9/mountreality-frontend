@@ -2,8 +2,7 @@ import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
-  AlertCircle, ArrowRight, BadgeCheck, Eye, EyeOff, Layers, Lock, LockOpen,
-  Mail, MailCheck, ShieldCheck,
+  AlertCircle, ArrowRight, Eye, EyeOff, Lock, LockOpen, Mail, MailCheck,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -25,8 +24,6 @@ import { googleSignInForIdToken } from '../lib/firebase';
    Typing feedback is state-driven transitions, never per-keystroke
    keyframe retriggers (those read as flicker):
 
-   · a gradient progress bar across the top of the form fills as the
-     email parses and the password is typed
    · the mail icon crossfades to a lime check when the address is valid;
      the lock crossfades open only when the password is revealed
    · the submit button "charges" — lifts and gains its glow — once both
@@ -51,13 +48,6 @@ const LEGAL = [
   { to: '/privacy', label: 'Privacy Policy' },
   { to: '/terms', label: 'Terms' },
   { to: '/contact', label: 'Contact' },
-];
-
-/* The landing page's own proof points, so the panel never over-claims. */
-const PROOF = [
-  { icon: BadgeCheck, title: 'Approve before it posts', copy: 'Unreviewed activity stays out of your reports until someone signs it off.' },
-  { icon: Layers, title: 'One period, every site', copy: 'Cash and bank books that build themselves, per site or consolidated.' },
-  { icon: ShieldCheck, title: 'Access that actually restricts', copy: 'A site manager sees their site. The accountant sees the books.' },
 ];
 
 /* Filled, borderless fields with room for the leading icon — the blue
@@ -94,13 +84,6 @@ export const Login = () => {
   const tenant = currentTenantSlug();
   const emailOk = EMAIL_OK.test(email);
   const formReady = emailOk && password.length > 0;
-
-  /* Fills as the user types: half for a valid address, a quarter for
-     starting each field. Width transitions smoothly between steps. */
-  const progress = Math.min(
-    100,
-    (emailOk ? 50 : email.length > 0 ? 25 : 0) + (password.length >= 6 ? 50 : password.length > 0 ? 25 : 0),
-  );
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -162,83 +145,41 @@ export const Login = () => {
           would grow past the header instead of taking the space left. */}
       <div className="grid min-h-0 flex-1 lg:grid-cols-[1.05fr_1fr]">
 
-        {/* ── Theme panel ──
-            Full-bleed to three viewport edges, no radius and no card. The
-            shield render is the subject; the aurora fields drift behind
-            it on transform alone. */}
+        {/* ── Brand panel ──
+            A deliberately quiet counterpart to the form: no product render,
+            no proof wall, just a little orientation for desktop users. */}
         <div
           className="relative hidden flex-col overflow-hidden p-10 text-white lg:flex xl:p-12"
-          style={{ background: 'linear-gradient(160deg, #101114 0%, #16234a 52%, #2154dd 130%)' }}
+          style={{ background: 'linear-gradient(155deg, #101114 0%, #111c3c 57%, #1f4ec8 150%)' }}
         >
           <div
             aria-hidden="true"
-            className="mr-drift-a pointer-events-none absolute -right-24 -top-24 h-[380px] w-[380px] rounded-full"
-            style={{ background: 'radial-gradient(circle, rgba(80,221,235,0.28) 0%, rgba(80,221,235,0) 66%)' }}
+            className="pointer-events-none absolute -right-24 -top-24 h-[380px] w-[380px] rounded-full"
+            style={{ background: 'radial-gradient(circle, rgba(80, 221, 235, 0.19) 0%, rgba(80, 221, 235, 0) 68%)' }}
           />
           <div
             aria-hidden="true"
-            className="mr-drift-b pointer-events-none absolute -bottom-32 -left-16 h-[420px] w-[420px] rounded-full"
-            style={{ background: 'radial-gradient(circle, rgba(47,107,255,0.35) 0%, rgba(47,107,255,0) 70%)' }}
+            className="pointer-events-none absolute -bottom-32 -left-16 h-[420px] w-[420px] rounded-full"
+            style={{ background: 'radial-gradient(circle, rgba(47, 107, 255, 0.25) 0%, rgba(47, 107, 255, 0) 70%)' }}
           />
 
-          <div className="animate-fade-rise relative">
-            <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.07] px-3 py-1.5 text-[12px] font-medium text-white/80">
-              <span className="relative flex h-2 w-2">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-mr-aqua opacity-60" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-mr-aqua" />
-              </span>
-              Financial OS for real estate
+          <div className="animate-fade-rise relative my-auto max-w-md">
+            <span className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-mr-aqua">
+              <span className="h-1.5 w-1.5 rounded-full bg-mr-aqua" />
+              MountReality
             </span>
-            <h2 className="mt-6 text-[clamp(2.25rem,3.2vw,3.1rem)] font-semibold leading-[1.02] tracking-[-0.04em]">
-              One ledger.
+            <h2 className="mt-5 text-[clamp(2.25rem,3.2vw,3.45rem)] font-semibold leading-[1.02] tracking-[-0.045em]">
+              Your workday,
               <br />
-              <span className="text-white/55">For every site you build.</span>
+              <span className="text-white/60">in clear view.</span>
             </h2>
+            <p className="mt-5 max-w-sm text-[15px] leading-6 text-white/60">
+              Sign in to your team’s workspace.
+            </p>
           </div>
 
-          {/* The art absorbs whatever height is left over, which is what
-              keeps the panel from overflowing on a short viewport: it
-              shrinks instead of pushing the proof rows off the bottom.
-              min-h-0 is required — a flex child defaults to min-height:auto
-              and would refuse to shrink below the image's own height.
-
-              The render ships with a grey vignette baked in rather than a
-              transparent ground, so it is composited: `screen` drops the
-              dark grey into the panel and keeps the glow, and the radial
-              mask dissolves the square edge that blending alone leaves. */}
-          <div className="animate-fade-rise-delay relative my-6 min-h-0 flex-1">
-            <img
-              src="/login.png"
-              alt=""
-              aria-hidden="true"
-              decoding="async"
-              className="h-full w-full object-contain mix-blend-screen"
-              style={{
-                maskImage: 'radial-gradient(circle at 50% 50%, #000 42%, transparent 72%)',
-                WebkitMaskImage: 'radial-gradient(circle at 50% 50%, #000 42%, transparent 72%)',
-              }}
-            />
-          </div>
-
-          {/* Two columns of proof rather than three stacked ones: stacked,
-              they were the tallest block on the panel and left the art no
-              room to breathe. */}
-          <ul className="animate-fade-rise-delay relative grid shrink-0 grid-cols-2 gap-x-6 gap-y-4">
-            {PROOF.map((row) => (
-              <li key={row.title} className="group flex items-start gap-3">
-                <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/12 bg-white/[0.07] transition-transform duration-200 group-hover:scale-110">
-                  <row.icon className="h-4 w-4 text-mr-aqua" strokeWidth={1.9} aria-hidden="true" />
-                </span>
-                <span>
-                  <span className="block text-[13.5px] font-semibold tracking-[-0.01em]">{row.title}</span>
-                  <span className="mt-0.5 block text-[12.5px] leading-[1.45] text-white/55">{row.copy}</span>
-                </span>
-              </li>
-            ))}
-          </ul>
-
-          <p className="animate-fade-rise-delay-2 relative mt-7 shrink-0 text-[12.5px] text-white/40">
-            Every entry carries who created it, who approved it, and when — permanently.
+          <p className="animate-fade-rise-delay relative shrink-0 text-[12px] font-medium text-white/40">
+            Secure workspace access
           </p>
         </div>
 
@@ -263,15 +204,6 @@ export const Login = () => {
               <p className="mt-1.5 text-[14px] text-mr-muted">
                 {tenant ? `Sign in to ${orgDomainHost(tenant)}` : 'Sign in to your workspace.'}
               </p>
-            </div>
-
-            {/* Fills smoothly as the form is completed — the typing
-                feedback lives here, not in per-keystroke icon jumps. */}
-            <div className="mt-5 h-1 overflow-hidden rounded-full bg-mr-shell" aria-hidden="true">
-              <div
-                className="h-full rounded-full bg-gradient-to-r from-mr-blue to-mr-aqua transition-all duration-500 ease-out"
-                style={{ width: `${progress}%` }}
-              />
             </div>
 
             {error && (

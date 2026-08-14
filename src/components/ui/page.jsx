@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/context/AuthContext';
 import { Label } from './label';
 
 /* ── Page furniture ──────────────────────────────────────────────────
@@ -18,6 +19,58 @@ export const FIELD_LG = 'h-11 w-full rounded-control border border-mr-line bg-mr
 export const GHOST_BTN = 'inline-flex h-10 items-center gap-1.5 rounded-control border border-mr-line bg-mr-surface px-3.5 text-[13px] font-medium text-mr-text transition-colors hover:bg-mr-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue disabled:opacity-40';
 export const PRIMARY_BTN = 'inline-flex h-10 items-center gap-1.5 rounded-control bg-mr-ink px-4 text-[13px] font-semibold text-white transition-colors hover:bg-mr-ink-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue disabled:opacity-40';
 export const DANGER_BTN = 'inline-flex h-10 items-center gap-1.5 rounded-control border border-mr-coral-ink/20 bg-mr-coral-soft px-3.5 text-[13px] font-semibold text-mr-coral-ink transition-colors hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue disabled:opacity-40';
+
+/* ── Print ───────────────────────────────────────────────────────────
+   PrintButton fires the browser's own print dialog; "Save as PDF" there
+   is the PDF export. PrintDocHead is the letterhead that only exists on
+   paper — org, site, report title, filters and the generation stamp.
+
+   ponytail: no PDF library and no server render. The screen already is
+   the document; @media print in index.css is what makes it a page. ── */
+
+export function PrintButton({ label = 'Print / PDF', className }) {
+  return (
+    <button type="button" data-print-hide onClick={() => window.print()} className={cn(GHOST_BTN, className)}>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4" aria-hidden="true">
+        <path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+        <path d="M6 14h12v8H6z" />
+      </svg>
+      {label}
+    </button>
+  );
+}
+
+export function PrintDocHead({ title, subtitle, meta = [] }) {
+  const { organization, currentSite, user } = useAuth();
+  const rows = meta.filter((item) => item && item.value);
+  return (
+    <header className="print-only mb-4 border-b-2 border-black pb-2">
+      <div className="flex items-start justify-between gap-6">
+        <div>
+          <p className="text-[15px] font-bold uppercase tracking-[0.04em]">{organization?.company_name || organization?.name || 'MountReality'}</p>
+          {organization?.registered_address && <p className="mt-0.5 text-[10px]">{organization.registered_address}</p>}
+          {organization?.gst_number && <p className="text-[10px]">GSTIN: {organization.gst_number}</p>}
+        </div>
+        <div className="text-right text-[10px]">
+          <p>Generated {new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date())}</p>
+          {user?.name && <p>By {user.name}</p>}
+        </div>
+      </div>
+      <div className="mt-2 flex items-end justify-between gap-6">
+        <div>
+          <h1 className="text-[14px] font-bold">{title}</h1>
+          {subtitle && <p className="text-[10px]">{subtitle}</p>}
+        </div>
+        <p className="text-[10px] font-semibold">Site: {currentSite?.name || 'All sites'}</p>
+      </div>
+      {rows.length > 0 && (
+        <p className="mt-1.5 text-[10px]">
+          {rows.map((item) => `${item.label}: ${item.value}`).join('   ·   ')}
+        </p>
+      )}
+    </header>
+  );
+}
 
 export function PageHeader({ title, description, actions, className }) {
   return (

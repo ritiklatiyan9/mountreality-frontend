@@ -29,8 +29,12 @@ import { useDocViewer } from '../components/DocViewer';
 
 const ACCEPT = '.jpg,.jpeg,.png,.webp,.pdf,.doc,.docx';
 const MAX_BYTES = 25 * 1024 * 1024;
-const REGISTRY_CATEGORIES = ['REGISTRY', 'NOC'];
-const categoryLabel = (value) => value === 'REGISTRY' ? 'Registry deed' : 'NOC';
+const REGISTRY_CATEGORIES = ['REGISTRY_SUPPORT', 'REGISTRY', 'NOC'];
+const categoryLabel = (value) => ({
+  REGISTRY_SUPPORT: 'Photos / supporting files',
+  REGISTRY: 'Registry deed',
+  NOC: 'NOC',
+}[value] || value);
 
 const STATUS_COLORS = {
   REGISTRY: 'bg-emerald-50 text-emerald-700 border-emerald-200',
@@ -117,7 +121,7 @@ function PlotFolderView({ plot, siteName, canWrite, canDelete, workflowUnlocked,
   const [loadError, setLoadError] = useState('');
   const [registryDeedAllowed, setRegistryDeedAllowed] = useState(Boolean(workflowUnlocked));
   const [dragOver, setDragOver] = useState(false);
-  const [category, setCategory] = useState('REGISTRY');
+  const [category, setCategory] = useState('REGISTRY_SUPPORT');
   const [catTab, setCatTab] = useState('ALL');
   const [job, setJob] = useState(null); // { stage: 'optimizing'|'uploading', name, note }
   const [deleting, setDeleting] = useState(null);

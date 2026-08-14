@@ -1,5 +1,6 @@
 import { writePrintDocument } from '../lib/safePrint';
 import { useState, useEffect, useMemo, useCallback, useRef, memo, useContext } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { SitePolicyContext } from '../context/SitePolicyContext';
@@ -49,7 +50,7 @@ import {
   Banknote, Hash, FileText, User, Tag, Percent,
   Filter, X, Download, Printer, MapPin, Ruler, BarChart3,
   Landmark, Wallet, CircleDollarSign, Camera, Clock, Send, ChevronsUpDown,
-  ArrowUpDown, ClipboardList, UserPlus, PenLine,
+  ArrowUpDown, ClipboardList, UserPlus, PenLine, Maximize2, Minimize2,
 } from 'lucide-react';
 import SignaturePad from '../components/SignaturePad';
 import { printCashReceipt } from '../lib/cashReceipt';
@@ -57,7 +58,17 @@ import { customerSigImg, authoritySigHtml, nameSignOn, CUSTOMER_SIGN_CSS } from 
 import VoucherUpload, { VoucherThumbnail } from '../components/VoucherUpload';
 import ApprovalStatusBadge from '../components/ApprovalStatusBadge';
 import ChequeStatusControl from '../components/ChequeStatusControl';
+import ReraWorkflowNotice from '../components/policy/ReraWorkflowNotice';
 import { classifyPaymentMode } from '../utils/paymentMode';
+import { getFinancePaymentPolicy, paymentFromOptionsForPolicy } from '../lib/financePaymentPolicy';
+import { isReraOperatingProfile } from '../lib/sitePolicy';
+import {
+  getDefaultPropertyType,
+  getPropertyTerminology,
+  getPropertyTypeOptions,
+  getPropertyTypeTerminology,
+  unitCountLabel,
+} from '../lib/propertyTerminology';
 
 // ── Constants ──
 const PAYMENT_FROM_OPTIONS = [
@@ -70,6 +81,28 @@ const derivePaymentType = (from) => {
   if (bucket === 'cash') return 'CASH';
   if (bucket === 'cheque') return 'CHEQUE';
   return 'BANK';
+};
+
+const isCashPayment = (payment) => (
+  classifyPaymentMode(payment?.payment_type) === 'cash'
+  || classifyPaymentMode(payment?.payment_from) === 'cash'
+);
+
+const isPostedPayment = (payment) => (
+  String(payment?.status ?? 'approved').toLowerCase() === 'approved'
+  && !['BOUNCED', 'RETURNED'].includes(String(payment?.cheque_status || '').toUpperCase())
+);
+
+const summarizePaymentsBy = (payments, key) => {
+  const groups = new Map();
+  payments.filter(isPostedPayment).forEach((payment) => {
+    const label = String(payment?.[key] || 'Unspecified').trim() || 'Unspecified';
+    const current = groups.get(label) || { total_amount: 0, entries: 0 };
+    current.total_amount += parseFloat(payment.amount) || 0;
+    current.entries += 1;
+    groups.set(label, current);
+  });
+  return [...groups.entries()].map(([label, summary]) => ({ [key]: label, ...summary }));
 };
 
 const INTEREST_TYPES = [
@@ -139,14 +172,18 @@ const naturalSortPlotNo = (a, b) => {
 const sanitizeBlock = (value) => String(value || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3);
 const extractPlotNumber = (value) => String(value || '').replace(/\D/g, '');
 const buildPlotNo = (block, numberPart) => `${sanitizeBlock(block)}${extractPlotNumber(numberPart)}`;
+const normalizeFlexibleBlock = (value) => String(value || '').trim().toUpperCase().replace(/\s+/g, ' ').slice(0, 40);
+const normalizeFlexiblePropertyNo = (value) => String(value || '').trim().toUpperCase().replace(/\s+/g, ' ').slice(0, 40);
 const autoStatusDate = (status, currentDate = '') => {
   if (status === 'COMPANY' || status === 'BOOKED') return currentDate || todayISO();
   return currentDate || '';
 };
 
-const getPendingPercent = (plot) => {
+const getPendingPercent = (plot, bankOnly = false) => {
   const salePrice = parseFloat(plot?.sale_price) || 0;
-  const totalReceived = parseFloat(plot?.total_received) || 0;
+  const totalReceived = bankOnly
+    ? (parseFloat(plot?.received_bank) || 0)
+    : (parseFloat(plot?.total_received) || 0);
   if (salePrice <= 0) return 0;
   const pending = Math.max(0, salePrice - totalReceived);
   return (pending / salePrice) * 100;
@@ -190,9 +227,17 @@ const fmtDate = (d) => {
   return dt.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
 };
 
+// Route entrance animations can establish a transformed containing block.
+// Rendering expanded tables under document.body keeps viewport positioning,
+// stacking, and dimensions independent of the page and sidebar layout.
+const ViewportPortal = ({ enabled, children }) => (
+  enabled && typeof document !== 'undefined' ? createPortal(children, document.body) : children
+);
+
 // ── Memoized table row ──
-const PlotRow = memo(function PlotRow({ row, isSelected, onToggleSelect, onNavigate, canManage, canWrite, canUpdate, canDelete, onBook, onEdit, onDelete }) {
+const PlotRow = memo(function PlotRow({ row, isSelected, onToggleSelect, onNavigate, canManage, canWrite, canUpdate, canDelete, onBook, onEdit, onDelete, showCashLedger, terminology }) {
   const { pl, sp, tr, bal, pct, toRecBank, toRecCash, recBank, recCash, balBank, balCash, mTeam } = row;
+  const rowTerms = getPropertyTypeTerminology(pl.property_type, terminology);
   return (
     <tr
       className={`group border-b hover:bg-slate-50/50 cursor-pointer ${isSelected ? 'bg-blue-50/60' : ''}`}
@@ -211,6 +256,11 @@ const PlotRow = memo(function PlotRow({ row, isSelected, onToggleSelect, onNavig
           <span className="text-sm font-bold text-blue-700">{pl.plot_no}</span>
           {pl.plot_tag && <Badge variant="outline" className={`text-[9px] leading-none px-1.5 py-0.5 font-bold whitespace-nowrap shrink-0 ${pl.plot_tag === 'OLD' ? 'bg-slate-100 text-slate-500 border-slate-300' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>{pl.plot_tag}</Badge>}
         </div>
+        {terminology.isMixedUse && (
+          <span className="mt-1 inline-flex rounded-full border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-600">
+            {rowTerms.singular}
+          </span>
+        )}
       </td>
       <td className={`sticky left-24 z-10 px-3 py-2 ${isSelected ? 'bg-blue-50' : 'bg-white group-hover:bg-slate-50'}`} style={{boxShadow: '2px 0 4px -1px rgba(0,0,0,0.08)'}}>
         <Badge variant="outline" className={`text-[10px] font-medium ${STATUS_COLORS[pl.status] || 'bg-slate-50 text-slate-600 border-slate-200'}`}>{pl.status}</Badge>
@@ -219,7 +269,7 @@ const PlotRow = memo(function PlotRow({ row, isSelected, onToggleSelect, onNavig
       <td className="px-3 py-2"><span className="text-sm font-medium text-slate-800">{pl.buyer_name || '—'}</span></td>
       <td className="min-w-[245px] px-3 py-2">
         <div className="overflow-hidden rounded-xl border border-mr-line bg-mr-surface">
-          <p className="border-b border-mr-line bg-mr-surface-2/60 px-3 py-1.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-mr-muted">Plot value</p>
+          <p className="border-b border-mr-line bg-mr-surface-2/60 px-3 py-1.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-mr-muted">{rowTerms.singular} value</p>
           <div className="space-y-0 px-3 py-1.5">
             <div className="flex items-center justify-between gap-3"><span className="text-[10px] text-mr-faint">Size</span><span className="text-[11px] font-semibold tabular-nums text-mr-text">{pl.plot_size || '—'}</span></div>
             <div className="flex items-center justify-between gap-3 border-t border-mr-line py-1"><span className="text-[10px] text-mr-faint">Rate</span><span className="text-[11px] font-semibold tabular-nums text-mr-text">{pl.plot_rate ? `₹${fmt(pl.plot_rate)}` : '—'}</span></div>
@@ -237,16 +287,18 @@ const PlotRow = memo(function PlotRow({ row, isSelected, onToggleSelect, onNavig
           </div>
         </div>
       </td>
-      <td className="min-w-[245px] px-3 py-2">
-        <div className="overflow-hidden rounded-xl border border-mr-line bg-mr-surface">
-          <p className="border-b border-mr-line bg-mr-surface-2/60 px-3 py-1.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-mr-muted">Cash collection</p>
-          <div className="space-y-0 px-3 py-1.5">
-            <div className="flex items-center justify-between gap-3"><span className="text-[10px] text-mr-faint">To receive</span><span className="text-[11px] font-semibold tabular-nums text-mr-text">₹{fmt(toRecCash)}</span></div>
-            <div className="flex items-center justify-between gap-3 border-t border-mr-line py-1"><span className="text-[10px] text-mr-faint">Received</span><span className="text-[11px] font-semibold tabular-nums text-emerald-800">₹{fmt(recCash)}</span></div>
-            <div className="flex items-center justify-between gap-3 border-t border-mr-line py-1"><span className="text-[10px] font-medium text-mr-muted">Pending</span><span className={`text-[12px] font-bold tabular-nums ${balCash > 0 ? 'text-amber-700' : 'text-emerald-800'}`}>₹{fmt(Math.abs(balCash))}</span></div>
+      {showCashLedger && (
+        <td className="min-w-[245px] px-3 py-2">
+          <div className="overflow-hidden rounded-xl border border-mr-line bg-mr-surface">
+            <p className="border-b border-mr-line bg-mr-surface-2/60 px-3 py-1.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-mr-muted">Cash collection</p>
+            <div className="space-y-0 px-3 py-1.5">
+              <div className="flex items-center justify-between gap-3"><span className="text-[10px] text-mr-faint">To receive</span><span className="text-[11px] font-semibold tabular-nums text-mr-text">₹{fmt(toRecCash)}</span></div>
+              <div className="flex items-center justify-between gap-3 border-t border-mr-line py-1"><span className="text-[10px] text-mr-faint">Received</span><span className="text-[11px] font-semibold tabular-nums text-emerald-800">₹{fmt(recCash)}</span></div>
+              <div className="flex items-center justify-between gap-3 border-t border-mr-line py-1"><span className="text-[10px] font-medium text-mr-muted">Pending</span><span className={`text-[12px] font-bold tabular-nums ${balCash > 0 ? 'text-amber-700' : 'text-emerald-800'}`}>₹{fmt(Math.abs(balCash))}</span></div>
+            </div>
           </div>
-        </div>
-      </td>
+        </td>
+      )}
       <td className="text-right px-3 py-2"><span className={`text-sm font-semibold tabular-nums ${pct > 100 ? 'text-red-600' : 'text-green-600'}`}>₹{fmt(tr)}</span></td>
       <td className="px-3 py-2">
         <div className="flex items-center gap-2">
@@ -275,12 +327,12 @@ const PlotRow = memo(function PlotRow({ row, isSelected, onToggleSelect, onNavig
           {canManage && (
             <>
               {canWrite && pl.status !== 'BOOKED' && (
-                <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); onBook(pl); }} className="h-7 px-2 text-[11px] border-slate-200 text-slate-700 hover:bg-slate-50" title="Book Plot">
-                  Book Plot
+                <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); onBook(pl); }} className="h-7 px-2 text-[11px] border-slate-200 text-slate-700 hover:bg-slate-50" title={`Book ${rowTerms.singular}`}>
+                  Book
                 </Button>
               )}
               {canUpdate ? (
-                <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); onEdit(pl); }} className="h-7 w-7 p-0 text-slate-400 hover:text-slate-700" title="Edit Plot">
+                <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); onEdit(pl); }} className="h-7 w-7 p-0 text-slate-400 hover:text-slate-700" title={`Edit ${rowTerms.singular}`}>
                   <Edit2 className="w-3.5 h-3.5" />
                 </Button>
               ) : (
@@ -384,7 +436,21 @@ const PlotPayments = () => {
   const location = useLocation();
   const { currentSite, isAdmin, canManage, hasPermission, user } = useAuth();
   const sitePolicy = useContext(SitePolicyContext);
-  const collectionLabel = sitePolicy?.getTerm?.('collections_module', 'Plot Payments') || 'Plot Payments';
+  const financePaymentPolicy = getFinancePaymentPolicy(sitePolicy);
+  const isReraProfile = isReraOperatingProfile(sitePolicy);
+  const propertyTerms = useMemo(
+    () => getPropertyTerminology(sitePolicy),
+    [sitePolicy],
+  );
+  const propertyTypeOptions = useMemo(
+    () => getPropertyTypeOptions(propertyTerms.shape),
+    [propertyTerms.shape],
+  );
+  const defaultPropertyType = useMemo(
+    () => getDefaultPropertyType(propertyTerms.shape),
+    [propertyTerms.shape],
+  );
+  const collectionLabel = propertyTerms.paymentsTitle;
   const siteId = currentSite?.id;
   const canWrite = canManage && hasPermission('plot_payments', 'write');
   const canUpdate = canManage && hasPermission('plot_payments', 'update');
@@ -400,7 +466,7 @@ const PlotPayments = () => {
     fetchPolicy: 'cache-and-network',
     nextFetchPolicy: 'cache-first',
   });
-  const plots = pageData?.plotPageData?.plots || [];
+  const plots = useMemo(() => pageData?.plotPageData?.plots || [], [pageData]);
   const [autocomplete, setAutocomplete] = useState(emptyAutocomplete);
 
   const [selectedPlot, setSelectedPlot] = useState(null);
@@ -411,12 +477,12 @@ const PlotPayments = () => {
     skip: !selectedPlot?.id || !siteId,
     fetchPolicy: 'cache-and-network',
   });
-  const payments = detailData?.plotPaymentDetail?.payments || [];
+  const payments = useMemo(() => detailData?.plotPaymentDetail?.payments || [], [detailData]);
   const plotMeta = detailData?.plotPaymentDetail?.plot || null;
-  const fromBreakdown = detailData?.plotPaymentDetail?.fromBreakdown || [];
-  const receivedByBreakdown = detailData?.plotPaymentDetail?.receivedByBreakdown || [];
-  const installments = detailData?.plotPaymentDetail?.installments || [];
-  const installmentPayments = detailData?.plotPaymentDetail?.installmentPayments || [];
+  const rawFromBreakdown = useMemo(() => detailData?.plotPaymentDetail?.fromBreakdown || [], [detailData]);
+  const rawReceivedByBreakdown = useMemo(() => detailData?.plotPaymentDetail?.receivedByBreakdown || [], [detailData]);
+  const installments = useMemo(() => detailData?.plotPaymentDetail?.installments || [], [detailData]);
+  const installmentPayments = useMemo(() => detailData?.plotPaymentDetail?.installmentPayments || [], [detailData]);
   const loadingPayments = loadingPaymentDetail && !!selectedPlot;
   const loadingInstallments = loadingPaymentDetail && !!selectedPlot;
 
@@ -534,6 +600,7 @@ const PlotPayments = () => {
   const [filterBookingBy, setFilterBookingBy] = useState(() => new Set(_savedFilters.filterBookingBy || [])); // Agent
   const [filterBuyer, setFilterBuyer] = useState(() => new Set(_savedFilters.filterBuyer || [])); // User (buyer)
   const [filterStatus, setFilterStatus] = useState(() => new Set(_savedFilters.filterStatus || []));
+  const [filterPropertyType, setFilterPropertyType] = useState(_savedFilters.filterPropertyType || 'all');
   const [filterTeam, setFilterTeam] = useState(() => new Set(_savedFilters.filterTeam || []));
   const [filterMemberTeam, setFilterMemberTeam] = useState(() => new Set(_savedFilters.filterMemberTeam || []));
   const [filterPending, setFilterPending] = useState(_savedFilters.filterPending || 'all');
@@ -579,11 +646,12 @@ const PlotPayments = () => {
       filterBookingBy: [...filterBookingBy],
       filterBuyer: [...filterBuyer],
       filterStatus: [...filterStatus],
+      filterPropertyType,
       filterTeam: [...filterTeam],
       filterMemberTeam: [...filterMemberTeam],
       filterPending, customPendingMin, customPendingMax, sortBy,
     }));
-  }, [listSearch, filterBookingBy, filterBuyer, filterStatus, filterTeam, filterMemberTeam, filterPending, customPendingMin, customPendingMax, sortBy]);
+  }, [listSearch, filterBookingBy, filterBuyer, filterStatus, filterPropertyType, filterTeam, filterMemberTeam, filterPending, customPendingMin, customPendingMax, sortBy]);
 
   useEffect(() => {
     if (queryFromUrl) setListSearch(queryFromUrl);
@@ -597,7 +665,7 @@ const PlotPayments = () => {
 
   // Plot form
   const [plotForm, setPlotForm] = useState({
-    plot_no: '', block: '', buyer_name: '', plot_size: '', plot_size_mtr: '', plot_rate: '',
+    property_type: defaultPropertyType, plot_no: '', block: '', buyer_name: '', plot_size: '', plot_size_mtr: '', plot_rate: '',
     sale_price: '', registry_area: '', circle_rate: '', to_receive_bank: '',
     first_installment: '', booking_by: '', booking_date: todayISO(), status: 'COMPANY', notes: '',
     team: '',
@@ -605,6 +673,18 @@ const PlotPayments = () => {
     commission_rate: '', plot_commission: '',
     assigned_admin_id: null,
   });
+  const formPropertyTerms = useMemo(
+    () => getPropertyTypeTerminology(plotForm.property_type, propertyTerms),
+    [plotForm.property_type, propertyTerms],
+  );
+  const useFlexiblePropertyIdentity = propertyTerms.isMixedUse;
+
+  useEffect(() => {
+    if (plotDialogOpen || editingPlot) return;
+    setPlotForm((current) => current.property_type === defaultPropertyType
+      ? current
+      : { ...current, property_type: defaultPropertyType });
+  }, [defaultPropertyType, editingPlot, plotDialogOpen]);
   const [duplicateWarning, setDuplicateWarning] = useState(null); // { duplicates, normalizedPlot }
 
   // ── Registry sub-form (shown when plot status = REGISTRY) ──
@@ -663,11 +743,29 @@ const PlotPayments = () => {
   const [payMode, setPayMode] = useState('receive'); // 'receive' | 'refund'
   const [payForm, setPayForm] = useState({
     date: todayISO(),
-    payment_from: 'CASH', payment_type: 'CASH', bank_details: '', narration: '',
+    payment_from: financePaymentPolicy.defaultPaymentFrom,
+    payment_type: financePaymentPolicy.defaultPaymentType,
+    bank_details: '', narration: '',
     buyer_name: '', booked_by: '', amount: '', cheque_no: '',
     voucher_url: '',
     assigned_admin_id: null,
   });
+  const editingLegacyCash = Boolean(
+    editingPaymentId && classifyPaymentMode(payForm.payment_type) === 'cash',
+  );
+  const paymentTypeModes = financePaymentPolicy.bankOnly && !editingLegacyCash
+    ? ['BANK']
+    : ['BANK', 'CASH'];
+  const paymentFromModes = financePaymentPolicy.bankOnly && !editingLegacyCash
+    ? paymentFromOptionsForPolicy(PAYMENT_FROM_OPTIONS, financePaymentPolicy)
+    : PAYMENT_FROM_OPTIONS;
+
+  useEffect(() => {
+    if (!financePaymentPolicy.bankOnly || editingPaymentId) return;
+    setPayForm((current) => classifyPaymentMode(current.payment_type) === 'cash'
+      ? { ...current, payment_type: 'BANK', payment_from: 'BANK' }
+      : current);
+  }, [editingPaymentId, financePaymentPolicy.bankOnly]);
 
   // Form metadata is intentionally lazy: the main table does not need it to
   // render, and the server caches this Site-scoped data independently.
@@ -773,7 +871,7 @@ const PlotPayments = () => {
   // ── Plot form handlers ──
   const resetPlotForm = () => {
     setPlotForm({
-      plot_no: '', block: '', buyer_name: '', plot_size: '', plot_size_mtr: '', plot_rate: '',
+      property_type: defaultPropertyType, plot_no: '', block: '', buyer_name: '', plot_size: '', plot_size_mtr: '', plot_rate: '',
       sale_price: '', registry_area: '', circle_rate: '', to_receive_bank: '',
       first_installment: '', booking_by: '', booking_date: todayISO(), status: 'COMPANY', notes: '',
       team: '',
@@ -797,7 +895,10 @@ const PlotPayments = () => {
   };
 
   // Stable row callbacks for memoized PlotRow
-  const handleRowNavigate = useCallback((id) => navigate(`/plot-payments/${id}`), [navigate]);
+  const handleRowNavigate = useCallback(
+    (id) => navigate(`/customer-inventory?plot_id=${id}&tab=payments`),
+    [navigate],
+  );
   const handleRowToggleSelect = useCallback((id, checked) => {
     setSelectedPlotIds(prev => { const next = new Set(prev); if (checked) next.add(id); else next.delete(id); return next; });
   }, []);
@@ -813,11 +914,14 @@ const PlotPayments = () => {
   }, [location.search, loadingPlots, canManage]);
 
   const handleOpenEditPlot = (p) => {
-    const block = sanitizeBlock(p.block || String(p.plot_no || '').replace(/[^A-Za-z]/g, ''));
+    const block = useFlexiblePropertyIdentity
+      ? normalizeFlexibleBlock(p.block)
+      : sanitizeBlock(p.block || String(p.plot_no || '').replace(/[^A-Za-z]/g, ''));
     const numberPart = extractPlotNumber(p.plot_no || '');
     skipAutoCompute.current = true;
     setPlotForm({
-      plot_no: buildPlotNo(block, numberPart), block, buyer_name: p.buyer_name || '',
+      property_type: p.property_type || defaultPropertyType || 'PLOT',
+      plot_no: useFlexiblePropertyIdentity ? normalizeFlexiblePropertyNo(p.plot_no) : buildPlotNo(block, numberPart), block, buyer_name: p.buyer_name || '',
       plot_size: p.plot_size ? String(p.plot_size) : '',
       plot_size_mtr: p.plot_size_mtr ? String(p.plot_size_mtr) : '',
       plot_rate: (parseFloat(p.original_plot_rate) > 0 ? String(p.original_plot_rate) : '') || (p.plot_rate ? String(p.plot_rate) : ''),
@@ -847,15 +951,24 @@ const PlotPayments = () => {
     e.preventDefault();
     setMessage({ type: '', text: '' });
     setSubmitting(true);
-    const normalizedBlock = sanitizeBlock(plotForm.block);
-    const normalizedNumber = extractPlotNumber(plotForm.plot_no);
-    if (!normalizedBlock) {
+    if (propertyTerms.isMixedUse && !plotForm.property_type) {
+      setMessage({ type: 'error', text: 'Please choose whether this is an apartment, plot, shop, office, villa, or other property' });
+      setSubmitting(false);
+      return;
+    }
+    const normalizedBlock = useFlexiblePropertyIdentity
+      ? normalizeFlexibleBlock(plotForm.block)
+      : sanitizeBlock(plotForm.block);
+    const normalizedNumber = useFlexiblePropertyIdentity
+      ? normalizeFlexiblePropertyNo(plotForm.plot_no)
+      : extractPlotNumber(plotForm.plot_no);
+    if (!useFlexiblePropertyIdentity && !normalizedBlock) {
       setMessage({ type: 'error', text: 'Please select a block (A-Z)' });
       setSubmitting(false);
       return;
     }
     if (!normalizedNumber) {
-      setMessage({ type: 'error', text: 'Please enter a plot number' });
+      setMessage({ type: 'error', text: `Please enter an ${formPropertyTerms.singular.toLowerCase()} number` });
       setSubmitting(false);
       return;
     }
@@ -868,7 +981,7 @@ const PlotPayments = () => {
       const normalizedPlot = {
         ...plotForm,
         block: normalizedBlock,
-        plot_no: buildPlotNo(normalizedBlock, normalizedNumber),
+        plot_no: useFlexiblePropertyIdentity ? normalizedNumber : buildPlotNo(normalizedBlock, normalizedNumber),
         commission_enabled: !!plotForm.commission_enabled,
         commission_type: String(plotForm.commission_type || 'PERCENTAGE').toUpperCase(),
         commission_value: parseFloat(plotForm.commission_value) || 0,
@@ -907,9 +1020,9 @@ const PlotPayments = () => {
         setPlotDialogOpen(false);
       } else if (editingPlot) {
         const { data: resData } = await api.put(`/plots/${editingPlot.id}`, normalizedPlot);
-        const msgParts = ['Plot updated'];
+        const msgParts = [`${formPropertyTerms.singular} updated`];
         if (resData?.auto_registry && !resData.auto_registry.already_existed) {
-          msgParts.push('— Registry entry auto-created in Plot Registry');
+          msgParts.push(`— Registry entry auto-created in ${propertyTerms.registryTitle}`);
         }
         setMessage({ type: 'success', text: msgParts.join(' ') });
         // Close dialog instantly; reconcile in background.
@@ -926,9 +1039,9 @@ const PlotPayments = () => {
       } else {
         try {
           const { data: resData } = await api.post('/plots', { site_id: siteId, ...normalizedPlot });
-          const msgParts = ['Plot created'];
+          const msgParts = [`${formPropertyTerms.singular} created`];
           if (resData?.auto_registry && !resData.auto_registry.already_existed) {
-            msgParts.push('— Registry entry auto-created in Plot Registry');
+            msgParts.push(`— Registry entry auto-created in ${propertyTerms.registryTitle}`);
           }
           setMessage({ type: 'success', text: msgParts.join(' ') });
           setPlotDialogOpen(false);
@@ -958,7 +1071,7 @@ const PlotPayments = () => {
     setSubmitting(true);
     try {
       await api.post('/plots', { site_id: siteId, ...duplicateWarning.normalizedPlot, force_duplicate: true });
-      setMessage({ type: 'success', text: 'Plot created (previous marked as OLD)' });
+      setMessage({ type: 'success', text: `${formPropertyTerms.singular} created (previous marked as OLD)` });
       setDuplicateWarning(null);
       setPlotDialogOpen(false);
       fetchPlots();
@@ -970,7 +1083,8 @@ const PlotPayments = () => {
   };
 
   const handleDeletePlot = async (p) => {
-    if (!window.confirm(`Delete plot "${p.plot_no}"? All payments will be permanently lost.`)) return;
+    const itemTerms = getPropertyTypeTerminology(p.property_type, propertyTerms);
+    if (!window.confirm(`Delete ${itemTerms.singular.toLowerCase()} "${p.plot_no}"? All payments will be permanently lost.`)) return;
     // Optimistic removal — instant UI feedback. Roll back on failure via fetchPlots.
     if (selectedPlot?.id === p.id) { setSelectedPlot(null); }
     try {
@@ -1100,10 +1214,10 @@ const PlotPayments = () => {
       if (bookingRes?.data?.auto_commission?.id) {
         setMessage({
           type: 'success',
-          text: `Plot booked. Commission file created: #${bookingRes.data.auto_commission.id}`,
+          text: `${propertyTerms.singular} booked. Commission file created: #${bookingRes.data.auto_commission.id}`,
         });
       } else {
-        setMessage({ type: 'success', text: 'Plot booked successfully' });
+        setMessage({ type: 'success', text: `${propertyTerms.singular} booked successfully` });
       }
       await fetchPlots();
       if (selectedPlot?.id === bookingPlot.id) {
@@ -1139,7 +1253,9 @@ const PlotPayments = () => {
   const resetPayForm = () => {
     setPayForm({
       date: todayISO(),
-      payment_from: 'CASH', payment_type: 'CASH', bank_details: '', narration: '',
+      payment_from: financePaymentPolicy.defaultPaymentFrom,
+      payment_type: financePaymentPolicy.defaultPaymentType,
+      bank_details: '', narration: '',
       buyer_name: selectedPlot?.buyer_name || '', booked_by: '', amount: '',
       voucher_url: '',
       assigned_admin_id: null,
@@ -1179,6 +1295,12 @@ const PlotPayments = () => {
   const handleSubmitPayment = async (ev) => {
     ev.preventDefault();
     setMessage({ type: '', text: '' });
+    if (financePaymentPolicy.bankOnly
+        && !editingLegacyCash
+        && classifyPaymentMode(payForm.payment_type) === 'cash') {
+      setMessage({ type: 'error', text: 'Cash is disabled by this Site finance profile. Select a bank payment mode.' });
+      return;
+    }
     setSubmitting(true);
     try {
       const rawAmt = Math.abs(parseFloat(payForm.amount) || 0);
@@ -1284,6 +1406,9 @@ const PlotPayments = () => {
   // ── Filtering ──
   const filteredPlots = useMemo(() => {
     let list = plots;
+    if (filterPropertyType !== 'all') {
+      list = list.filter((p) => String(p.property_type || 'PLOT').toUpperCase() === filterPropertyType);
+    }
     if (filterStatus.size > 0) list = list.filter(p => filterStatus.has(p.status));
     if (filterBookingBy.size > 0) list = list.filter(p =>
       filterBookingBy.has(p.booking_by) ||
@@ -1306,7 +1431,7 @@ const PlotPayments = () => {
     });
     if (filterPending !== 'all') {
       list = list.filter((p) => {
-        const pendingPct = getPendingPercent(p);
+        const pendingPct = getPendingPercent(p, financePaymentPolicy.bankOnly);
         if (filterPending === '25') return pendingPct >= 25;
         if (filterPending === '50') return pendingPct >= 50;
         if (filterPending === '75') return pendingPct >= 75;
@@ -1325,6 +1450,7 @@ const PlotPayments = () => {
       const q = debouncedSearch.toLowerCase();
       list = list.filter(p =>
         p.plot_no?.toLowerCase().includes(q) ||
+        getPropertyTypeTerminology(p.property_type, propertyTerms).singular.toLowerCase().includes(q) ||
         p.buyer_name?.toLowerCase().includes(q) ||
         p.booking_by?.toLowerCase().includes(q) ||
         p.block?.toLowerCase().includes(q) ||
@@ -1339,7 +1465,9 @@ const PlotPayments = () => {
     const moneySort = /^(sale|received|remaining|pct)_(asc|desc)$/.exec(sortBy);
     const moneyVal = (p, key) => {
       const sp = parseFloat(p.sale_price) || 0;
-      const tr = parseFloat(p.total_received) || 0;
+      const tr = financePaymentPolicy.bankOnly
+        ? (parseFloat(p.received_bank) || 0)
+        : (parseFloat(p.total_received) || 0);
       if (key === 'sale') return sp;
       if (key === 'received') return tr;
       if (key === 'remaining') return sp - tr;
@@ -1369,19 +1497,19 @@ const PlotPayments = () => {
       return naturalSortPlotNo(a.plot_no, b.plot_no);
     });
     return list;
-  }, [plots, debouncedSearch, filterStatus, filterBookingBy, filterBuyer, filterTeam, filterMemberTeam, memberTeamMap, filterPending, customPendingMin, customPendingMax, sortBy]);
+  }, [plots, debouncedSearch, filterStatus, filterPropertyType, filterBookingBy, filterBuyer, filterTeam, filterMemberTeam, memberTeamMap, filterPending, customPendingMin, customPendingMax, sortBy, financePaymentPolicy.bankOnly, propertyTerms]);
 
   // ── Pre-computed row data (avoids per-render parseFloat in JSX) ──
   const rowData = useMemo(() => filteredPlots.map(pl => {
     const sp = parseFloat(pl.sale_price) || 0;
-    const tr = parseFloat(pl.total_received) || 0;
     const toRecBank = parseFloat(pl.to_receive_bank) || 0;
     const recBank = parseFloat(pl.received_bank) || 0;
     const recCash = parseFloat(pl.received_cash) || 0;
+    const tr = financePaymentPolicy.bankOnly ? recBank : (parseFloat(pl.total_received) || 0);
     const toRecCash = sp - toRecBank;
     const mTeam = memberTeamMap[pl.booking_by] || memberTeamMap[pl.buyer_name] || '';
     return { pl, sp, tr, bal: sp - tr, pct: sp > 0 ? (tr / sp) * 100 : 0, toRecBank, toRecCash, recBank, recCash, balBank: toRecBank - recBank, balCash: toRecCash - recCash, mTeam };
-  }), [filteredPlots, memberTeamMap]);
+  }), [filteredPlots, financePaymentPolicy.bankOnly, memberTeamMap]);
 
   // ── OLD-tag check: case-insensitive so 'OLD', 'old', 'Old' all match.
   // Mirrors the dashboard Registry Payments card so both views bucket plots
@@ -1403,11 +1531,13 @@ const PlotPayments = () => {
       totToRecCash += sp - trb;
       totRecBank += parseFloat(p.received_bank) || 0;
       totRecCash += parseFloat(p.received_cash) || 0;
-      totReceived += parseFloat(p.total_received) || 0;
+      totReceived += financePaymentPolicy.bankOnly
+        ? (parseFloat(p.received_bank) || 0)
+        : (parseFloat(p.total_received) || 0);
       totPlotComm += parseFloat(p.plot_commission) || 0;
     }
-    return { totSize, totRate, totSalePrice, totToRecBank, totToRecCash, totRecBank, totRecCash, totReceived, totPlotComm, totBalBank: totToRecBank - totRecBank, totBalCash: totToRecCash - totRecCash, totNetBal: totSalePrice - totReceived, avgPct: totSalePrice > 0 ? (totReceived / totSalePrice) * 100 : 0, activeCount };
-  }, [filteredPlots]);
+    return { totSize, totRate, avgRate: activeCount > 0 ? totRate / activeCount : 0, totSalePrice, totToRecBank, totToRecCash, totRecBank, totRecCash, totReceived, totPlotComm, totBalBank: totToRecBank - totRecBank, totBalCash: totToRecCash - totRecCash, totNetBal: totSalePrice - totReceived, avgPct: totSalePrice > 0 ? (totReceived / totSalePrice) * 100 : 0, activeCount };
+  }, [filteredPlots, financePaymentPolicy.bankOnly]);
 
   // ── Totals including OLD plots — OLD plots only add received amounts (bank/cash/total).
   // Deal-specific fields (size, rate, sale price, to-receive, commission, balance, %)
@@ -1431,16 +1561,34 @@ const PlotPayments = () => {
       // Received amounts: always include — actual money received is a financial fact
       totRecBank += parseFloat(p.received_bank) || 0;
       totRecCash += parseFloat(p.received_cash) || 0;
-      totReceived += parseFloat(p.total_received) || 0;
+      totReceived += financePaymentPolicy.bankOnly
+        ? (parseFloat(p.received_bank) || 0)
+        : (parseFloat(p.total_received) || 0);
     }
-    return { totSize, totRate, totSalePrice, totToRecBank, totToRecCash, totRecBank, totRecCash, totReceived, totPlotComm, totBalBank: totToRecBank - totRecBank, totBalCash: totToRecCash - totRecCash, totNetBal: totSalePrice - totReceived, avgPct: totSalePrice > 0 ? (totReceived / totSalePrice) * 100 : 0, activeCount: allCount };
-  }, [filteredPlots]);
+    const activeDealCount = filteredPlots.filter((plot) => !isOldPlot(plot)).length;
+    return { totSize, totRate, avgRate: activeDealCount > 0 ? totRate / activeDealCount : 0, totSalePrice, totToRecBank, totToRecCash, totRecBank, totRecCash, totReceived, totPlotComm, totBalBank: totToRecBank - totRecBank, totBalCash: totToRecCash - totRecCash, totNetBal: totSalePrice - totReceived, avgPct: totSalePrice > 0 ? (totReceived / totSalePrice) * 100 : 0, activeCount: allCount };
+  }, [filteredPlots, financePaymentPolicy.bankOnly]);
 
   const displayTotals = includeOldInTotals ? totalsAll : totals;
   const oldCount = filteredPlots.filter(isOldPlot).length;
 
   // ── Scroll container ref ──
   const tableContainerRef = useRef(null);
+  const [tableExpanded, setTableExpanded] = useState(false);
+
+  useEffect(() => {
+    if (!tableExpanded) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setTableExpanded(false);
+    };
+    document.body.style.overflow = 'hidden';
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [tableExpanded]);
 
   // Auto-scroll to top of table when search changes
   const prevSearchRef = useRef(debouncedSearch);
@@ -1453,8 +1601,29 @@ const PlotPayments = () => {
     }
   }, [debouncedSearch]);
 
+  const visiblePayments = useMemo(
+    () => financePaymentPolicy.bankOnly ? payments.filter((payment) => !isCashPayment(payment)) : payments,
+    [payments, financePaymentPolicy.bankOnly],
+  );
+  const visibleInstallmentPayments = useMemo(
+    () => financePaymentPolicy.bankOnly
+      ? installmentPayments.filter((payment) => !isCashPayment(payment))
+      : installmentPayments,
+    [installmentPayments, financePaymentPolicy.bankOnly],
+  );
+
+  useEffect(() => {
+    if (!financePaymentPolicy.bankOnly) return;
+    if (classifyPaymentMode(filterFrom) === 'cash') setFilterFrom('all');
+    const visibleIds = new Set(visiblePayments.map((payment) => payment.id));
+    setSelectedPayIds((current) => {
+      const next = new Set([...current].filter((id) => visibleIds.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [financePaymentPolicy.bankOnly, filterFrom, visiblePayments]);
+
   const filteredPayments = useMemo(() => {
-    let list = payments;
+    let list = visiblePayments;
     if (filterFrom !== 'all') list = list.filter(p => (p.payment_from || '') === filterFrom);
     if (filterDateFrom) list = list.filter(p => p.date && p.date.split('T')[0] >= filterDateFrom);
     if (filterDateTo) list = list.filter(p => p.date && p.date.split('T')[0] <= filterDateTo);
@@ -1468,13 +1637,21 @@ const PlotPayments = () => {
       );
     }
     return list;
-  }, [payments, searchQuery, filterFrom, filterDateFrom, filterDateTo]);
+  }, [visiblePayments, searchQuery, filterFrom, filterDateFrom, filterDateTo]);
 
   // Accounting totals use posted rows only. Pending/rejected rows stay visible,
   // but do not enter received or cumulative balances.
-  const isActive = (p) => (
-    String(p.status ?? 'approved').toLowerCase() === 'approved'
-    && !['BOUNCED', 'RETURNED'].includes(String(p.cheque_status || '').toUpperCase())
+  const fromBreakdown = useMemo(
+    () => financePaymentPolicy.bankOnly
+      ? summarizePaymentsBy(visiblePayments, 'payment_from')
+      : rawFromBreakdown,
+    [financePaymentPolicy.bankOnly, rawFromBreakdown, visiblePayments],
+  );
+  const receivedByBreakdown = useMemo(
+    () => financePaymentPolicy.bankOnly
+      ? summarizePaymentsBy(visiblePayments, 'received_by')
+      : rawReceivedByBreakdown,
+    [financePaymentPolicy.bankOnly, rawReceivedByBreakdown, visiblePayments],
   );
 
   const paymentsWithBalance = useMemo(() => {
@@ -1483,12 +1660,12 @@ const PlotPayments = () => {
     // historical cumulative values.
     const runningById = new Map();
     let cumulative = 0;
-    [...payments].sort((a, b) => {
+    [...visiblePayments].sort((a, b) => {
       const da = a.date ? new Date(a.date).getTime() : 0;
       const db = b.date ? new Date(b.date).getTime() : 0;
       return da - db || (a.id - b.id);
     }).forEach((p) => {
-      if (isActive(p)) cumulative += parseFloat(p.amount) || 0;
+      if (isPostedPayment(p)) cumulative += parseFloat(p.amount) || 0;
       runningById.set(p.id, cumulative);
     });
 
@@ -1503,14 +1680,14 @@ const PlotPayments = () => {
       const delta = da - db || (a.id - b.id);
       return sortOrderPay === 'desc' ? -delta : delta;
     });
-  }, [payments, filteredPayments, sortOrderPay]);
+  }, [visiblePayments, filteredPayments, sortOrderPay]);
 
   // Full posted collection statement: direct receipts plus installment
   // receipts, each exactly once. The on-screen editable table remains scoped
   // to direct plot_payments; print/export uses this reconciled ledger.
   const statementPaymentsWithBalance = useMemo(() => {
-    const combined = [...payments, ...installmentPayments]
-      .filter(isActive)
+    const combined = [...visiblePayments, ...visibleInstallmentPayments]
+      .filter(isPostedPayment)
       .filter((p) => {
         if (filterFrom !== 'all' && (p.payment_from || '') !== filterFrom) return false;
         const isoDate = String(p.date || '').split('T')[0];
@@ -1532,15 +1709,17 @@ const PlotPayments = () => {
       cumulative += parseFloat(payment.amount) || 0;
       return { ...payment, cumulative };
     });
-  }, [payments, installmentPayments, filterFrom, filterDateFrom, filterDateTo, searchQuery]);
+  }, [visiblePayments, visibleInstallmentPayments, filterFrom, filterDateFrom, filterDateTo, searchQuery]);
 
   // Totals — approved and non-bounced/non-returned only
   const salePrice = parseFloat(plotMeta?.sale_price) || 0;
-  const totalReceived = parseFloat(plotMeta?.total_received) || 0;
+  const totalReceived = financePaymentPolicy.bankOnly
+    ? (parseFloat(plotMeta?.received_bank) || 0)
+    : (parseFloat(plotMeta?.total_received) || 0);
   const balance = salePrice - totalReceived;
   const pctReceived = salePrice > 0 ? ((totalReceived / salePrice) * 100) : 0;
-  const directPostedTotal = useMemo(() => payments.filter(isActive).reduce((s, p) => s + (parseFloat(p.amount) || 0), 0), [payments]);
-  const filteredTotal = useMemo(() => filteredPayments.filter(isActive).reduce((s, p) => s + (parseFloat(p.amount) || 0), 0), [filteredPayments]);
+  const directPostedTotal = useMemo(() => visiblePayments.filter(isPostedPayment).reduce((s, p) => s + (parseFloat(p.amount) || 0), 0), [visiblePayments]);
+  const filteredTotal = useMemo(() => filteredPayments.filter(isPostedPayment).reduce((s, p) => s + (parseFloat(p.amount) || 0), 0), [filteredPayments]);
   const statementTotal = useMemo(() => statementPaymentsWithBalance.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0), [statementPaymentsWithBalance]);
   const hasActiveDetailFilters = filterFrom !== 'all' || filterDateFrom || filterDateTo || searchQuery;
 
@@ -1611,8 +1790,12 @@ const PlotPayments = () => {
 
     const headerRows = [
       [`PLOT ${p.plot_no}${p.block ? ' - Block ' + p.block : ''} — ${p.buyer_name || 'N/A'}`],
-      [`Sale Price: ₹${fmt(salePrice)}  |  To Receive Bank: ₹${fmt(toReceiveBank)}  |  To Receive Cash: ₹${fmt(toReceiveCash)}`],
-      [`Received Bank: ₹${fmt(receivedBank)}  |  Received Cash: ₹${fmt(receivedCash)}  |  Total Received (all posted sources): ₹${fmt(totalReceived)}  |  Balance: ₹${fmt(balance)}  |  ${pctReceived.toFixed(2)}% Received`],
+      [financePaymentPolicy.bankOnly
+        ? `Sale Price: ₹${fmt(salePrice)}  |  To Receive Bank: ₹${fmt(toReceiveBank)}`
+        : `Sale Price: ₹${fmt(salePrice)}  |  To Receive Bank: ₹${fmt(toReceiveBank)}  |  To Receive Cash: ₹${fmt(toReceiveCash)}`],
+      [financePaymentPolicy.bankOnly
+        ? `Received Bank: ₹${fmt(receivedBank)}  |  Balance: ₹${fmt(balanceBank)}`
+        : `Received Bank: ₹${fmt(receivedBank)}  |  Received Cash: ₹${fmt(receivedCash)}  |  Total Received (all posted sources): ₹${fmt(totalReceived)}  |  Balance: ₹${fmt(balance)}  |  ${pctReceived.toFixed(2)}% Received`],
       [`Exported statement rows: ₹${fmt(statementTotal)}${hasActiveDetailFilters ? ' (filters applied)' : ''}`],
       [`Booking By: ${p.booking_by || 'N/A'}  |  Size: ${p.plot_size || '-'}  |  Rate: ${p.plot_rate || '-'}  |  Registry Area: ${p.registry_area || '-'}  |  Circle Rate: ${p.circle_rate || '-'}  |  Status: ${p.status || '-'}`],
       [],
@@ -1654,7 +1837,7 @@ const PlotPayments = () => {
     ];
 
     XLSX.utils.book_append_sheet(wb, ws, 'Payments');
-    const filename = `Plot_${(p.plot_no || '').replace(/[^a-zA-Z0-9]/g, '_')}_Payments_${new Date().toISOString().split('T')[0]}.xlsx`;
+    const filename = `${propertyTerms.singular.replace(/\s+/g, '_')}_${(p.plot_no || '').replace(/[^a-zA-Z0-9]/g, '_')}_Payments_${new Date().toISOString().split('T')[0]}.xlsx`;
     XLSX.writeFile(wb, filename);
   };
 
@@ -1662,32 +1845,37 @@ const PlotPayments = () => {
   const downloadAllPlotsExcel = () => {
     const wb = XLSX.utils.book_new();
     const headerRows = [
-      [`Plot Payments — ${currentSite?.name || ''}`],
-      [`Total Plots: ${filteredPlots.length}`],
+      [`${collectionLabel} — ${currentSite?.name || ''}`],
+      [`Total ${propertyTerms.plural}: ${filteredPlots.length}`],
       [],
     ];
-    const colHeaders = ['No', 'Plot No', 'Tag', 'Status', 'Block', 'Buyer Name', 'Size (Gaz)', 'Size (Mtr)', 'Rate', 'Sale Price (₹)', 'Comm Rate', 'Plot Commission (₹)', 'Circle Rate', 'To Rec Bank (₹)', 'To Rec Cash (₹)', 'Rec Bank (₹)', 'Bal Bank (₹)', 'Rec Cash (₹)', 'Bal Cash (₹)', 'Total Received (₹)', 'Balance (₹)', '% Received', '1st Install (₹)', 'Booking By', 'Team', 'Booking Date', 'Payments'];
+    const colHeaders = [
+      'No', propertyTerms.numberLabel, ...(propertyTerms.isMixedUse ? ['Property Type'] : []), 'Tag', 'Status', propertyTerms.blockLabel, 'Buyer Name', 'Size (Gaz)', 'Size (Mtr)', 'Rate', 'Sale Price (₹)',
+      'Comm Rate', 'Commission (₹)', 'Circle Rate', 'To Rec Bank (₹)', 'Rec Bank (₹)', 'Bal Bank (₹)',
+      ...(!financePaymentPolicy.bankOnly ? ['To Rec Cash (₹)', 'Rec Cash (₹)', 'Bal Cash (₹)'] : []),
+      'Total Received (₹)', 'Balance (₹)', '% Received', '1st Install (₹)', 'Booking By', 'Team', 'Booking Date', 'Payments',
+    ];
     headerRows.push(colHeaders);
 
     const rows = filteredPlots.map((p, i) => {
       const sp = parseFloat(p.sale_price) || 0;
-      const tr = parseFloat(p.total_received) || 0;
-      const bal = sp - tr;
-      const pct = sp > 0 ? ((tr / sp) * 100).toFixed(2) + '%' : '0%';
       const toRecBank = parseFloat(p.to_receive_bank) || 0;
       const toRecCash = sp - toRecBank;
       const recBank = parseFloat(p.received_bank) || 0;
       const recCash = parseFloat(p.received_cash) || 0;
+      const tr = financePaymentPolicy.bankOnly ? recBank : (parseFloat(p.total_received) || 0);
+      const bal = sp - tr;
+      const pct = sp > 0 ? ((tr / sp) * 100).toFixed(2) + '%' : '0%';
       const balBank = toRecBank - recBank;
       const balCash = toRecCash - recCash;
       const firstInst = parseFloat(p.first_installment) || 0;
       const commRate = parseFloat(p.commission_rate) || 0;
       const plotComm = parseFloat(p.plot_commission) || 0;
       return [
-        i + 1, p.plot_no, p.plot_tag || '', p.status || '', p.block || '', p.buyer_name || '',
+        i + 1, p.plot_no, ...(propertyTerms.isMixedUse ? [getPropertyTypeTerminology(p.property_type, propertyTerms).singular] : []), p.plot_tag || '', p.status || '', p.block || '', p.buyer_name || '',
         p.plot_size || '', p.plot_size_mtr || '', p.plot_rate || '', sp, commRate, plotComm,
-        p.circle_rate || '', toRecBank, toRecCash,
-        recBank, balBank, recCash, balCash,
+        p.circle_rate || '', toRecBank, recBank, balBank,
+        ...(!financePaymentPolicy.bankOnly ? [toRecCash, recCash, balCash] : []),
         tr, bal, pct, firstInst,
         p.booking_by || '', p.team || '', p.booking_date ? new Date(p.booking_date).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '', p.payment_count || 0,
       ];
@@ -1702,11 +1890,11 @@ const PlotPayments = () => {
       { wch: 16 }, { wch: 16 }, { wch: 12 }, { wch: 14 }, { wch: 20 }, { wch: 8 }, { wch: 14 }, { wch: 10 },
     ];
     ws['!merges'] = [
-      { s: { r: 0, c: 0 }, e: { r: 0, c: 26 } },
+      { s: { r: 0, c: 0 }, e: { r: 0, c: colHeaders.length - 1 } },
     ];
 
-    XLSX.utils.book_append_sheet(wb, ws, 'All Plots');
-    XLSX.writeFile(wb, `Plot_Payments_${currentSite?.name?.replace(/[^a-zA-Z0-9]/g, '_') || 'export'}_${new Date().toISOString().split('T')[0]}.xlsx`);
+    XLSX.utils.book_append_sheet(wb, ws, propertyTerms.plural.slice(0, 31));
+    XLSX.writeFile(wb, `${propertyTerms.singular.replace(/\s+/g, '_')}_Payments_${currentSite?.name?.replace(/[^a-zA-Z0-9]/g, '_') || 'export'}_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
   // ── Print All / Selected Plots as PDF ──
@@ -1721,8 +1909,6 @@ const PlotPayments = () => {
     const grandTotalSize = activePlots.reduce((s, p) => s + (parseFloat(p.plot_size) || 0), 0);
     const grandTotalSizeMtr = activePlots.reduce((s, p) => s + (parseFloat(p.plot_size_mtr) || 0), 0);
     const grandTotalSP = activePlots.reduce((s, p) => s + (parseFloat(p.sale_price) || 0), 0);
-    const grandTotalRec = activePlots.reduce((s, p) => s + (parseFloat(p.total_received) || 0), 0);
-    const grandBalance = grandTotalSP - grandTotalRec;
     const grandToRecBank = activePlots.reduce((s, p) => s + (parseFloat(p.to_receive_bank) || 0), 0);
     const grandToRecCash = activePlots.reduce((s, p) => {
       const sp = parseFloat(p.sale_price) || 0;
@@ -1731,18 +1917,21 @@ const PlotPayments = () => {
     }, 0);
     const grandRecBank = activePlots.reduce((s, p) => s + (parseFloat(p.received_bank) || 0), 0);
     const grandRecCash = activePlots.reduce((s, p) => s + (parseFloat(p.received_cash) || 0), 0);
+    const grandTotalRec = financePaymentPolicy.bankOnly
+      ? grandRecBank
+      : activePlots.reduce((s, p) => s + (parseFloat(p.total_received) || 0), 0);
+    const grandBalance = grandTotalSP - grandTotalRec;
     const grandBalBank = grandToRecBank - grandRecBank;
     const grandBalCash = grandToRecCash - grandRecCash;
 
     const rows = plotsToPrint.map((p, i) => {
       const sp = parseFloat(p.sale_price) || 0;
-      const tr = parseFloat(p.total_received) || 0;
-      const bal = sp - tr;
-      const pct = sp > 0 ? ((tr / sp) * 100).toFixed(1) + '%' : '0%';
       const toRecBank = parseFloat(p.to_receive_bank) || 0;
       const toRecCash = sp - toRecBank;
       const recBank = parseFloat(p.received_bank) || 0;
       const recCash = parseFloat(p.received_cash) || 0;
+      const tr = financePaymentPolicy.bankOnly ? recBank : (parseFloat(p.total_received) || 0);
+      const pct = sp > 0 ? ((tr / sp) * 100).toFixed(1) + '%' : '0%';
       const balBank = toRecBank - recBank;
       const balCash = toRecCash - recCash;
       return `<tr>
@@ -1755,11 +1944,11 @@ const PlotPayments = () => {
         <td style="text-align:right">${p.plot_size_mtr || '—'}</td>
         <td style="text-align:right">${sp > 0 ? '₹' + sp.toLocaleString('en-IN') : '—'}</td>
         <td style="text-align:right">₹${toRecBank.toLocaleString('en-IN')}</td>
-        <td style="text-align:right">₹${toRecCash.toLocaleString('en-IN')}</td>
         <td style="text-align:right">₹${recBank.toLocaleString('en-IN')}</td>
         <td style="text-align:right;color:${balBank <= 0 ? '#059669' : '#dc2626'}">₹${balBank.toLocaleString('en-IN')}</td>
+        ${!financePaymentPolicy.bankOnly ? `<td style="text-align:right">₹${toRecCash.toLocaleString('en-IN')}</td>
         <td style="text-align:right">₹${recCash.toLocaleString('en-IN')}</td>
-        <td style="text-align:right;color:${balCash <= 0 ? '#059669' : '#dc2626'}">₹${balCash.toLocaleString('en-IN')}</td>
+        <td style="text-align:right;color:${balCash <= 0 ? '#059669' : '#dc2626'}">₹${balCash.toLocaleString('en-IN')}</td>` : ''}
         <td style="text-align:right"><strong>₹${tr.toLocaleString('en-IN')}</strong></td>
         <td style="text-align:center">${pct}</td>
         <td>${p.booking_by || '—'}</td>
@@ -1769,7 +1958,7 @@ const PlotPayments = () => {
     }).join('');
 
     const html = `<!DOCTYPE html>
-<html><head><title>Plot Payments - ${currentSite?.name || ''}</title>
+<html><head><title>${collectionLabel} - ${currentSite?.name || ''}</title>
 <style>
   @page { size: A3 landscape; margin: 10mm; }
   * { margin:0; padding:0; box-sizing:border-box; }
@@ -1785,30 +1974,30 @@ const PlotPayments = () => {
   @media print { body { padding:0; } .no-print { display:none !important; } }
 </style>
 </head><body>
-  <h1>${currentSite?.name || 'Plot Payments'}</h1>
-  <div class="sub">${activePlots.length} plots${activePlots.length < plotsToPrint.length ? ` (${plotsToPrint.length - activePlots.length} old excluded)` : ''} · Generated on ${new Date().toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })}</div>
+  <h1>${currentSite?.name || collectionLabel}</h1>
+  <div class="sub">${unitCountLabel(activePlots.length, propertyTerms)}${activePlots.length < plotsToPrint.length ? ` (${plotsToPrint.length - activePlots.length} old excluded)` : ''} · Generated on ${new Date().toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })}</div>
   <table>
     <thead><tr>
-      <th>#</th><th>Plot No</th><th>Status</th><th>Block</th><th>Buyer Name</th><th style="text-align:right">Size (Gaz)</th><th style="text-align:right">Size (Mtr)</th>
+      <th>#</th><th>${propertyTerms.numberLabel}</th><th>Status</th><th>${propertyTerms.blockLabel}</th><th>Buyer Name</th><th style="text-align:right">Size (Gaz)</th><th style="text-align:right">Size (Mtr)</th>
       <th style="text-align:right">Sale Price</th>
-      <th style="text-align:right">To Rec Bank</th><th style="text-align:right">To Rec Cash</th>
+      <th style="text-align:right">To Rec Bank</th>
       <th style="text-align:right">Rec Bank</th><th style="text-align:right">Bal Bank</th>
-      <th style="text-align:right">Rec Cash</th><th style="text-align:right">Bal Cash</th>
+      ${!financePaymentPolicy.bankOnly ? '<th style="text-align:right">To Rec Cash</th><th style="text-align:right">Rec Cash</th><th style="text-align:right">Bal Cash</th>' : ''}
       <th style="text-align:right">Total Rec</th><th style="text-align:center">%</th>
       <th>Booking By</th><th>Team</th><th>Date</th>
     </tr></thead>
     <tbody>${rows}
       <tr class="totals">
-        <td colspan="5" style="text-align:right;font-size:9px;letter-spacing:0.5px;text-transform:uppercase;">TOTAL (${activePlots.length} plots${activePlots.length < plotsToPrint.length ? ', ' + (plotsToPrint.length - activePlots.length) + ' old excluded' : ''})</td>
+        <td colspan="5" style="text-align:right;font-size:9px;letter-spacing:0.5px;text-transform:uppercase;">TOTAL (${unitCountLabel(activePlots.length, propertyTerms)}${activePlots.length < plotsToPrint.length ? ', ' + (plotsToPrint.length - activePlots.length) + ' old excluded' : ''})</td>
         <td style="text-align:right">${grandTotalSize.toLocaleString('en-IN')}</td>
         <td style="text-align:right">${grandTotalSizeMtr.toLocaleString('en-IN')}</td>
         <td style="text-align:right">₹${grandTotalSP.toLocaleString('en-IN')}</td>
         <td style="text-align:right">₹${grandToRecBank.toLocaleString('en-IN')}</td>
-        <td style="text-align:right">₹${grandToRecCash.toLocaleString('en-IN')}</td>
         <td style="text-align:right">₹${grandRecBank.toLocaleString('en-IN')}</td>
         <td style="text-align:right;color:${grandBalBank <= 0 ? '#059669' : '#dc2626'}">₹${grandBalBank.toLocaleString('en-IN')}</td>
+        ${!financePaymentPolicy.bankOnly ? `<td style="text-align:right">₹${grandToRecCash.toLocaleString('en-IN')}</td>
         <td style="text-align:right">₹${grandRecCash.toLocaleString('en-IN')}</td>
-        <td style="text-align:right;color:${grandBalCash <= 0 ? '#059669' : '#dc2626'}">₹${grandBalCash.toLocaleString('en-IN')}</td>
+        <td style="text-align:right;color:${grandBalCash <= 0 ? '#059669' : '#dc2626'}">₹${grandBalCash.toLocaleString('en-IN')}</td>` : ''}
         <td style="text-align:right">₹${grandTotalRec.toLocaleString('en-IN')}</td>
         <td style="text-align:center">${grandTotalSP > 0 ? ((grandTotalRec / grandTotalSP) * 100).toFixed(1) + '%' : '0%'}</td>
         <td colspan="3" style="text-align:right;color:${grandBalance <= 0 ? '#059669' : '#dc2626'}">Bal: ₹${grandBalance.toLocaleString('en-IN')}</td>
@@ -1851,12 +2040,12 @@ const PlotPayments = () => {
     if (isCash) {
       printCashReceipt({
         siteName, siteAddr,
-        docTitle: 'Cash Payment Receipt',
+        docTitle: `${propertyTerms.singular} Cash Payment Receipt`,
         voucherNo: `ACK-${pay.id}`, dateStr: payDate, printedAt,
         partyLabel: 'Received From', partyName: (pay.buyer_name || plot?.buyer_name || '').toUpperCase(),
         amount: absAmt, amountColor,
         rows: [
-          { label: 'Plot No', value: plot?.plot_no || '' },
+          { label: propertyTerms.numberLabel, value: plot?.plot_no || '' },
           { label: 'Received By', value: pay.received_by ? String(pay.received_by).toUpperCase() : '' },
           { label: 'Remarks', value: pay.narration || '' },
         ],
@@ -1890,7 +2079,7 @@ const PlotPayments = () => {
             <h1>${siteName}</h1>
             <p>${siteAddr || 'ESTABLISHED REAL PROPERTY DIVISION'}</p>
           </div>
-          <div class="doc-type"><h2>Plot Payment Receipt</h2></div>
+          <div class="doc-type"><h2>${propertyTerms.singular} Payment Receipt</h2></div>
           <div class="meta-info">
             <div class="meta-item"><b>Ref:</b> ACK-${pay.id}</div>
             <div class="meta-item"><b>Date:</b> ${payDate}</div>
@@ -1898,7 +2087,7 @@ const PlotPayments = () => {
           <div class="kv-qr-wrap">
             <div class="kv-section">
               <div class="kv-row"><div class="k">Received From</div><div class="c">:</div><div class="v">${(plot?.buyer_name || 'UNDEFINED ENTITY').toUpperCase()}</div></div>
-              ${plot?.plot_no ? `<div class="kv-row"><div class="k">For Plot No</div><div class="c">:</div><div class="v">${String(plot.plot_no).toUpperCase()}</div></div>` : ''}
+              ${plot?.plot_no ? `<div class="kv-row"><div class="k">For ${propertyTerms.numberLabel}</div><div class="c">:</div><div class="v">${String(plot.plot_no).toUpperCase()}</div></div>` : ''}
               <div class="kv-row"><div class="k">Amount</div><div class="c">:</div><div class="v" style="color:${amountColor}">RS ${isNegative ? '-' : ''}${fmtINR(absAmt)}/-</div></div>
               <div class="kv-row"><div class="k">Payment Mode</div><div class="c">:</div><div class="v">${(pay.payment_from || 'LIQUID ASSETS').toUpperCase()}</div></div>
             </div>
@@ -1994,7 +2183,7 @@ const PlotPayments = () => {
     const fmtINR = (v) => parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 0 });
     const selected = selectedPayIds.size > 0
       ? paymentsWithBalance
-          .filter(p => selectedPayIds.has(p.id) && isActive(p))
+          .filter(p => selectedPayIds.has(p.id) && isPostedPayment(p))
           .sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0))
       : statementPaymentsWithBalance;
     if (selected.length === 0) return;
@@ -2065,7 +2254,7 @@ const PlotPayments = () => {
     <div class="stmt-title">Statement of Account</div>
 
     <div class="info-grid">
-      <div class="info-item"><div class="info-lbl">Plot Identifier</div><div class="info-val">${plot.plot_no}${plot.block ? ' (Block ' + plot.block + ')' : ''}</div></div>
+      <div class="info-item"><div class="info-lbl">${propertyTerms.singular} Identifier</div><div class="info-val">${plot.plot_no}${plot.block ? ' (' + propertyTerms.blockLabel + ' ' + plot.block + ')' : ''}</div></div>
       <div class="info-item"><div class="info-lbl">Primary Allottee</div><div class="info-val">${(plot.buyer_name || 'UNDEFINED').toUpperCase()}</div></div>
       <div class="info-item"><div class="info-lbl">Allotment Date</div><div class="info-val">${new Date(plot.booking_date).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })}</div></div>
       <div class="info-item"><div class="info-lbl">Total Consideration</div><div class="info-val">₹${fmtINR(salePrice)}</div></div>
@@ -2149,9 +2338,9 @@ const PlotPayments = () => {
                   {editingPlot ? <Edit2 className="w-4 h-4" /> : <MapPin className="w-4 h-4" />}
                 </div>
                 <div>
-                  <DialogTitle className="text-base font-semibold text-slate-900">{editingPlot && !canUpdate ? 'Request Plot Edit' : editingPlot ? 'Edit Plot' : 'Add Plot'}</DialogTitle>
+                  <DialogTitle className="text-base font-semibold text-slate-900">{editingPlot && !canUpdate ? `Request ${formPropertyTerms.singular} Edit` : editingPlot ? `Edit ${formPropertyTerms.singular}` : `Add ${formPropertyTerms.singular}`}</DialogTitle>
                   <DialogDescription className="text-sm text-slate-500">
-                {editingPlot && !canUpdate ? 'Submit an edit request with proof photo for admin approval.' : editingPlot ? 'Update plot details.' : 'Register a new plot sale / booking.'}
+                {editingPlot && !canUpdate ? 'Submit an edit request with proof photo for admin approval.' : editingPlot ? `Update this ${formPropertyTerms.singular.toLowerCase()}.` : 'Add inventory now; customer booking can be completed from the row workflow.'}
                   </DialogDescription>
                 </div>
               </div>
@@ -2173,9 +2362,9 @@ const PlotPayments = () => {
                 <div className="flex items-start gap-2 mb-3">
                   <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
                   <div>
-                    <p className="text-sm font-semibold text-amber-800">Duplicate Plot Found</p>
+                    <p className="text-sm font-semibold text-amber-800">Duplicate {formPropertyTerms.singular} found</p>
                     <p className="text-xs text-amber-700 mt-1">
-                      This plot number already exists but is marked as <Badge className="text-[10px] bg-orange-100 text-orange-700 border-orange-200 mx-0.5">RESALE</Badge>. 
+                      This {formPropertyTerms.singular.toLowerCase()} number already exists but is marked as <Badge className="text-[10px] bg-orange-100 text-orange-700 border-orange-200 mx-0.5">RESALE</Badge>.
                       The existing plot will be tagged as <strong>OLD</strong> and the new one as <strong>NEW</strong>.
                     </p>
                   </div>
@@ -2192,7 +2381,7 @@ const PlotPayments = () => {
                 <div className="flex gap-2 ml-7">
                   <Button type="button" size="sm" className="h-7 text-xs bg-amber-600 hover:bg-amber-700" onClick={handleConfirmDuplicate} disabled={submitting}>
                     {submitting ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
-                    Yes, Create New Plot
+                    Yes, create new {formPropertyTerms.singular.toLowerCase()}
                   </Button>
                   <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => setDuplicateWarning(null)}>
                     Cancel
@@ -2205,52 +2394,85 @@ const PlotPayments = () => {
               onSubmit={handleSubmitPlot}
               className="space-y-4 p-5 bg-white [&_label]:text-[11px] [&_label]:font-semibold [&_label]:uppercase [&_label]:tracking-wide [&_label]:text-slate-600 [&_input]:bg-slate-50 [&_input]:border-slate-200 [&_input]:focus-visible:ring-slate-400"
             >
-              {/* Row 1: Block, Plot No, Status */}
+              {/* Row 1: Property type, section, identifier and status */}
               <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
                 <div className="flex items-center gap-2">
                   <MapPin className="w-3.5 h-3.5 text-blue-600" />
-                  <p className="text-xs font-semibold text-slate-700">Plot Basics</p>
+                  <p className="text-xs font-semibold text-slate-700">{formPropertyTerms.singular} basics</p>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className={`grid grid-cols-1 gap-3 ${propertyTerms.isMixedUse ? 'sm:grid-cols-2 lg:grid-cols-4' : 'sm:grid-cols-3'}`}>
+                {propertyTerms.isMixedUse && (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-medium">Property type *</Label>
+                    <Select
+                      value={plotForm.property_type || undefined}
+                      onValueChange={(value) => setPlotForm((prev) => ({ ...prev, property_type: value }))}
+                    >
+                      <SelectTrigger className="h-9 bg-blue-50/60 border-blue-200">
+                        <SelectValue placeholder="Choose type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {propertyTypeOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
                 <div className="space-y-1.5">
-                  <Label className="text-xs font-medium">Block *</Label>
-                  <Select
-                    value={plotForm.block || '_none'}
-                    onValueChange={(v) => {
-                      const blockOnly = v === '_none' ? '' : sanitizeBlock(v);
-                      setPlotForm((prev) => ({
-                        ...prev,
-                        block: blockOnly,
-                        plot_no: buildPlotNo(blockOnly, prev.plot_no),
-                      }));
-                    }}
-                  >
-                    <SelectTrigger className="h-9">
-                      <SelectValue placeholder="Select block" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="_none">Select block...</SelectItem>
-                      {BLOCK_OPTIONS.map((block) => (
-                        <SelectItem key={block} value={block}>{block}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Label className="text-xs font-medium">{formPropertyTerms.blockLabel}{useFlexiblePropertyIdentity ? '' : ' *'}</Label>
+                  {useFlexiblePropertyIdentity ? (
+                    <Input
+                      type="text"
+                      placeholder={plotForm.property_type === 'APARTMENT' ? 'Tower A' : plotForm.property_type === 'OFFICE' ? 'Building / Floor' : 'Optional section'}
+                      value={plotForm.block}
+                      onChange={(event) => setPlotForm((prev) => ({ ...prev, block: event.target.value }))}
+                    />
+                  ) : (
+                    <Select
+                      value={plotForm.block || '_none'}
+                      onValueChange={(v) => {
+                        const blockOnly = v === '_none' ? '' : sanitizeBlock(v);
+                        setPlotForm((prev) => ({
+                          ...prev,
+                          block: blockOnly,
+                          plot_no: buildPlotNo(blockOnly, prev.plot_no),
+                        }));
+                      }}
+                    >
+                      <SelectTrigger className="h-9">
+                        <SelectValue placeholder="Select block" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="_none">Select block...</SelectItem>
+                        {BLOCK_OPTIONS.map((block) => (
+                          <SelectItem key={block} value={block}>{block}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs font-medium">Plot No (Numeric) *</Label>
+                  <Label className="text-xs font-medium">{formPropertyTerms.numberLabel} *</Label>
                   <Input
                     type="text"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    placeholder="45"
-                    value={extractPlotNumber(plotForm.plot_no)}
+                    inputMode={useFlexiblePropertyIdentity ? 'text' : 'numeric'}
+                    pattern={useFlexiblePropertyIdentity ? undefined : '[0-9]*'}
+                    placeholder={plotForm.property_type === 'APARTMENT' ? 'A-101' : plotForm.property_type === 'SHOP' ? 'S-12' : '45'}
+                    value={useFlexiblePropertyIdentity ? plotForm.plot_no : extractPlotNumber(plotForm.plot_no)}
                     onChange={(e) => {
+                      if (useFlexiblePropertyIdentity) {
+                        setPlotForm((prev) => ({ ...prev, plot_no: e.target.value }));
+                        return;
+                      }
                       const numOnly = extractPlotNumber(e.target.value);
                       setPlotForm((prev) => ({ ...prev, plot_no: buildPlotNo(prev.block, numOnly) }));
                     }}
                     required
                   />
-                  <p className="text-[10px] text-slate-400">Final plot no: {plotForm.plot_no || '—'}</p>
+                  <p className="text-[10px] text-slate-400">
+                    {plotForm.property_type ? `${formPropertyTerms.singular} identifier` : 'Choose a property type first'}: {[plotForm.block, plotForm.plot_no].filter(Boolean).join(' · ') || '—'}
+                  </p>
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs font-medium">Status</Label>
@@ -2382,7 +2604,7 @@ const PlotPayments = () => {
               <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
                 <div className="flex items-center gap-2">
                   <Ruler className="w-3.5 h-3.5 text-blue-600" />
-                  <p className="text-xs font-semibold text-slate-700">Plot Size (Area) *</p>
+                  <p className="text-xs font-semibold text-slate-700">{formPropertyTerms.singular} area *</p>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1.5">
@@ -2416,11 +2638,11 @@ const PlotPayments = () => {
               <div className="rounded-lg border border-emerald-200 bg-emerald-50/30 p-4 space-y-3">
                 <div className="flex items-center gap-2">
                   <IndianRupee className="w-3.5 h-3.5 text-emerald-600" />
-                  <p className="text-xs font-semibold text-emerald-800">Plot Sale Price = Size (Gaz) × Plot Rate</p>
+                  <p className="text-xs font-semibold text-emerald-800">Sale price = area (Gaz) × rate</p>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="space-y-1.5">
-                  <Label className="text-xs font-medium">Plot Rate (₹ per Gaz) *</Label>
+                  <Label className="text-xs font-medium">Rate (₹ per Gaz) *</Label>
                   <Input type="number" step="0.01" placeholder="14500"
                     value={plotForm.plot_rate}
                     onChange={(e) => setPlotForm((prev) => ({ ...prev, plot_rate: e.target.value }))}
@@ -2517,7 +2739,7 @@ const PlotPayments = () => {
               <div className="rounded-lg border border-amber-200 bg-amber-50/30 p-4 space-y-3">
                 <div className="flex items-center gap-2">
                   <Percent className="w-3.5 h-3.5 text-amber-600" />
-                  <p className="text-xs font-semibold text-amber-800">Plot Commission = Size (Gaz) × Commission Rate</p>
+                  <p className="text-xs font-semibold text-amber-800">Commission = area (Gaz) × commission rate</p>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1.5">
@@ -2528,7 +2750,7 @@ const PlotPayments = () => {
                     required />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs font-medium">Plot Commission (₹)</Label>
+                  <Label className="text-xs font-medium">Commission (₹)</Label>
                   <Input type="number" step="0.01" placeholder="Auto-calculated"
                     value={plotForm.plot_commission}
                     readOnly
@@ -2594,7 +2816,7 @@ const PlotPayments = () => {
                 <div className="flex items-center gap-2">
                   <ClipboardList className="w-3.5 h-3.5 text-emerald-600" />
                   <p className="text-xs font-semibold text-emerald-800">Registry Details</p>
-                  <span className="text-[10px] text-emerald-600 ml-auto">Registry entry will be auto-created in Plot Registry</span>
+                  <span className="text-[10px] text-emerald-600 ml-auto">Registry entry will be auto-created in {propertyTerms.registryTitle}</span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="space-y-1.5">
@@ -2741,7 +2963,7 @@ const PlotPayments = () => {
                 >
                   {submitting ? (
                     <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />{editingPlot && !canUpdate ? 'Submitting Request...' : editingPlot ? 'Updating...' : 'Creating...'}</>
-                  ) : (editingPlot && !canUpdate ? <><Send className="w-3.5 h-3.5 mr-1.5" />Submit Edit Request</> : editingPlot ? 'Update' : 'Create Plot')}
+                  ) : (editingPlot && !canUpdate ? <><Send className="w-3.5 h-3.5 mr-1.5" />Submit Edit Request</> : editingPlot ? 'Update' : `Create ${formPropertyTerms.singular}`)}
                 </Button>
               </DialogFooter>
             </form>
@@ -2764,6 +2986,7 @@ const PlotPayments = () => {
   // ═══════════════════════════════════════════════════
   if (selectedPlot) {
     const p = plotMeta || selectedPlot;
+    const selectedPropertyTerms = getPropertyTypeTerminology(p.property_type, propertyTerms);
     const installmentTotal = installments.reduce((sum, inst) => sum + (parseFloat(inst.amount) || 0), 0);
     const installmentPaid = installments.reduce((sum, inst) => sum + (parseFloat(inst.paid_amount) || 0), 0);
     const installmentRemaining = installments.reduce((sum, inst) => sum + (parseFloat(inst.remaining_amount) || 0), 0);
@@ -2781,7 +3004,7 @@ const PlotPayments = () => {
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-[clamp(1.5rem,2.6vw,2rem)] font-semibold tracking-[-0.035em] text-mr-text">
-                  Plot {p.plot_no}{p.block ? ` — Block ${p.block}` : ''}
+                  {selectedPropertyTerms.singular} {p.plot_no}{p.block ? ` — ${selectedPropertyTerms.blockLabel} ${p.block}` : ''}
                 </h1>
                 {getStatusBadge(p.status)}
               </div>
@@ -2797,7 +3020,7 @@ const PlotPayments = () => {
             </Button>
             {canManage && (
               <Button variant="outline" size="sm" onClick={() => handleOpenEditPlot(p)} className="h-9 rounded-full border-mr-line text-xs">
-                <Edit2 className="w-3.5 h-3.5 mr-1" /> Edit Plot
+                <Edit2 className="w-3.5 h-3.5 mr-1" /> Edit {selectedPropertyTerms.singular}
               </Button>
             )}
             {!canManage && (
@@ -2821,6 +3044,16 @@ const PlotPayments = () => {
             )}
           </div>
         </div>
+
+        {isReraProfile && (
+          <div className="overflow-hidden rounded-xl">
+            <ReraWorkflowNotice
+              policy={sitePolicy}
+              area="payments"
+              actions={[{ label: 'Project finance', href: '/project-finance' }]}
+            />
+          </div>
+        )}
 
         {/* Plot Info Strip */}
         <Card className="rounded-panel border-mr-line bg-mr-surface shadow-none">
@@ -2880,15 +3113,15 @@ const PlotPayments = () => {
             </div>
           </div>
           <dl className="grid grid-cols-2 sm:grid-cols-4">
-            <div className="border-b border-mr-line px-4 py-5 sm:border-b-0 sm:border-r sm:px-5"><dt className="text-[10px] font-semibold uppercase tracking-[0.1em] text-mr-faint">Received</dt><dd className="mt-2 text-[20px] font-semibold tabular-nums text-emerald-800">₹{fmt(totalReceived)}</dd></div>
+            <div className="border-b border-mr-line px-4 py-5 sm:border-b-0 sm:border-r sm:px-5"><dt className="text-[10px] font-semibold uppercase tracking-[0.1em] text-mr-faint">{financePaymentPolicy.bankOnly ? 'Bank received' : 'Received'}</dt><dd className="mt-2 text-[20px] font-semibold tabular-nums text-emerald-800">₹{fmt(totalReceived)}</dd></div>
             <div className="border-b border-mr-line px-4 py-5 sm:border-b-0 sm:border-r sm:px-5"><dt className="text-[10px] font-semibold uppercase tracking-[0.1em] text-mr-faint">Balance</dt><dd className={`mt-2 text-[20px] font-semibold tabular-nums ${balance > 0 ? 'text-amber-700' : 'text-emerald-800'}`}>₹{fmt(Math.abs(balance))}</dd></div>
             <div className="px-4 py-5 sm:border-r sm:px-5"><dt className="text-[10px] font-semibold uppercase tracking-[0.1em] text-mr-faint">Received</dt><dd className="mt-2 text-[20px] font-semibold tabular-nums text-mr-text">{pctReceived.toFixed(1)}%</dd></div>
-            <div className="px-4 py-5 sm:px-5"><dt className="text-[10px] font-semibold uppercase tracking-[0.1em] text-mr-faint">Entries</dt><dd className="mt-2 text-[20px] font-semibold tabular-nums text-mr-text">{payments.length}</dd></div>
+            <div className="px-4 py-5 sm:px-5"><dt className="text-[10px] font-semibold uppercase tracking-[0.1em] text-mr-faint">{financePaymentPolicy.bankOnly ? 'Bank entries' : 'Entries'}</dt><dd className="mt-2 text-[20px] font-semibold tabular-nums text-mr-text">{visiblePayments.length}</dd></div>
           </dl>
         </section>
 
-        {/* Bank vs Cash Split Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {/* Collection ledgers */}
+        <div className={`grid grid-cols-1 gap-3 ${financePaymentPolicy.bankOnly ? '' : 'sm:grid-cols-2'}`}>
           {/* Bank Section */}
           <Card className="rounded-panel-sm border-mr-line bg-mr-surface shadow-none">
             <CardContent className="p-3">
@@ -2913,29 +3146,30 @@ const PlotPayments = () => {
             </CardContent>
           </Card>
 
-          {/* Cash Section */}
-          <Card className="rounded-panel-sm border-mr-line bg-mr-surface shadow-none">
-            <CardContent className="p-3">
-              <div className="flex items-center gap-2 mb-2">
-                <Wallet className="h-3.5 w-3.5 text-mr-muted" />
-                <p className="text-[10px] font-bold uppercase tracking-widest text-mr-muted">Cash ledger</p>
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                <div>
-                  <p className="text-[9px] uppercase text-emerald-400 font-bold">Planned</p>
-                  <p className="text-base font-bold text-emerald-800">₹{fmt(toReceiveCash)}</p>
+          {!financePaymentPolicy.bankOnly && (
+            <Card className="rounded-panel-sm border-mr-line bg-mr-surface shadow-none">
+              <CardContent className="p-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <Wallet className="h-3.5 w-3.5 text-mr-muted" />
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-mr-muted">Cash ledger</p>
                 </div>
-                <div>
-                  <p className="text-[9px] uppercase text-emerald-400 font-bold">Received</p>
-                  <p className="text-base font-bold text-green-600">₹{fmt(receivedCash)}</p>
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <p className="text-[9px] uppercase text-emerald-400 font-bold">Planned</p>
+                    <p className="text-base font-bold text-emerald-800">₹{fmt(toReceiveCash)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[9px] uppercase text-emerald-400 font-bold">Received</p>
+                    <p className="text-base font-bold text-green-600">₹{fmt(receivedCash)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[9px] uppercase text-emerald-400 font-bold">Balance</p>
+                    <p className={`text-base font-bold ${balanceCash < 0 ? 'text-red-600' : balanceCash > 0 ? 'text-amber-600' : 'text-green-600'}`}>{balanceCash < 0 ? '-' : ''}₹{fmt(Math.abs(balanceCash))}</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-[9px] uppercase text-emerald-400 font-bold">Balance</p>
-                  <p className={`text-base font-bold ${balanceCash < 0 ? 'text-red-600' : balanceCash > 0 ? 'text-amber-600' : 'text-green-600'}`}>{balanceCash < 0 ? '-' : ''}₹{fmt(Math.abs(balanceCash))}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         {/* 1st Installment & To Receive (Circle) Strip */}
@@ -3224,11 +3458,14 @@ const PlotPayments = () => {
 
               <Select value={filterFrom} onValueChange={setFilterFrom}>
                 <SelectTrigger className="w-36 h-8 text-xs">
-                  <SelectValue placeholder="All Modes" />
+                  <SelectValue placeholder={financePaymentPolicy.bankOnly ? 'All Bank Modes' : 'All Modes'} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Modes</SelectItem>
-                  {[...new Set([...PAYMENT_FROM_OPTIONS, ...fromBreakdown.map(f => f.payment_from)])].sort().map((f) => (
+                  <SelectItem value="all">{financePaymentPolicy.bankOnly ? 'All Bank Modes' : 'All Modes'}</SelectItem>
+                  {[...new Set([
+                    ...paymentFromOptionsForPolicy(PAYMENT_FROM_OPTIONS, financePaymentPolicy),
+                    ...fromBreakdown.map(f => f.payment_from),
+                  ])].sort().map((f) => (
                     <SelectItem key={f} value={f}>{f}</SelectItem>
                   ))}
                 </SelectContent>
@@ -3275,13 +3512,13 @@ const PlotPayments = () => {
                 )}
                 <Button variant="ghost" size="sm" onClick={clearDetailFilters} className="text-xs text-slate-500 h-6 px-2">Clear all</Button>
                 <span className="text-xs text-slate-400 ml-auto">
-                  Showing {filteredPayments.length} of {payments.length} direct payments — Direct filtered: <span className="text-emerald-600 font-medium">₹{fmt(filteredTotal)}</span>
+                  Showing {filteredPayments.length} of {visiblePayments.length} direct payments — Direct filtered: <span className="text-emerald-600 font-medium">₹{fmt(filteredTotal)}</span>
                 </span>
               </div>
             )}
             {!hasActiveDetailFilters && (
               <div className="flex justify-end">
-                <span className="text-xs text-slate-400">{payments.length} direct payments · installment receipts are included in KPIs and statements</span>
+                <span className="text-xs text-slate-400">{visiblePayments.length} direct payments · installment receipts are included in KPIs and statements</span>
               </div>
             )}
           </CardContent>
@@ -3299,7 +3536,9 @@ const PlotPayments = () => {
                 <Banknote className="w-8 h-8 text-slate-200 mx-auto mb-2" />
                 <p className="text-sm text-slate-500">No payments found</p>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  {payments.length === 0 ? 'Add the first payment to this plot' : 'Try a different filter'}
+                  {visiblePayments.length === 0
+                    ? (financePaymentPolicy.bankOnly ? 'Add the first bank payment to this plot' : 'Add the first payment to this plot')
+                    : 'Try a different filter'}
                 </p>
               </div>
             ) : (
@@ -3412,7 +3651,7 @@ const PlotPayments = () => {
                         </TableCell>
                         <TableCell colSpan={7} />
                         <TableCell className="text-right px-4">
-                           <span className="text-xs text-zinc-300 text-nowrap">Plot Bal (all receipts): <span className={`font-bold ${balance < 0 ? 'text-rose-300' : balance > 0 ? 'text-amber-300' : 'text-emerald-300'}`}>{balance < 0 ? '-' : ''}₹{fmt(Math.abs(balance))}</span></span>
+                           <span className="text-xs text-zinc-300 text-nowrap">{financePaymentPolicy.bankOnly ? `${propertyTerms.singular} balance (bank receipts)` : `${propertyTerms.singular} balance (all receipts)`}: <span className={`font-bold ${balance < 0 ? 'text-rose-300' : balance > 0 ? 'text-amber-300' : 'text-emerald-300'}`}>{balance < 0 ? '-' : ''}₹{fmt(Math.abs(balance))}</span></span>
                         </TableCell>
                       </TableRow>
 
@@ -3456,7 +3695,7 @@ const PlotPayments = () => {
             printReceipt({ ...entry, ...sigPatch });
           }}
           askAuthority={!nameSignOn()}
-          signeeLabel={signEntry ? `${signEntry.buyer_name || 'Plot Payment'} · ₹${parseFloat(signEntry.amount || 0).toLocaleString('en-IN')}` : ''}
+          signeeLabel={signEntry ? `${signEntry.buyer_name || `${propertyTerms.singular} Payment`} · ₹${parseFloat(signEntry.amount || 0).toLocaleString('en-IN')}` : ''}
         />
 
         <EntryDialog
@@ -3469,7 +3708,7 @@ const PlotPayments = () => {
             ? 'Proof photo required for sub-admin edits'
             : editingPaymentId
               ? 'Update payment details'
-              : <>Plot <span className="font-semibold text-slate-700">{selectedPlot.plot_no}</span>{selectedPlot.buyer_name && <span className="text-slate-400"> — {selectedPlot.buyer_name}</span>}</>}
+              : <>{propertyTerms.singular} <span className="font-semibold text-slate-700">{selectedPlot.plot_no}</span>{selectedPlot.buyer_name && <span className="text-slate-400"> — {selectedPlot.buyer_name}</span>}</>}
           footer={
             <EntryFooter
               onCancel={() => setPaymentDialogOpen(false)}
@@ -3500,6 +3739,20 @@ const PlotPayments = () => {
                 creditHint="Receive payment"
                 debitHint="Refund / return" />
 
+              {isReraProfile && (
+                <div className="flex items-start gap-2 border-y border-blue-100 bg-blue-50/60 px-3 py-2.5 text-xs text-blue-800">
+                  <Landmark className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  <span>Canonical RERA customer receipt · configured collection controls are validated before the server accepts this entry.</span>
+                </div>
+              )}
+
+              {financePaymentPolicy.bankOnly && (
+                <div className="flex items-start gap-2 border-y border-blue-100 bg-blue-50/60 px-3 py-2.5 text-xs text-blue-800">
+                  <Landmark className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  <span>{editingLegacyCash ? 'This historical Cash entry remains visible. New entries use bank modes only.' : 'Bank-only profile active · Cash is removed for new entries.'}</span>
+                </div>
+              )}
+
               <EntryRow>
                 <EntryField label="Date" required>
                   <Input type="date" value={payForm.date}
@@ -3509,9 +3762,9 @@ const PlotPayments = () => {
                 <EntryField label="Payment Type">
                   <EntryModeChips
                     value={payForm.payment_type}
-                    modes={['BANK', 'CASH']}
+                    modes={paymentTypeModes}
                     onChange={(m) => m === 'BANK'
-                      ? setPayForm({ ...payForm, payment_type: 'BANK' })
+                      ? setPayForm({ ...payForm, payment_type: 'BANK', payment_from: payForm.payment_from === 'CASH' ? 'BANK' : payForm.payment_from })
                       : setPayForm({ ...payForm, payment_type: 'CASH', payment_from: 'CASH' })} />
                 </EntryField>
               </EntryRow>
@@ -3530,7 +3783,7 @@ const PlotPayments = () => {
               <EntryField label="Payment Mode">
                 <EntryModeChips
                   value={payForm.payment_from}
-                  modes={PAYMENT_FROM_OPTIONS}
+                  modes={paymentFromModes}
                   onChange={(f) => {
                     const newFrom = payForm.payment_from === f ? '' : f;
                     setPayForm({ ...payForm, payment_from: newFrom, payment_type: newFrom ? derivePaymentType(newFrom) : payForm.payment_type });
@@ -3672,9 +3925,9 @@ const PlotPayments = () => {
   //  PLOTS LIST VIEW
   // ═══════════════════════════════════════════════════
   return (
-    <div className="w-full max-w-[1400px] space-y-6 pb-16">
+    <div className="-mx-4 -mt-4 w-auto min-w-0 bg-mr-surface pb-0 md:-mx-6 md:-mt-6">
       {/* Header + Filters (redesigned) */}
-      <div className="border-b border-mr-line pb-5">
+      <div className="border-b border-mr-line px-4 py-5 md:px-6">
         {/* Row 1 — title + actions */}
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-2.5">
@@ -3684,7 +3937,7 @@ const PlotPayments = () => {
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-[clamp(1.5rem,2.6vw,2rem)] font-semibold tracking-[-0.035em] text-mr-text leading-tight">{collectionLabel}</h1>
-                <Badge variant="secondary" className="h-6 rounded-full bg-mr-surface-2 px-2.5 text-[10px] font-medium tabular-nums text-mr-muted">{filteredPlots.length} plots</Badge>
+                <Badge variant="secondary" className="h-6 rounded-full bg-mr-surface-2 px-2.5 text-[10px] font-medium tabular-nums text-mr-muted">{unitCountLabel(filteredPlots.length, propertyTerms)}</Badge>
                 {selectedPlotIds.size > 0 && (
                   <span className="flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 pl-2.5 pr-1 py-0.5">
                     <span className="text-[11px] font-semibold text-sky-700 tabular-nums">{selectedPlotIds.size} selected</span>
@@ -3715,7 +3968,7 @@ const PlotPayments = () => {
             </Button>
             {canManage && (
               <Button size="sm" onClick={handleOpenCreatePlot} className="h-9 rounded-full bg-mr-ink px-4 hover:bg-mr-ink-2">
-                <Plus className="w-4 h-4 mr-1.5" /> Add Plot
+                <Plus className="w-4 h-4 mr-1.5" /> Add {propertyTerms.singular}
               </Button>
             )}
           </div>
@@ -3726,12 +3979,26 @@ const PlotPayments = () => {
           <div className="relative w-full sm:w-64 mr-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
             <Input
-              placeholder="Search plots, buyers, booking by…"
+              placeholder={`Search ${propertyTerms.plural.toLowerCase()}, buyers, booking by…`}
               value={listSearch} onChange={(e) => setListSearch(e.target.value)}
               className="h-10 rounded-full border-mr-line bg-mr-surface-2 pl-8 text-xs focus-visible:bg-mr-surface"
             />
           </div>
           <Filter className="h-3.5 w-3.5 text-slate-300 hidden sm:block" />
+            {propertyTerms.isMixedUse && (
+              <Select value={filterPropertyType} onValueChange={setFilterPropertyType}>
+                <SelectTrigger className={`${chipBase} ${filterPropertyType !== 'all' ? chipOn : chipOff}`}>
+                  <Building2 className="h-3 w-3 opacity-60" />
+                  <SelectValue placeholder="Property type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All property types</SelectItem>
+                  {propertyTypeOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
             <MultiSelectFilter
               label="Agent" icon={User}
               options={uniqueBookingBys} selected={filterBookingBy}
@@ -3821,7 +4088,7 @@ const PlotPayments = () => {
               <SelectContent>
                 <SelectItem value="date_desc">Date (Newest)</SelectItem>
                 <SelectItem value="date_asc">Date (Oldest)</SelectItem>
-                <SelectItem value="plot_no">Plot No</SelectItem>
+                <SelectItem value="plot_no">{propertyTerms.numberLabel}</SelectItem>
                 <SelectItem value="sale_desc">Sale Price (High-Low)</SelectItem>
                 <SelectItem value="sale_asc">Sale Price (Low-High)</SelectItem>
                 <SelectItem value="received_desc">Received (High-Low)</SelectItem>
@@ -3832,13 +4099,21 @@ const PlotPayments = () => {
                 <SelectItem value="pct_asc">% Rec (Low-High)</SelectItem>
               </SelectContent>
             </Select>
-            {(listSearch || filterBookingBy.size > 0 || filterBuyer.size > 0 || filterStatus.size > 0 || filterTeam.size > 0 || filterMemberTeam.size > 0 || filterPending !== 'all' || customPendingMin || customPendingMax) && (
-              <Button variant="ghost" size="sm" onClick={() => { setListSearch(''); setFilterBookingBy(new Set()); setFilterBuyer(new Set()); setFilterStatus(new Set()); setFilterTeam(new Set()); setFilterMemberTeam(new Set()); setFilterPending('all'); setCustomPendingMin(''); setCustomPendingMax(''); }} className="h-7 rounded-full px-2.5 text-xs text-rose-500 hover:text-rose-600 hover:bg-rose-50">
+            {(listSearch || filterPropertyType !== 'all' || filterBookingBy.size > 0 || filterBuyer.size > 0 || filterStatus.size > 0 || filterTeam.size > 0 || filterMemberTeam.size > 0 || filterPending !== 'all' || customPendingMin || customPendingMax) && (
+              <Button variant="ghost" size="sm" onClick={() => { setListSearch(''); setFilterPropertyType('all'); setFilterBookingBy(new Set()); setFilterBuyer(new Set()); setFilterStatus(new Set()); setFilterTeam(new Set()); setFilterMemberTeam(new Set()); setFilterPending('all'); setCustomPendingMin(''); setCustomPendingMax(''); }} className="h-7 rounded-full px-2.5 text-xs text-rose-500 hover:text-rose-600 hover:bg-rose-50">
                 <X className="w-3 h-3 mr-1" /> Clear
               </Button>
             )}
           </div>
         </div>
+
+      {isReraProfile && (
+        <ReraWorkflowNotice
+          policy={sitePolicy}
+          area="payments"
+          actions={[{ label: 'Project finance', href: '/project-finance' }]}
+        />
+      )}
 
       {/* Plots Table */}
       {loadingPlots ? (
@@ -3846,14 +4121,37 @@ const PlotPayments = () => {
       ) : filteredPlots.length === 0 ? (
         <div className="text-center py-16">
           <MapPin className="w-10 h-10 text-slate-200 mx-auto mb-3" />
-          <p className="text-sm text-slate-500">{plots.length === 0 ? 'No plots created yet' : 'No plots match your filters'}</p>
-          <p className="text-xs text-slate-400 mt-0.5">{plots.length === 0 ? 'Create a plot to start tracking payments' : 'Try different search criteria'}</p>
+          <p className="text-sm text-slate-500">{plots.length === 0 ? `No ${propertyTerms.plural.toLowerCase()} created yet` : `No ${propertyTerms.plural.toLowerCase()} match your filters`}</p>
+          <p className="text-xs text-slate-400 mt-0.5">{plots.length === 0 ? `Create a ${propertyTerms.singular.toLowerCase()} to start tracking payments` : 'Try different search criteria'}</p>
         </div>
       ) : (
-        <Card className="overflow-hidden rounded-panel border-mr-line bg-mr-surface shadow-none">
-          <CardContent className="p-0">
-            <div ref={tableContainerRef} className="relative z-0 overflow-auto will-change-scroll" style={{ maxHeight: 'calc(100vh - 250px)', WebkitOverflowScrolling: 'touch' }}>
-              <table className="mr-dark-table w-full caption-bottom text-sm border-collapse">
+        <ViewportPortal enabled={tableExpanded}>
+          <div className={tableExpanded ? 'fixed inset-0 z-[100] isolate' : ''} role={tableExpanded ? 'dialog' : undefined} aria-modal={tableExpanded ? 'true' : undefined} aria-label={tableExpanded ? `Expanded ${propertyTerms.singular.toLowerCase()} collection register` : undefined}>
+          {tableExpanded && <button type="button" aria-label="Close expanded table" onClick={() => setTableExpanded(false)} className="absolute inset-0 cursor-default bg-slate-950/55" />}
+          <Card className={`overflow-hidden border-mr-line bg-mr-surface shadow-none ${tableExpanded ? 'absolute inset-2 z-10 flex min-h-0 min-w-0 flex-col rounded-xl border-white/15 shadow-2xl sm:inset-4' : 'rounded-none border-x-0 border-t-0'}`}>
+            <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-mr-line bg-mr-surface px-4 py-2.5 md:px-6">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <p className="text-[12px] font-semibold text-mr-text">{propertyTerms.singular} collection register</p>
+                  <span className="rounded-full bg-mr-surface-2 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-mr-muted">{filteredPlots.length} visible</span>
+                </div>
+                <p className="mt-0.5 text-[10px] text-mr-faint">{financePaymentPolicy.bankOnly ? 'Bank collections and actions' : 'Scroll horizontally for collection splits and actions'}</p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setTableExpanded((value) => !value)}
+                className="h-8 rounded-full border-mr-line px-3 text-[11px] font-semibold"
+                aria-pressed={tableExpanded}
+              >
+                {tableExpanded ? <Minimize2 className="mr-1.5 h-3.5 w-3.5" /> : <Maximize2 className="mr-1.5 h-3.5 w-3.5" />}
+                {tableExpanded ? 'Exit expanded view' : 'Expand table'}
+              </Button>
+            </div>
+            <CardContent className={`p-0 ${tableExpanded ? 'flex min-h-0 flex-1 flex-col' : ''}`}>
+              <div ref={tableContainerRef} className={`relative z-0 overflow-auto overscroll-contain will-change-scroll ${tableExpanded ? 'min-h-0 flex-1' : ''}`} style={{ maxHeight: tableExpanded ? 'none' : 'calc(100vh - 250px)', WebkitOverflowScrolling: 'touch' }}>
+              <table className={`mr-dark-table w-full table-auto caption-bottom border-collapse text-sm ${financePaymentPolicy.bankOnly ? 'min-w-[1540px]' : 'min-w-[1840px]'}`}>
                 <thead className="sticky top-0 z-30 bg-slate-50" style={{ boxShadow: '0 1px 0 0 #e2e8f0' }}>
                   <tr>
                     <th className="w-8 text-center sticky left-0 z-40 bg-slate-50 px-3 py-2">
@@ -3863,21 +4161,21 @@ const PlotPayments = () => {
                           if (checked === true) setSelectedPlotIds(new Set(filteredPlots.map(p => p.id)));
                           else setSelectedPlotIds(new Set());
                         }}
-                        aria-label="Select all filtered plots"
+                        aria-label={`Select all filtered ${propertyTerms.plural.toLowerCase()}`}
                       />
                     </th>
-                    <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 w-16 sticky left-8 z-40 bg-slate-50 px-3 py-2 text-left">Plot No</th>
+                    <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 w-16 sticky left-8 z-40 bg-slate-50 px-3 py-2 text-left">{propertyTerms.numberLabel}</th>
                     <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 w-24 sticky left-24 z-40 bg-slate-50 px-3 py-2 text-left" style={{boxShadow: '2px 0 4px -1px rgba(0,0,0,0.08)'}}>Status</th>
-                    <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 w-14 px-3 py-2 text-left">Block</th>
+                    <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 w-14 px-3 py-2 text-left">{propertyTerms.blockLabel}</th>
                     <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 px-3 py-2 text-left">Buyer Name</th>
-                    <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 min-w-[245px] px-3 py-2 text-left">Plot value</th>
+                    <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 min-w-[245px] px-3 py-2 text-left">{propertyTerms.singular} value</th>
                     <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 min-w-[245px] px-3 py-2 text-left">Bank collection</th>
-                    <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 min-w-[245px] px-3 py-2 text-left">Cash collection</th>
-                    <SortTh label="Received" base="received" sortBy={sortBy} setSortBy={setSortBy} className="w-28" />
+                    {!financePaymentPolicy.bankOnly && <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 min-w-[245px] px-3 py-2 text-left">Cash collection</th>}
+                    <SortTh label={financePaymentPolicy.bankOnly ? 'Bank received' : 'Received'} base="received" sortBy={sortBy} setSortBy={setSortBy} className="w-28" />
                     <SortTh label="% Rec" base="pct" sortBy={sortBy} setSortBy={setSortBy} className="w-20" justify="justify-start" />
                     <SortTh label="Remaining" base="remaining" sortBy={sortBy} setSortBy={setSortBy} className="w-28" />
                     <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 w-32 px-3 py-2 text-left">Booking By</th>
-                    <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-right w-28 px-3 py-2">Plot Comm</th>
+                    <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-right w-28 px-3 py-2">Commission</th>
                     <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 w-14 px-3 py-2 text-left">Team</th>
                     <th className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 w-28 p-0">
                       <Button
@@ -3910,16 +4208,19 @@ const PlotPayments = () => {
                       onBook={handleOpenBookPlot}
                       onEdit={handleOpenEditPlot}
                       onDelete={handleDeletePlot}
+                      showCashLedger={!financePaymentPolicy.bankOnly}
+                      terminology={propertyTerms}
                     />
                   ))}
                 </tbody>
-                <tfoot className="sticky bottom-0 z-30 bg-slate-50" style={{ boxShadow: '0 -1px 0 0 #e2e8f0' }}>
+                <tfoot className="sticky bottom-0 z-30" style={{ boxShadow: '0 -6px 18px rgba(15,23,42,.16)' }}>
                   <tr>
-                        <td className="sticky left-0 z-40 bg-slate-50 px-3 py-2" />
-                        <td className="sticky left-8 z-40 bg-slate-50 px-3 py-2">
-                          <div className="flex flex-col gap-0.5">
-                            <span className="text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                              Total ({displayTotals.activeCount} plots)
+                        <td className="sticky left-0 z-40 px-3 py-3" />
+                        <td className="sticky left-8 z-40 px-3 py-3">
+                          <div className="flex min-w-[130px] flex-col gap-1">
+                            <span className="text-[9px] font-semibold uppercase tracking-[.14em] text-white/55">Visible summary</span>
+                            <span className="text-sm font-bold tabular-nums text-white">
+                              {unitCountLabel(displayTotals.activeCount, propertyTerms)}
                             </span>
                             {oldCount > 0 && (
                               <label className="flex items-center gap-1.5 cursor-pointer select-none">
@@ -3929,42 +4230,68 @@ const PlotPayments = () => {
                                   onChange={(e) => setIncludeOldInTotals(e.target.checked)}
                                   className="h-3 w-3 rounded accent-indigo-600 cursor-pointer"
                                 />
-                                <span className="text-[10px] text-slate-500 font-medium">
-                                  incl. {oldCount} old plot{oldCount > 1 ? 's' : ''}
+                                <span className="text-[9px] font-medium text-white/60">
+                                  Include {oldCount} old {oldCount === 1 ? propertyTerms.singular.toLowerCase() : propertyTerms.plural.toLowerCase()}
                                 </span>
                               </label>
                             )}
                           </div>
                         </td>
-                        <td className="sticky left-24 z-40 bg-slate-50 px-3 py-2" style={{ boxShadow: '2px 0 4px -1px rgba(0,0,0,0.08)' }} />
-                        <td colSpan={2} className="px-3 py-2" />
-                        <td className="px-3 py-2"><span className="text-xs font-bold text-white tabular-nums">{fmt(displayTotals.totSize)} · ₹{fmt(displayTotals.totRate)} · ₹{fmt(displayTotals.totSalePrice)}</span></td>
-                        <td className="px-3 py-2"><span className="text-xs font-bold text-emerald-300 tabular-nums">₹{fmt(displayTotals.totToRecBank)} · ₹{fmt(displayTotals.totRecBank)} · ₹{fmt(Math.abs(displayTotals.totBalBank))}</span></td>
-                        <td className="px-3 py-2"><span className="text-xs font-bold text-amber-300 tabular-nums">₹{fmt(displayTotals.totToRecCash)} · ₹{fmt(displayTotals.totRecCash)} · ₹{fmt(Math.abs(displayTotals.totBalCash))}</span></td>
-                        <td className="text-right px-3 py-2">
-                          <span className="text-sm font-bold text-green-600 tabular-nums">₹{fmt(displayTotals.totReceived)}</span>
+                        <td className="sticky left-24 z-40 px-3 py-3" style={{ boxShadow: '2px 0 4px -1px rgba(0,0,0,0.18)' }} />
+                        <td colSpan={2} className="px-3 py-3" />
+                        <td className="min-w-[245px] px-3 py-3">
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between gap-4"><span className="text-[9px] uppercase tracking-wider text-white/50">Area</span><span className="text-[11px] font-bold tabular-nums text-white">{fmt(displayTotals.totSize)}</span></div>
+                            <div className="flex items-center justify-between gap-4 border-t border-white/10 pt-1.5"><span className="text-[9px] uppercase tracking-wider text-white/50">Avg rate</span><span className="text-[11px] font-bold tabular-nums text-white">₹{fmt(displayTotals.avgRate)}</span></div>
+                            <div className="flex items-center justify-between gap-4 border-t border-white/10 pt-1.5"><span className="text-[9px] font-medium uppercase tracking-wider text-white/65">Sale value</span><span className="text-[12px] font-bold tabular-nums text-white">₹{fmt(displayTotals.totSalePrice)}</span></div>
+                          </div>
                         </td>
-                        <td className="px-3 py-2">
-                          <span className={`text-[11px] font-bold tabular-nums ${displayTotals.avgPct > 100 ? 'text-red-700' : displayTotals.avgPct === 100 ? 'text-green-700' : 'text-yellow-600'}`}>
+                        <td className="min-w-[245px] px-3 py-3">
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between gap-4"><span className="text-[9px] uppercase tracking-wider text-white/50">Bank target</span><span className="text-[11px] font-bold tabular-nums text-white">₹{fmt(displayTotals.totToRecBank)}</span></div>
+                            <div className="flex items-center justify-between gap-4 border-t border-white/10 pt-1.5"><span className="text-[9px] uppercase tracking-wider text-emerald-200/75">Collected</span><span className="text-[11px] font-bold tabular-nums text-emerald-200">₹{fmt(displayTotals.totRecBank)}</span></div>
+                            <div className="flex items-center justify-between gap-4 rounded-md border border-amber-200/20 bg-amber-300/10 px-2 py-1"><span className="text-[9px] font-semibold uppercase tracking-wider text-amber-100">Due</span><span className="text-[12px] font-bold tabular-nums text-amber-200">₹{fmt(Math.abs(displayTotals.totBalBank))}</span></div>
+                          </div>
+                        </td>
+                        {!financePaymentPolicy.bankOnly && (
+                          <td className="min-w-[245px] px-3 py-3">
+                            <div className="space-y-1.5">
+                              <div className="flex items-center justify-between gap-4"><span className="text-[9px] uppercase tracking-wider text-white/50">Cash target</span><span className="text-[11px] font-bold tabular-nums text-white">₹{fmt(displayTotals.totToRecCash)}</span></div>
+                              <div className="flex items-center justify-between gap-4 border-t border-white/10 pt-1.5"><span className="text-[9px] uppercase tracking-wider text-emerald-200/75">Collected</span><span className="text-[11px] font-bold tabular-nums text-emerald-200">₹{fmt(displayTotals.totRecCash)}</span></div>
+                              <div className="flex items-center justify-between gap-4 rounded-md border border-amber-200/20 bg-amber-300/10 px-2 py-1"><span className="text-[9px] font-semibold uppercase tracking-wider text-amber-100">Due</span><span className="text-[12px] font-bold tabular-nums text-amber-200">₹{fmt(Math.abs(displayTotals.totBalCash))}</span></div>
+                            </div>
+                          </td>
+                        )}
+                        <td className="px-3 py-3 text-right">
+                          <span className="block text-[8px] uppercase tracking-wider text-white/45">{financePaymentPolicy.bankOnly ? 'Bank received' : 'Total received'}</span>
+                          <span className="mt-0.5 block text-sm font-bold tabular-nums text-emerald-300">₹{fmt(displayTotals.totReceived)}</span>
+                        </td>
+                        <td className="px-3 py-3">
+                          <span className="block text-[8px] uppercase tracking-wider text-white/45">Collection</span>
+                          <span className={`mt-0.5 block text-[12px] font-bold tabular-nums ${displayTotals.avgPct > 100 ? 'text-rose-300' : displayTotals.avgPct === 100 ? 'text-emerald-200' : 'text-amber-200'}`}>
                             {displayTotals.avgPct.toFixed(1)}%
                           </span>
                         </td>
-                        <td className="text-right px-3 py-2">
-                          <span className={`text-xs font-bold tabular-nums ${displayTotals.totNetBal < 0 ? 'text-red-600' : displayTotals.totNetBal > 0 ? 'text-slate-900' : 'text-slate-400'}`}>
+                        <td className="px-3 py-3 text-right">
+                          <span className="block text-[8px] uppercase tracking-wider text-white/45">Outstanding</span>
+                          <span className={`mt-0.5 block text-[12px] font-bold tabular-nums ${displayTotals.totNetBal < 0 ? 'text-rose-300' : displayTotals.totNetBal > 0 ? 'text-amber-200' : 'text-emerald-200'}`}>
                             {displayTotals.totNetBal < 0 ? `-₹${fmt(Math.abs(displayTotals.totNetBal))}` : `₹${fmt(displayTotals.totNetBal)}`}
                           </span>
                         </td>
-                        <td className="px-3 py-2" />
-                        <td className="text-right px-3 py-2">
-                          <span className="text-xs font-bold text-amber-700 tabular-nums">₹{fmt(displayTotals.totPlotComm)}</span>
+                        <td className="px-3 py-3" />
+                        <td className="px-3 py-3 text-right">
+                          <span className="block text-[8px] uppercase tracking-wider text-white/45">Commission</span>
+                          <span className="mt-0.5 block text-[11px] font-bold tabular-nums text-amber-200">₹{fmt(displayTotals.totPlotComm)}</span>
                         </td>
-                        <td colSpan={3} className="px-3 py-2" />
+                        <td colSpan={3} className="px-3 py-3" />
                   </tr>
                 </tfoot>
               </table>
             </div>
           </CardContent>
-        </Card>
+          </Card>
+          </div>
+        </ViewportPortal>
       )}
 
       <Dialog open={bookPlotDialogOpen} onOpenChange={(open) => { setBookPlotDialogOpen(open); if (!open) { setBookingPlot(null); setBookBuyerSearch(''); setBookBookingBySearch(''); } }}>
@@ -3976,10 +4303,10 @@ const PlotPayments = () => {
                   <MapPin className="w-4.5 h-4.5 text-indigo-600" />
                 </div>
                 <div>
-                  <DialogTitle className="text-base font-semibold">Book Plot {bookingPlot?.plot_no || ''}</DialogTitle>
+                  <DialogTitle className="text-base font-semibold">Book {propertyTerms.singular} {bookingPlot?.plot_no || ''}</DialogTitle>
                   <DialogDescription className="text-xs mt-0.5">
                     Assign buyer details and mark as BOOKED
-                    {bookingPlot?.sale_price != null ? ` · Plot Price: ₹${fmt(bookingPlot.sale_price)}` : ''}
+                    {bookingPlot?.sale_price != null ? ` · ${propertyTerms.singular} price: ₹${fmt(bookingPlot.sale_price)}` : ''}
                   </DialogDescription>
                 </div>
               </div>
@@ -4350,7 +4677,7 @@ const PlotPayments = () => {
             <DialogFooter className="px-6 py-4 border-t border-slate-100 bg-slate-50/30">
               <Button type="button" variant="outline" onClick={() => setBookPlotDialogOpen(false)} disabled={submitting}>Cancel</Button>
               <Button type="submit" disabled={submitting} className="bg-slate-900 hover:bg-slate-800 text-white">
-                {submitting ? <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />Booking...</> : 'Book Plot'}
+                {submitting ? <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />Booking...</> : `Book ${propertyTerms.singular}`}
               </Button>
             </DialogFooter>
           </form>
