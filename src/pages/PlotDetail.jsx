@@ -250,7 +250,8 @@ export default function PlotDetail() {
         ? 'STATUTORY PROVISO: Cash received exclusively as a temporary custodian on behalf of our designated banking institution for immediate reconciliation and ledger entry.'
         : undefined,
       printedAt,
-      configuration: receiptConfiguration,
+      // Plot payment receipts do not include a verification QR.
+      configuration: { ...receiptConfiguration, show_verification_qr: false },
     });
   };
 

@@ -125,6 +125,47 @@ function MetricStrip({ values }) {
   );
 }
 
+function AcquisitionFinancialPosition({ item }) {
+  const agreed = Math.max(Number(item.total_amount) || 0, 0);
+  const paid = Math.max(Number(item.total_paid) || 0, 0);
+  const outstanding = Math.max(Number(item.outstanding) || 0, 0);
+  const paidPercent = agreed ? Math.min((paid / agreed) * 100, 100) : 0;
+  return (
+    <div className="min-w-[190px]">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-mr-faint">Agreed</span>
+        <span className="text-[13px] font-semibold tabular-nums text-mr-text">{money(agreed, true)}</span>
+      </div>
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-mr-surface-2" aria-label={`${paidPercent.toFixed(0)} percent paid`}>
+        <div className="h-full rounded-full bg-mr-lime transition-[width]" style={{ width: `${paidPercent}%` }} />
+      </div>
+      <div className="mt-1.5 flex items-center justify-between gap-3 text-[10px]">
+        <span className="font-medium tabular-nums text-mr-lime-ink">{money(paid, true)} paid</span>
+        <span className={outstanding ? 'font-medium tabular-nums text-mr-amber-ink' : 'font-medium tabular-nums text-mr-muted'}>{money(outstanding, true)} due</span>
+      </div>
+    </div>
+  );
+}
+
+function AcquisitionMenu({ item, canCreate, canUpdate, navigate, onOpen }) {
+  return (
+    <div data-print-hide onClick={(event) => event.stopPropagation()}>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg text-mr-faint hover:bg-mr-surface-2 hover:text-mr-text" aria-label={`Actions for ${item.landowner_name}`}><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-48">
+          <DropdownMenuItem onClick={() => onOpen(item.id)}>Open acquisition</DropdownMenuItem>
+          {canCreate && item.financial_terms_status === 'CONFIRMED' && item.effective_lifecycle_status !== 'COMPLETED' && <DropdownMenuItem onClick={() => navigate(`/land-acquisition/${item.id}?action=payment`)}>Record payment</DropdownMenuItem>}
+          {canUpdate && item.effective_lifecycle_status !== 'COMPLETED' && <DropdownMenuItem onClick={() => navigate(`/land-acquisition/${item.id}?action=land`)}>Edit land details</DropdownMenuItem>}
+          <DropdownMenuItem onClick={() => navigate(`/land-acquisition/${item.id}?tab=agreement`)}>View agreement</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => navigate(`/land-acquisition/${item.id}?tab=transactions`)}>View transactions</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => navigate(`/land-acquisition/${item.id}?tab=documents`)}>View documents</DropdownMenuItem>
+          {canUpdate && item.completion?.eligible && item.effective_lifecycle_status !== 'COMPLETED' && <DropdownMenuItem onClick={() => navigate(`/land-acquisition/${item.id}?action=complete`)}>Mark complete</DropdownMenuItem>}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+}
+
 export default function LandAcquisition() {
   const { currentSite, hasPermission } = useAuth();
   const navigate = useNavigate();
@@ -312,42 +353,62 @@ export default function LandAcquisition() {
           )}
 
           {view === 'acquisitions' && (
-            <section>
-              <div data-print-hide className="flex flex-wrap items-center gap-3 border-b border-mr-line pb-4">
-                <div className="relative min-w-[260px] flex-1 max-w-lg"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-mr-faint" /><Input value={filters.q} onChange={(event) => setFilters((current) => ({ ...current, q: event.target.value, page: 1 }))} placeholder="Search reference, landowner, village or Khasra…" className="pl-9" /></div>
-                <Select value={filters.status} onValueChange={(status) => setFilters((current) => ({ ...current, status, page: 1 }))}>
-                  <SelectTrigger className="w-[180px]"><SelectValue /></SelectTrigger>
-                  <SelectContent><SelectItem value="all">All acquisitions</SelectItem><SelectItem value="PAYMENT_IN_PROGRESS">Payment pending</SelectItem><SelectItem value="COMPLETED">Completed</SelectItem><SelectItem value="legacy">Legacy review</SelectItem></SelectContent>
-                </Select>
+            <section className="overflow-hidden rounded-2xl border border-mr-line bg-mr-surface shadow-[0_12px_36px_rgba(15,23,42,0.04)]">
+              <div data-print-hide className="flex flex-col gap-4 border-b border-mr-line bg-mr-surface-2/45 px-4 py-4 lg:flex-row lg:items-center lg:justify-between sm:px-5">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2"><h2 className="text-[14px] font-semibold text-mr-text">Acquisition register</h2><span className="rounded-full border border-mr-line bg-mr-surface px-2 py-0.5 text-[10px] font-semibold tabular-nums text-mr-muted">{Number(data.pagination?.total || data.acquisitions.length).toLocaleString('en-IN')}</span></div>
+                  <p className="mt-0.5 text-[11px] text-mr-muted">Land position, agreement status, payment progress and workflow in one view.</p>
+                </div>
+                <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
+                  <div className="relative min-w-0 flex-1 sm:w-[330px]"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-mr-faint" /><Input value={filters.q} onChange={(event) => setFilters((current) => ({ ...current, q: event.target.value, page: 1 }))} placeholder="Search landowner, reference, village or Khasra…" className="h-10 rounded-xl border-mr-line bg-mr-surface pl-9" /></div>
+                  <Select value={filters.status} onValueChange={(status) => setFilters((current) => ({ ...current, status, page: 1 }))}>
+                    <SelectTrigger className="h-10 w-full rounded-xl border-mr-line bg-mr-surface sm:w-[180px]"><SelectValue /></SelectTrigger>
+                    <SelectContent><SelectItem value="all">All acquisitions</SelectItem><SelectItem value="PAYMENT_IN_PROGRESS">Payment pending</SelectItem><SelectItem value="COMPLETED">Completed</SelectItem><SelectItem value="legacy">Legacy review</SelectItem></SelectContent>
+                  </Select>
+                </div>
               </div>
               {!data.acquisitions.length ? (
                 <EmptyBlock icon={LandPlot} title="No land acquisitions yet" description="Create an acquisition by selecting an existing registered landowner and adding their land details." action={canCreate ? <Button onClick={() => setCreateOpen(true)}><Plus className="mr-2 h-4 w-4" />Create acquisition</Button> : null} tall />
               ) : (
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader><TableRow><TableHead>Acquisition</TableHead><TableHead>Landowner</TableHead><TableHead>Land</TableHead><TableHead>Agreement</TableHead><TableHead className="text-right">Agreed</TableHead><TableHead className="text-right">Paid</TableHead><TableHead className="text-right">Outstanding</TableHead><TableHead>Progress</TableHead><TableHead>Status</TableHead><TableHead data-print-hide className="w-10" /></TableRow></TableHeader>
+                <>
+                  <div className="divide-y divide-mr-line lg:hidden">
+                    {data.acquisitions.map((item) => (
+                      <article key={item.id} role="button" tabIndex={0} data-print-row onClick={() => openAcquisition(item.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') openAcquisition(item.id); }} className="group cursor-pointer px-4 py-4 outline-none transition hover:bg-mr-blue-soft/25 focus-visible:bg-mr-blue-soft/35 sm:px-5">
+                        <div className="flex items-start gap-3">
+                          <button type="button" onClick={(event) => { event.stopPropagation(); setLandownerId(item.member_id); }} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-mr-blue-soft text-[11px] font-bold text-mr-blue transition group-hover:bg-mr-blue group-hover:text-white">{initials(item.landowner_name)}</button>
+                          <div className="min-w-0 flex-1"><p className="truncate text-[13px] font-semibold text-mr-text">{item.landowner_name}</p><p className="mt-0.5 truncate text-[11px] text-mr-muted">{item.acquisition_reference} · {item.village || 'Location pending'}</p></div>
+                          <AcquisitionMenu item={item} canCreate={canCreate} canUpdate={canUpdate} navigate={navigate} onOpen={openAcquisition} />
+                        </div>
+                        <div className="mt-4 grid gap-3 rounded-xl border border-mr-line bg-mr-surface-2/45 p-3 sm:grid-cols-2">
+                          <div><p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-mr-faint">Land parcel</p><p className="mt-1 text-[12px] font-semibold text-mr-text">{areaLabel(item)}</p><p className="mt-0.5 text-[10px] text-mr-muted">{item.khasra_number ? `Khasra ${item.khasra_number}` : 'Parcel pending'}</p></div>
+                          <AcquisitionFinancialPosition item={item} />
+                        </div>
+                        <div className="mt-4"><LandAcquisitionProgress status={item.effective_lifecycle_status} compact /></div>
+                        <div className="mt-4 flex flex-wrap items-center justify-between gap-2"><div className="flex items-center gap-2"><StatusDot tone={statusTone(item.effective_lifecycle_status)}>{readable(item.effective_lifecycle_status)}</StatusDot><StatusDot tone={statusTone(item.agreement_status)}>{readable(item.agreement_status || 'NOT_STARTED')} agreement</StatusDot></div>{item.is_legacy && <span className="text-[9px] font-semibold uppercase tracking-[0.08em] text-mr-amber-ink">Review required</span>}</div>
+                      </article>
+                    ))}
+                  </div>
+                  <div className="hidden overflow-x-auto lg:block">
+                  <Table className="min-w-[1120px]">
+                    <TableHeader><TableRow className="border-mr-line bg-mr-surface-2/70 hover:bg-mr-surface-2/70"><TableHead className="pl-5">Landowner & acquisition</TableHead><TableHead>Land parcel</TableHead><TableHead>Agreement</TableHead><TableHead>Financial position</TableHead><TableHead>Workflow</TableHead><TableHead>Status</TableHead><TableHead data-print-hide className="w-12 pr-4" /></TableRow></TableHeader>
                     <TableBody>
                       {data.acquisitions.map((item) => (
-                        <TableRow key={item.id} className="cursor-pointer" onClick={() => openAcquisition(item.id)}>
-                          <TableCell><span className="font-semibold text-mr-text">{item.acquisition_reference}</span>{item.is_legacy && <span className="mt-1 block text-[10px] uppercase tracking-wide text-mr-amber-ink">Review required</span>}</TableCell>
-                          <TableCell><button type="button" onClick={(event) => { event.stopPropagation(); setLandownerId(item.member_id); }} className="flex items-center gap-2 text-left"><span className="flex h-8 w-8 items-center justify-center rounded-full bg-mr-blue-soft text-[10px] font-semibold text-mr-blue">{initials(item.landowner_name)}</span><span><span className="block text-[13px] font-medium text-mr-text">{item.landowner_name}</span><span className="block text-[11px] text-mr-muted">{item.village || 'Location pending'}</span></span></button></TableCell>
-                          <TableCell><span className="text-[13px] text-mr-text">{areaLabel(item)}</span><span className="block text-[11px] text-mr-muted">{item.khasra_number ? `Khasra ${item.khasra_number}` : 'Parcel pending'}</span></TableCell>
+                        <TableRow key={item.id} data-print-row className="group cursor-pointer border-mr-line transition-colors hover:bg-mr-blue-soft/25" onClick={() => openAcquisition(item.id)}>
+                          <TableCell className="pl-5 py-4"><button type="button" onClick={(event) => { event.stopPropagation(); setLandownerId(item.member_id); }} className="flex items-center gap-3 text-left"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-mr-blue-soft text-[11px] font-bold text-mr-blue transition group-hover:bg-mr-blue group-hover:text-white">{initials(item.landowner_name)}</span><span className="min-w-0"><span className="block max-w-[220px] truncate text-[13px] font-semibold text-mr-text">{item.landowner_name}</span><span className="mt-0.5 block text-[10px] font-medium text-mr-muted">{item.acquisition_reference}</span>{item.is_legacy && <span className="mt-1 block text-[9px] font-semibold uppercase tracking-[0.08em] text-mr-amber-ink">Review required</span>}</span></button></TableCell>
+                          <TableCell><span className="text-[12px] font-semibold text-mr-text">{areaLabel(item)}</span><span className="mt-0.5 block max-w-[180px] truncate text-[10px] text-mr-muted">{item.village || 'Location pending'} · {item.khasra_number ? `Khasra ${item.khasra_number}` : 'Parcel pending'}</span></TableCell>
                           <TableCell><StatusDot tone={statusTone(item.agreement_status)}>{readable(item.agreement_status || 'NOT_STARTED')}</StatusDot></TableCell>
-                          <TableCell className="text-right font-medium tabular-nums">{money(item.total_amount, true)}</TableCell>
-                          <TableCell className="text-right tabular-nums text-mr-lime-ink">{money(item.total_paid, true)}</TableCell>
-                          <TableCell className="text-right font-medium tabular-nums">{money(item.outstanding, true)}</TableCell>
-                          <TableCell className="min-w-[250px]"><LandAcquisitionProgress status={item.effective_lifecycle_status} compact /></TableCell>
+                          <TableCell><AcquisitionFinancialPosition item={item} /></TableCell>
+                          <TableCell className="min-w-[280px]"><LandAcquisitionProgress status={item.effective_lifecycle_status} compact /></TableCell>
                           <TableCell><StatusDot tone={statusTone(item.effective_lifecycle_status)}>{readable(item.effective_lifecycle_status)}</StatusDot></TableCell>
-                          <TableCell data-print-hide onClick={(event) => event.stopPropagation()}>
-                            <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onClick={() => openAcquisition(item.id)}>Open</DropdownMenuItem>{canCreate && item.financial_terms_status === 'CONFIRMED' && item.effective_lifecycle_status !== 'COMPLETED' && <DropdownMenuItem onClick={() => navigate(`/land-acquisition/${item.id}?action=payment`)}>Record payment</DropdownMenuItem>}{canUpdate && item.effective_lifecycle_status !== 'COMPLETED' && <DropdownMenuItem onClick={() => navigate(`/land-acquisition/${item.id}?action=land`)}>Edit land details</DropdownMenuItem>}<DropdownMenuItem onClick={() => navigate(`/land-acquisition/${item.id}?tab=agreement`)}>View agreement</DropdownMenuItem><DropdownMenuItem onClick={() => navigate(`/land-acquisition/${item.id}?tab=transactions`)}>View transactions</DropdownMenuItem><DropdownMenuItem onClick={() => navigate(`/land-acquisition/${item.id}?tab=documents`)}>View documents</DropdownMenuItem>{canUpdate && item.completion?.eligible && item.effective_lifecycle_status !== 'COMPLETED' && <DropdownMenuItem onClick={() => navigate(`/land-acquisition/${item.id}?action=complete`)}>Mark complete</DropdownMenuItem>}</DropdownMenuContent></DropdownMenu>
-                          </TableCell>
+                          <TableCell className="pr-4"><AcquisitionMenu item={item} canCreate={canCreate} canUpdate={canUpdate} navigate={navigate} onOpen={openAcquisition} /></TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
                   </Table>
-                </div>
+                  </div>
+                </>
               )}
-              <Pagination pagination={data.pagination} onPage={(page) => setFilters((current) => ({ ...current, page }))} />
+              <div className="px-4 sm:px-5"><Pagination pagination={data.pagination} onPage={(page) => setFilters((current) => ({ ...current, page }))} /></div>
             </section>
           )}
 

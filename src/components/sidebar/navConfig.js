@@ -110,7 +110,7 @@ export function buildNavigation({ hasPermission, isAdmin, getTerm = (_key, fallb
             { path: '/customer-inventory', label: term('customer_inventory', 'Customer & inventory'), icon: UsersRound },
             { path: '/plot-payments', label: collectionsTerm, icon: Landmark },
             { path: '/payment-management', label: 'Payments workspace', icon: CalendarClock },
-            { path: '/bank-configs', label: 'Bank configs', icon: KeyRound },
+            { path: '/bank-configs', label: 'Bank reconciliation', icon: KeyRound },
             { path: '/plot-documents', label: `${inventoryUnitTerm} documents`, icon: FolderArchive },
             ...(can('upi_collect') ? [{ path: '/receive-payments', label: 'QR Payments', icon: QrCode }] : []),
           ],
@@ -165,7 +165,6 @@ export function buildNavigation({ hasPermission, isAdmin, getTerm = (_key, fallb
           ],
         },
         { path: '/cashflow', label: 'Personal ledgers', icon: BookOpenCheck, visible: can('cashflow') },
-        { path: '/firm-transactions', label: 'Bank reconciliation', icon: ReceiptIndianRupee, visible: can('firm_transactions') },
         {
           path: '/expenses',
           label: 'Expenses',

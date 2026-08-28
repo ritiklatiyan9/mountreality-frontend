@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { CalendarCheck2, Loader2, Mail, Plus, RefreshCw, Trash2, Unplug } from 'lucide-react';
+import { CalendarCheck2, Loader2, Mail, Plus, RefreshCw, Smartphone, Trash2, Unplug } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSearchParams } from 'react-router-dom';
 import api from '../../api/api';
@@ -124,7 +124,7 @@ export default function GoogleCalendarSettings({ onStatusChange }) {
       <section>
         <SectionHead
           title="Google account"
-          description="Compliance deadlines, hearings, notices, inspections and licence expiries are pushed to this account's calendar as they change."
+          description="Compliance deadlines and events scheduled from the dashboard are pushed to this account's calendar as they change."
           actions={connected ? <StatusDot tone="positive">Connected</StatusDot> : <StatusDot tone="neutral">Not connected</StatusDot>}
         />
         {!data.configured && (
@@ -155,13 +155,21 @@ export default function GoogleCalendarSettings({ onStatusChange }) {
             </button>
           )}
         </div>
+        {connected && (
+          <div className="mt-4 flex max-w-2xl items-start gap-3 rounded-panel-sm border border-mr-line bg-mr-surface-2/60 px-4 py-3">
+            <Smartphone className="mt-0.5 h-4 w-4 shrink-0 text-mr-blue" aria-hidden="true" />
+            <p className="text-[13px] leading-5 text-mr-muted">
+              Phone delivery is active for this account. Synced events carry native Google Calendar alerts, while reminder emails appear in the phone&apos;s mail app even when MountReality is closed.
+            </p>
+          </div>
+        )}
       </section>
 
       <section>
         <SectionHead
           title="Team invitations"
           meta={data.emails.length ? `${data.emails.length} recipient${data.emails.length === 1 ? '' : 's'}` : null}
-          description="Each synced event invites these addresses, so it lands on their phone calendars once they accept. Changes apply to events created or updated afterwards."
+          description="These addresses receive calendar invitations and direct reminder emails 1 day before, on the event day, and 30 minutes before timed events."
         />
         <form onSubmit={addEmail} className="mt-4 flex max-w-md items-center gap-2">
           <Input
@@ -180,7 +188,7 @@ export default function GoogleCalendarSettings({ onStatusChange }) {
           <EmptyBlock
             icon={Mail}
             title="No recipients yet"
-            description="Add the team emails that should receive these events as Google Calendar invites."
+            description="Add the email accounts used on team phones to receive invitations and reminder notifications."
           />
         ) : (
           <ul className="mt-4 max-w-md divide-y divide-mr-line rounded-panel-sm border border-mr-line">

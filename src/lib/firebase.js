@@ -14,8 +14,8 @@ const firebaseConfig = {
   measurementId: 'G-NSNZYN1CKG',
 };
 
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
+export const firebaseApp = initializeApp(firebaseConfig);
+const auth = getAuth(firebaseApp);
 
 /**
  * Run the Google sign-in popup and return a Firebase ID token for the backend.

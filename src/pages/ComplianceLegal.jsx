@@ -28,8 +28,8 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '../components/ui/table';
 import {
-  AlertOctagon, AlertTriangle, ArrowLeft, ArrowRight, Building2, CalendarDays,
-  CalendarRange, CheckCircle2, ChevronLeft, ChevronRight, ClipboardCheck,
+  AlertOctagon, AlertTriangle, ArrowLeft, ArrowRight, BellRing, Building2, CalendarDays,
+  CalendarPlus, CalendarRange, CheckCircle2, ChevronLeft, ChevronRight, ClipboardCheck,
   Clock3, Download, FileClock, FileSpreadsheet, Files, Filter, Gavel, Inbox, Landmark,
   LayoutDashboard, ListChecks, Loader2, Pencil, Plus, RefreshCw, Scale, Search, Settings2,
   ShieldAlert, ShieldCheck, Sparkles, Tags, Upload, UserRound, XCircle,
@@ -39,6 +39,8 @@ import {
   STATUS_OPTIONS, STATUS_STYLE,
 } from '../components/compliance/complianceUi';
 import ComplianceMonthCalendar, { CalendarEventPreview } from '../components/compliance/ComplianceMonthCalendar';
+import ScheduleCalendarEventDialog from '../components/compliance/ScheduleCalendarEventDialog';
+import { enableWebPushNotifications } from '../lib/pushNotifications';
 import {
   calendarEventTime, COMPLIANCE_EVENT_META, complianceEventDate, complianceEventRoute,
 } from '../components/compliance/complianceCalendarMeta';
@@ -370,6 +372,7 @@ function RegisterView({ siteId }) {
 
 function CalendarView({ siteId }) {
   const navigate = useNavigate();
+  const { hasPermission } = useAuth();
   const location = useLocation();
   const requestedDate = new URLSearchParams(location.search).get('date');
   const initialDate = requestedDate ? new Date(`${requestedDate}T00:00:00`) : new Date();
@@ -379,6 +382,10 @@ function CalendarView({ siteId }) {
   const [eventFilter, setEventFilter] = useState('ALL');
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleDate, setScheduleDate] = useState(validInitialDate);
+  const [pushEnabling, setPushEnabling] = useState(false);
+  const canSchedule = hasPermission('compliance', 'write');
   const range = useMemo(() => {
     if (mode === 'day') return { from: cursor, to: cursor };
     if (mode === 'week') return { from: startOfWeek(cursor, { weekStartsOn: 1 }), to: endOfWeek(cursor, { weekStartsOn: 1 }) };
@@ -403,6 +410,7 @@ function CalendarView({ siteId }) {
     ['NOTICE_REPLY', 'Notices', COMPLIANCE_EVENT_META.NOTICE_REPLY.Icon, COMPLIANCE_EVENT_META.NOTICE_REPLY.icon],
     ['INSPECTION', 'Inspections', COMPLIANCE_EVENT_META.INSPECTION.Icon, COMPLIANCE_EVENT_META.INSPECTION.icon],
     ['LICENCE_EXPIRY', 'Licences', COMPLIANCE_EVENT_META.LICENCE_EXPIRY.Icon, COMPLIANCE_EVENT_META.LICENCE_EXPIRY.icon],
+    ['SCHEDULED_EVENT', 'Scheduled', COMPLIANCE_EVENT_META.SCHEDULED_EVENT.Icon, COMPLIANCE_EVENT_META.SCHEDULED_EVENT.icon],
   ];
   const visibleEvents = useMemo(() => eventFilter === 'ALL' ? events : events.filter((event) => event.event_type === eventFilter), [eventFilter, events]);
   const countFor = (filter) => filter === 'ALL' ? events.length : events.filter((event) => event.event_type === filter).length;
@@ -414,7 +422,38 @@ function CalendarView({ siteId }) {
     today.setHours(0, 0, 0, 0);
     return eventDate >= today && eventDate <= addDays(today, 7);
   }).length;
-  const openEvent = (event) => navigate(complianceEventRoute(event));
+  const openSchedule = (day = cursor) => {
+    setScheduleDate(day);
+    setScheduleOpen(true);
+  };
+  const onScheduled = (event) => {
+    const eventDate = complianceEventDate(event.event_date);
+    setCursor(eventDate);
+    setMode('day');
+    setEventFilter('ALL');
+    load();
+  };
+  const enablePush = async () => {
+    setPushEnabling(true);
+    try {
+      const result = await enableWebPushNotifications();
+      if (result.status === 'enabled') toast.success('FCM browser notifications enabled on this device');
+      else if (result.status === 'denied') toast.error('Notifications are blocked in this browser. Allow them in site settings and try again.');
+      else toast.error('This browser could not be registered for FCM notifications');
+    } catch (error) {
+      toast.error(error.response?.data?.message || error.message || 'Could not enable push notifications');
+    } finally {
+      setPushEnabling(false);
+    }
+  };
+  const openEvent = (event) => {
+    if (event.event_type === 'SCHEDULED_EVENT') {
+      setCursor(complianceEventDate(event.event_date));
+      setMode('day');
+      return;
+    }
+    navigate(complianceEventRoute(event));
+  };
   const exportIcs = () => {
     const body = events.map((event) => `BEGIN:VEVENT\nUID:${event.event_type}-${event.id}@mountreality\nDTSTART;VALUE=DATE:${isoDate(complianceEventDate(event.event_date)).replaceAll('-', '')}\nSUMMARY:${String(event.title).replaceAll('\n', ' ')}\nDESCRIPTION:${event.event_type}\nEND:VEVENT`).join('\n');
     const blob = new Blob([`BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//MountReality//Compliance//EN\n${body}\nEND:VCALENDAR`], { type: 'text/calendar' });
@@ -443,19 +482,19 @@ function CalendarView({ siteId }) {
     <Panel>
       <div className="flex flex-col gap-3 border-b border-mr-line p-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex items-center gap-2"><Button size="icon" variant="outline" className="rounded-xl" onClick={() => setCursor(mode === 'month' ? subMonths(cursor, 1) : addDays(cursor, mode === 'week' ? -7 : -1))} aria-label="Previous period"><ChevronLeft className="h-4 w-4" /></Button><Button variant="outline" className="min-w-48 rounded-xl font-semibold" onClick={() => setCursor(new Date())}>{format(cursor, mode === 'month' ? 'MMMM yyyy' : 'dd MMMM yyyy')}</Button><Button size="icon" variant="outline" className="rounded-xl" onClick={() => setCursor(mode === 'month' ? addMonths(cursor, 1) : addDays(cursor, mode === 'week' ? 7 : 1))} aria-label="Next period"><ChevronRight className="h-4 w-4" /></Button></div>
-        <div className="flex flex-wrap items-center gap-2"><div className="flex rounded-xl border border-mr-line bg-mr-surface-2 p-1">{['month','week','day','agenda','timeline'].map((value) => <button key={value} className={cn('rounded-lg px-3 py-1.5 text-[11px] font-semibold transition', mode === value ? 'bg-mr-surface text-mr-blue shadow-sm' : 'text-mr-muted hover:text-mr-text')} onClick={() => setMode(value)}>{labelize(value)}</button>)}</div><Button variant="outline" className="h-10 rounded-xl border-mr-line bg-mr-surface text-xs text-mr-text hover:bg-mr-surface-2" onClick={exportIcs} disabled={!events.length}><Download className="mr-1.5 h-4 w-4" />iCal</Button></div>
+        <div className="flex flex-wrap items-center gap-2"><div className="flex rounded-xl border border-mr-line bg-mr-surface-2 p-1">{['month','week','day','agenda','timeline'].map((value) => <button key={value} className={cn('rounded-lg px-3 py-1.5 text-[11px] font-semibold transition', mode === value ? 'bg-mr-surface text-mr-blue shadow-sm' : 'text-mr-muted hover:text-mr-text')} onClick={() => setMode(value)}>{labelize(value)}</button>)}</div><Button variant="outline" className="h-10 rounded-xl border-mr-line bg-mr-surface text-xs text-mr-text hover:bg-mr-surface-2" onClick={enablePush} disabled={pushEnabling}>{pushEnabling ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <BellRing className="mr-1.5 h-4 w-4" />}Enable push</Button>{canSchedule && <Button className="h-10 rounded-xl text-xs" onClick={() => openSchedule(cursor)}><CalendarPlus className="mr-1.5 h-4 w-4" />Schedule</Button>}<Button variant="outline" className="h-10 rounded-xl border-mr-line bg-mr-surface text-xs text-mr-text hover:bg-mr-surface-2" onClick={exportIcs} disabled={!events.length}><Download className="mr-1.5 h-4 w-4" />iCal</Button></div>
       </div>
       <div className="grid divide-y divide-mr-line border-b border-mr-line sm:grid-cols-3 sm:divide-x sm:divide-y-0"><div className="px-5 py-3.5"><p className="text-[10px] font-bold uppercase tracking-[.13em] text-mr-faint">Scheduled in view</p><p className="mt-1 text-xl font-bold tabular-nums text-mr-text">{events.length}</p></div><div className="px-5 py-3.5"><p className="text-[10px] font-bold uppercase tracking-[.13em] text-mr-faint">Next 7 days</p><p className="mt-1 text-xl font-bold tabular-nums text-mr-blue">{nextSevenDays}</p></div><div className="px-5 py-3.5"><p className="text-[10px] font-bold uppercase tracking-[.13em] text-mr-faint">Needs attention</p><p className="mt-1 text-xl font-bold tabular-nums text-rose-600 dark:text-rose-400">{attentionCount}</p></div></div>
       <div className="flex gap-2 overflow-x-auto border-b border-mr-line bg-mr-surface-2/40 px-4 py-3">{filterOptions.map(([value, label, FilterIcon, iconTone]) => <button type="button" key={value} onClick={() => setEventFilter(value)} className={cn('inline-flex shrink-0 items-center gap-2 rounded-full border px-2.5 py-1.5 text-[11px] font-semibold transition', eventFilter === value ? 'border-mr-ink bg-mr-ink text-white shadow-sm' : 'border-mr-line bg-mr-surface text-mr-muted hover:border-mr-line-strong hover:text-mr-text')}><span className={cn('flex h-5 w-5 items-center justify-center rounded-full', iconTone)}>{createElement(FilterIcon, { className: 'h-3 w-3' })}</span><span>{label}</span><span className={cn('rounded-full px-1.5 py-0.5 text-[9px] tabular-nums', eventFilter === value ? 'bg-white/15 text-white' : 'bg-mr-surface-2 text-mr-muted')}>{countFor(value)}</span></button>)}</div>
       {loading ? <div className="grid grid-cols-7 gap-px bg-mr-line p-px">{Array.from({ length: 42 }).map((_, i) => <Skeleton key={i} className="h-36 rounded-none" />)}</div> : mode === 'agenda' ? <CalendarTable compact /> : mode === 'timeline' ? <Timeline /> : mode === 'month' ? (
-        <ComplianceMonthCalendar cursor={cursor} events={visibleEvents} onCursorChange={setCursor} onDayClick={(day) => { setCursor(day); setMode('day'); }} onEventClick={openEvent} onShowMore={(day) => { setCursor(day); setMode('day'); }} maxEvents={3} showToolbar={false} />
+        <ComplianceMonthCalendar cursor={cursor} events={visibleEvents} onCursorChange={setCursor} onDayClick={(day) => { setCursor(day); setMode('day'); }} onDayDoubleClick={canSchedule ? openSchedule : undefined} onEventClick={openEvent} onShowMore={(day) => { setCursor(day); setMode('day'); }} maxEvents={3} showToolbar={false} />
       ) : (
         <>
           {mode !== 'day' && <div className="grid grid-cols-7 border-b border-mr-line bg-mr-surface-2/70">{['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((weekday) => <p key={weekday} className="px-2.5 py-2 text-center text-[10px] font-bold uppercase tracking-[.12em] text-mr-faint">{weekday}</p>)}</div>}
           <div className={cn('grid gap-px bg-mr-line', mode === 'day' ? 'grid-cols-1' : 'grid-cols-7')}>
             {days.map((day) => {
               const dayEvents = byDay(day);
-              return <div key={day.toISOString()} className={cn('group relative min-h-[172px] bg-mr-surface p-2.5 transition hover:bg-mr-surface-2/65 sm:p-3', mode === 'day' && 'min-h-[460px] p-5')}>
+              return <div key={day.toISOString()} onDoubleClick={(event) => { if (canSchedule && !event.target.closest('button')) openSchedule(day); }} className={cn('group relative min-h-[172px] bg-mr-surface p-2.5 transition hover:bg-mr-surface-2/65 sm:p-3', mode === 'day' && 'min-h-[460px] p-5')}>
                 <div className="mb-2 flex items-center justify-between gap-2"><button type="button" onClick={() => { setCursor(day); setMode('day'); }} className={cn('flex h-7 min-w-7 items-center justify-center rounded-full px-1.5 text-[11px] font-bold transition hover:bg-mr-surface-2', isSameDay(day, new Date()) && 'bg-mr-blue text-white hover:bg-mr-blue-deep')} aria-label={`Open ${format(day, 'dd MMMM yyyy')}`}>{format(day, 'd')}</button>{dayEvents.length > 0 && <span className="rounded-full bg-mr-surface-2 px-1.5 py-0.5 text-[9px] font-bold tabular-nums text-mr-muted">{dayEvents.length}</span>}</div>
                 <div className={cn('space-y-1.5', mode === 'day' && 'max-w-3xl space-y-2')}>{dayEvents.slice(0, mode === 'day' ? 50 : 3).map((event) => {
                   const meta = COMPLIANCE_EVENT_META[event.event_type] || COMPLIANCE_EVENT_META.COMPLIANCE;
@@ -468,6 +507,7 @@ function CalendarView({ siteId }) {
           </div>
         </>
       )}
+      {canSchedule && <ScheduleCalendarEventDialog date={scheduleDate} open={scheduleOpen} onOpenChange={setScheduleOpen} onSaved={onScheduled} siteId={siteId} />}
     </Panel>
   );
 }

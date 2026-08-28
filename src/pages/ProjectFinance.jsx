@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowLeft, ArrowRight, Banknote, Building2, CheckCircle2, Link2, Plus, RefreshCw,
+  ArrowLeft, ArrowRight, Banknote, Building2, Link2, Plus, RefreshCw,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -29,7 +29,7 @@ const ReraFundControls = lazy(() => import('@/components/project-finance/ReraFun
 // setup wizard, then skeletons, then data. Swap for react-query if more pages need it.
 const cache = new Map();
 const EMPTY = {
-  metrics: {}, collections: [], expenses: [], accounts: [], allocations: [], evidence_documents: [],
+  metrics: {}, collections: [], expenses: [], unassigned_expenses: [], accounts: [], allocations: [], evidence_documents: [],
 };
 const bootKeyOf = (siteId) => `pf:boot:${siteId}`;
 const dataKeyOf = (siteId, projectId, phaseId) => `pf:data:${siteId}:${projectId}:${phaseId}`;
@@ -337,6 +337,7 @@ export default function ProjectFinance() {
   const boot = cache.get(bootKeyOf(siteId));
   const [projects, setProjects] = useState(boot?.projects || []);
   const [firms, setFirms] = useState(boot?.firms || []);
+  const [bankAccounts, setBankAccounts] = useState(boot?.bankAccounts || []);
   const [projectId, setProjectId] = useState(boot?.selected || '');
   const [phaseId, setPhaseId] = useState('all');
   const [tab, setTab] = useState('collections');
@@ -362,6 +363,7 @@ export default function ProjectFinance() {
     if (!siteId) {
       setProjects([]);
       setFirms([]);
+      setBankAccounts([]);
       setProjectId('');
       setLoadedSiteId('');
       setReady(true);
@@ -372,6 +374,7 @@ export default function ProjectFinance() {
     if (cached) {
       setProjects(cached.projects);
       setFirms(cached.firms);
+      setBankAccounts(cached.bankAccounts || []);
       setProjectId((current) => (cached.projects.some((row) => String(row.id) === String(current))
         ? current
         : (cached.selected || (cached.projects[0]?.id ? String(cached.projects[0].id) : ''))));
@@ -380,6 +383,7 @@ export default function ProjectFinance() {
     } else {
       setProjects([]);
       setFirms([]);
+      setBankAccounts([]);
       setProjectId('');
       setLoadedSiteId('');
       setReady(false);
@@ -391,12 +395,15 @@ export default function ProjectFinance() {
       // this page needs nothing but the project list and its phases.
       api.get('/rera/control-centre', { params: { site_id: siteId, projects_only: 1 } }),
       api.get('/firms', { params: { site_id: siteId } }),
-    ]).then(([projectResult, firmResult]) => {
+      api.get('/bank-accounts', { params: { site_id: siteId } }),
+    ]).then(([projectResult, firmResult, bankAccountResult]) => {
       if (!alive) return;
       const rows = projectResult.status === 'fulfilled' ? (projectResult.value.data.projects || []) : (cached?.projects || []);
       const firmRows = firmResult.status === 'fulfilled' ? (firmResult.value.data.firms || []) : (cached?.firms || []);
+      const bankAccountRows = bankAccountResult.status === 'fulfilled' ? (bankAccountResult.value.data.accounts || []) : (cached?.bankAccounts || []);
       setProjects(rows);
       setFirms(firmRows);
+      setBankAccounts(bankAccountRows);
       // A project carried over from another Site would 404 the finance request.
       setProjectId((current) => (rows.some((row) => String(row.id) === String(current))
         ? current
@@ -409,9 +416,9 @@ export default function ProjectFinance() {
 
   useEffect(() => {
     if (siteId && ready && loadedSiteId === String(siteId)) {
-      cache.set(bootKeyOf(siteId), { projects, firms, selected: projectId });
+      cache.set(bootKeyOf(siteId), { projects, firms, bankAccounts, selected: projectId });
     }
-  }, [firms, loadedSiteId, projectId, projects, ready, siteId]);
+  }, [bankAccounts, firms, loadedSiteId, projectId, projects, ready, siteId]);
 
   const financeRequest = useRef(0);
   const load = useCallback(async () => {
@@ -459,14 +466,21 @@ export default function ProjectFinance() {
   const metrics = useMemo(() => [
     ['Booked', data.metrics?.booked],
     ['Collected', data.metrics?.collected],
+    ['Project costs', data.metrics?.project_cost],
     ['To collect', data.metrics?.receivable],
     ['Overdue', data.metrics?.overdue],
+    ['Unassigned costs', data.metrics?.unassigned_cost],
     ['Unmatched', data.metrics?.unreconciled],
   ], [data.metrics]);
+  const accountRows = bankAccounts.length ? bankAccounts : (data.accounts || []);
+  const costRows = useMemo(() => [
+    ...(data.expenses || []).map((row) => ({ ...row, project_scope: row.project_scope || 'PROJECT' })),
+    ...(data.unassigned_expenses || []),
+  ], [data.expenses, data.unassigned_expenses]);
   const tabs = [
     ['collections', 'Collections', data.collections?.length],
-    ['expenses', 'Costs', data.expenses?.length],
-    ['accounts', 'Accounts', data.accounts?.length],
+    ['expenses', 'Costs', costRows.length],
+    ['accounts', 'Accounts', accountRows.length],
     ['allocations', 'Source links', data.allocations?.length],
     ...(isReraProfile ? [['rera-funds', 'RERA fund controls', null]] : []),
   ];
@@ -474,16 +488,6 @@ export default function ProjectFinance() {
   useEffect(() => {
     if (!isReraProfile && tab === 'rera-funds') setTab('collections');
   }, [isReraProfile, tab]);
-  const review = async (mapping, decision) => {
-    try {
-      await api.patch(`/property-lifecycle/project-finance/accounts/${mapping.id}/review`, { decision, reason: `${decision} from Project Finance` });
-      toast.success(`Account mapping marked ${title(decision)}.`);
-      reload();
-    } catch (requestError) {
-      toast.error(requestError.response?.data?.message || 'Account review could not be saved.');
-    }
-  };
-
   return (
     <div className="min-h-full bg-slate-50/50">
       <div className="mx-auto max-w-[1640px] px-4 py-5 sm:px-6">
@@ -563,7 +567,9 @@ export default function ProjectFinance() {
                 ))}
               </div>
               <div className="py-2 sm:py-0">
-                {tab === 'accounts' && canUpdate && <Button size="sm" variant="outline" onClick={() => setAccountOpen(true)}><Plus className="mr-1.5 h-3.5 w-3.5" />Map account</Button>}
+                {tab === 'accounts' && canUpdate && (bankAccounts.length
+                  ? <Button size="sm" variant="outline" onClick={() => navigate('/bank-configs')}><Banknote className="mr-1.5 h-3.5 w-3.5" />Manage bank accounts</Button>
+                  : <Button size="sm" variant="outline" onClick={() => setAccountOpen(true)}><Plus className="mr-1.5 h-3.5 w-3.5" />Map account</Button>)}
                 {tab === 'allocations' && isAdmin && canUpdate && <Button size="sm" variant="outline" onClick={() => setAllocationOpen(true)}><Link2 className="mr-1.5 h-3.5 w-3.5" />Link transaction</Button>}
               </div>
             </div>
@@ -594,32 +600,33 @@ export default function ProjectFinance() {
               </Table>
             ) : tab === 'expenses' ? (
               <Table>
-                <TableHeader><TableRow><TableHead>Cost</TableHead><TableHead>Date</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Amount</TableHead></TableRow></TableHeader>
+                <TableHeader><TableRow><TableHead>Cost</TableHead><TableHead>Date</TableHead><TableHead>Scope</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Amount</TableHead></TableRow></TableHeader>
                 <TableBody>
-                  {data.expenses.length ? data.expenses.map((row) => (
+                  {costRows.length ? costRows.map((row) => (
                     <TableRow key={row.id}>
                       <TableCell><p className="font-medium text-slate-800">{row.description || ('Expense #' + row.id)}</p><p className="text-[10px] text-slate-400">Existing expense #{row.id}</p></TableCell>
                       <TableCell>{date(row.date)}</TableCell>
+                      <TableCell><Badge variant="outline" className={row.project_scope === 'UNASSIGNED' ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-blue-200 bg-blue-50 text-blue-700'}>{row.project_scope === 'UNASSIGNED' ? 'Needs project tag' : 'Project cost'}</Badge></TableCell>
                       <TableCell><Badge variant="outline">{title(row.status)}</Badge></TableCell>
-                      <TableCell className="text-right font-semibold tabular-nums">{currency(row.amount)}</TableCell>
+                      <TableCell className="text-right font-semibold tabular-nums">{currency(Math.max(Number(row.amount || 0), Number(row.credit || 0)))}</TableCell>
                     </TableRow>
-                  )) : <Empty>No existing costs carry this project context.</Empty>}
+                  )) : <Empty>No costs are available for this Site yet.</Empty>}
                 </TableBody>
               </Table>
             ) : tab === 'accounts' ? (
               <Table>
-                <TableHeader><TableRow><TableHead>Existing account</TableHead><TableHead>Purpose</TableHead><TableHead>Phase</TableHead><TableHead>Effective</TableHead><TableHead>Review</TableHead><TableHead /></TableRow></TableHeader>
+                <TableHeader><TableRow><TableHead>Bank account</TableHead><TableHead>Type</TableHead><TableHead>Activity</TableHead><TableHead>Balance</TableHead><TableHead>Status</TableHead><TableHead /></TableRow></TableHeader>
                 <TableBody>
-                  {data.accounts.length ? data.accounts.map((row) => (
+                  {accountRows.length ? accountRows.map((row) => (
                     <TableRow key={row.id}>
-                      <TableCell><p className="font-medium text-slate-800">{row.firm_name}</p><p className="text-[10px] text-slate-400">{row.bank_name} · {row.account_number || 'Account'}</p></TableCell>
-                      <TableCell>{row.purpose}</TableCell>
-                      <TableCell>{row.rera_project_phase_id ? phases.find((phase) => String(phase.id) === String(row.rera_project_phase_id))?.name || ('Phase #' + row.rera_project_phase_id) : 'All phases'}</TableCell>
-                      <TableCell>{date(row.effective_from)}</TableCell>
-                      <TableCell><Badge variant="outline" className={row.review_status === 'REVIEWED' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : ''}>{title(row.review_status)}</Badge></TableCell>
-                      <TableCell className="text-right">{isAdmin && row.review_status === 'PENDING' && <Button variant="ghost" size="sm" onClick={() => review(row, 'REVIEWED')}><CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />Review</Button>}</TableCell>
+                      <TableCell><p className="font-medium text-slate-800">{row.label || row.firm_name || 'Bank account'}</p><p className="text-[10px] text-slate-400">{row.bank_name || 'Bank'} · {row.masked_account_no || row.account_number || 'Account number not recorded'}</p></TableCell>
+                      <TableCell>{title(row.account_type || row.bank_account_type || 'BANK')}</TableCell>
+                      <TableCell>{Number(row.transaction_count || 0).toLocaleString('en-IN')} transactions</TableCell>
+                      <TableCell className="font-semibold tabular-nums">{currency(row.ledger_balance)}</TableCell>
+                      <TableCell><Badge variant="outline" className={row.is_active === false ? 'border-slate-200 bg-slate-50 text-slate-500' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}>{row.is_active === false ? 'Inactive' : 'Active'}</Badge></TableCell>
+                      <TableCell className="text-right">{row.id && bankAccounts.length > 0 && <Button variant="ghost" size="sm" onClick={() => navigate(`/bank-configs/${row.id}`)}>Open</Button>}</TableCell>
                     </TableRow>
-                  )) : <Empty>No existing bank account is mapped to this project yet.</Empty>}
+                  )) : <Empty>No bank accounts are configured for this Site yet.</Empty>}
                 </TableBody>
               </Table>
             ) : tab === 'allocations' ? (

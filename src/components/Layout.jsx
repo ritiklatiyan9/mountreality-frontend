@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useSitePolicy } from '../hooks/useSitePolicy';
 import api from '../api/api';
 import eventBus from '../utils/eventBus';
+import { refreshExistingWebPushToken, subscribeToForegroundPush } from '../lib/pushNotifications';
 import {
   Activity, Bell, BookOpen, CalendarClock, CheckCircle2, ChevronRight,
   ChevronsUpDown, Clock, CreditCard, ExternalLink, FileClock,
@@ -131,6 +132,7 @@ const COMPLIANCE_NOTIFICATION_META = {
   LEGAL_NOTICE: { label: 'Legal notice', icon: ShieldAlert, tone: 'bg-rose-50 text-rose-700 border-rose-200' },
   INSPECTION: { label: 'Inspection', icon: CalendarClock, tone: 'bg-cyan-50 text-cyan-700 border-cyan-200' },
   DOCUMENT: { label: 'Document expiry', icon: FileClock, tone: 'bg-amber-50 text-amber-700 border-amber-200' },
+  SCHEDULED_EVENT: { label: 'Calendar event', icon: CalendarClock, tone: 'bg-cyan-50 text-cyan-700 border-cyan-200' },
 };
 
 const notificationWhen = (value) => (value
@@ -199,7 +201,7 @@ function ComplianceNotificationList({ rows, unreadCount, onOpen, onMarkAll }) {
                 <span className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10px] text-slate-400">
                   <span>{notificationWhen(row.created_at)}</span>
                   {row.site_name && <><span>·</span><span>{row.site_name}</span></>}
-                  {row.due_date && <><span>·</span><span>Due {notifFmtDate(row.due_date)}</span></>}
+                  {row.due_date && <><span>·</span><span>{row.entity_type === 'SCHEDULED_EVENT' ? 'Scheduled' : 'Due'} {notifFmtDate(row.due_date)}</span></>}
                 </span>
               </span>
               <span className="mt-2 flex shrink-0 items-center gap-2">
@@ -247,6 +249,43 @@ const Layout = () => {
   useEffect(() => {
     setMobileMenuOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    if (!user?.id || !hasPermission('compliance', 'read')) return undefined;
+    let disposed = false;
+    let unsubscribe = () => {};
+    refreshExistingWebPushToken().catch(() => {
+      // Permission is deliberately never requested during passive app startup.
+    });
+    subscribeToForegroundPush((payload) => {
+      eventBus.emit('data-mutated', { source: 'fcm', type: payload.data?.type });
+      if (!('Notification' in globalThis) || globalThis.Notification.permission !== 'granted') return;
+      try {
+        const notification = new globalThis.Notification(
+          payload.notification?.title || 'Calendar notification',
+          {
+            body: payload.notification?.body || 'A calendar event was scheduled.',
+            icon: '/favicon.svg',
+            tag: payload.data?.event_id ? `scheduled-event-${payload.data.event_id}` : 'calendar-event',
+          },
+        );
+        notification.onclick = () => {
+          globalThis.focus?.();
+          navigate(payload.data?.link || '/compliance/calendar');
+          notification.close();
+        };
+      } catch {
+        // Some mobile browsers delegate display exclusively to the worker.
+      }
+    }).then((stop) => {
+      if (disposed) stop();
+      else unsubscribe = stop;
+    }).catch(() => {});
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
+  }, [hasPermission, navigate, user?.id]);
 
   // The drawer is an overlay — stop the page behind it from scrolling.
   useEffect(() => {

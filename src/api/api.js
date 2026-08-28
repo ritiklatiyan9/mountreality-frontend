@@ -53,7 +53,7 @@ api.interceptors.response.use(
     const method = (response.config.method || '').toLowerCase();
     if (method !== 'get') {
       const url = response.config.url || '';
-      const skip = /\/auth\/|\/upload\/|\/search/i.test(url);
+      const skip = /\/auth\/|\/upload\/|\/search|\/push-tokens/i.test(url);
       if (!skip) {
         eventBus.emit('data-mutated', { method, url });
       }

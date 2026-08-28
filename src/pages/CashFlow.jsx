@@ -35,7 +35,7 @@ import {
   Plus, Edit2, Trash2, AlertCircle, Check, Search, Loader2, Eye, X,
   IndianRupee, ArrowLeft, Lock, Unlock, MoreHorizontal,
   Printer, ArrowUp, ArrowDown, ArrowUpDown, User, Building2, ArrowUpRight, ArrowDownRight,
-  BarChart3, Wallet, Landmark, TrendingUp, TrendingDown, PenLine, Download,
+  BarChart3, Wallet, Landmark, FileText, SlidersHorizontal, TrendingUp, TrendingDown, PenLine, Download,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import SignaturePad from '../components/SignaturePad';
@@ -102,12 +102,19 @@ const FilterChips = ({ label, value, onChange, options }) => (
               : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
           }`}
         >
+          {opt.icon && <opt.icon className="w-3.5 h-3.5 inline-block mr-1 align-[-2px]" strokeWidth={2} />}
           {opt.label}{opt.count !== undefined ? ` (${opt.count})` : ''}
         </button>
       );
     })}
   </div>
 );
+
+const CashTypeIcon = ({ type, className = 'w-3.5 h-3.5' }) => {
+  const normalized = String(type || '').toLowerCase();
+  const Icon = normalized === 'cash' ? Wallet : normalized === 'cheque' ? FileText : Landmark;
+  return <Icon className={className} aria-hidden="true" />;
+};
 
 const CashFlow = () => {
   const navigate = useNavigate();
@@ -758,13 +765,20 @@ const CashFlow = () => {
     return true;
   };
 
+  // The table renders filteredEntries, so every visible summary must use the
+  // same filtered scope. This keeps the stat strip, settlement cards and
+  // sticky footer in sync with search/type/flow/status filters.
+  const countedFilteredEntries = useMemo(
+    () => filteredEntries.filter(countsTowardBalance),
+    [filteredEntries]
+  );
   const totalDebit = useMemo(
-    () => entries.filter(countsTowardBalance).reduce((s, e) => s + accountedAmounts(e).debit, 0),
-    [entries]
+    () => countedFilteredEntries.reduce((s, e) => s + accountedAmounts(e).debit, 0),
+    [countedFilteredEntries]
   );
   const totalCredit = useMemo(
-    () => entries.filter(countsTowardBalance).reduce((s, e) => s + accountedAmounts(e).credit, 0),
-    [entries]
+    () => countedFilteredEntries.reduce((s, e) => s + accountedAmounts(e).credit, 0),
+    [countedFilteredEntries]
   );
   const pending = totalDebit - totalCredit; // Amount pending from person
 
@@ -783,7 +797,7 @@ const CashFlow = () => {
   };
 
   const cashBreakdown = useMemo(() => {
-    const counted = entries.filter(countsTowardBalance);
+    const counted = countedFilteredEntries;
     const cashDebit = counted.filter(e => getCashType(e.cash_type) === 'cash').reduce((s, e) => s + accountedAmounts(e).debit, 0);
     const cashCredit = counted.filter(e => getCashType(e.cash_type) === 'cash').reduce((s, e) => s + accountedAmounts(e).credit, 0);
     const bankDebit = counted.filter(e => getCashType(e.cash_type) !== 'cash').reduce((s, e) => s + accountedAmounts(e).debit, 0);
@@ -797,7 +811,7 @@ const CashFlow = () => {
       cashEntries: counted.filter(e => getCashType(e.cash_type) === 'cash').length,
       bankEntries: counted.filter(e => getCashType(e.cash_type) !== 'cash').length,
     };
-  }, [entries]);
+  }, [countedFilteredEntries]);
 
   const modeChartData = useMemo(() => ([
     {
@@ -819,7 +833,7 @@ const CashFlow = () => {
 
   const trendChartData = useMemo(() => {
     const grouped = new Map();
-    entries.filter(countsTowardBalance).forEach((entry) => {
+    countedFilteredEntries.forEach((entry) => {
       const d = (entry.date || '').toString().split('T')[0] || todayISO();
       if (!grouped.has(d)) grouped.set(d, { date: d, debit: 0, credit: 0 });
       const current = grouped.get(d);
@@ -834,7 +848,7 @@ const CashFlow = () => {
         ...item,
         label: formatDate(item.date),
       }));
-  }, [entries]);
+  }, [countedFilteredEntries]);
 
   const cashPending = cashBreakdown.cashDebit - cashBreakdown.cashCredit;
   const bankPending = cashBreakdown.bankDebit - cashBreakdown.bankCredit;
@@ -996,7 +1010,7 @@ const CashFlow = () => {
     .receipt-copy { position: relative; flex: 1; display: flex; flex-direction: column; padding: 3mm 5mm; overflow: hidden; }
     .copy-label { position: absolute; top: 2mm; right: 3mm; font-size: 8px; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; font-weight: 700; }
     .scissor-line { position: relative; border: none; border-top: 1.5px dashed #94a3b8; margin: 2mm 0; overflow: visible; }
-    .scissor-line::before { content: '✂'; position: absolute; top: -10px; left: -2px; font-size: 16px; color: #94a3b8; line-height: 1; }
+    .scissor-line::before { content: 'CUT'; position: absolute; top: -8px; left: -2px; padding-right: 4px; font-size: 7px; color: #94a3b8; background: #f1f5f9; line-height: 1; letter-spacing: 1px; }
     .border-frame { position: absolute; top: 2mm; left: 2mm; right: 2mm; bottom: 2mm; border: 1px solid #cbd5e1; pointer-events: none; }
     .watermark { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-45deg); font-family: 'Cinzel', serif; font-size: 60px; color: rgba(226,232,240,0.25); font-weight: 700; z-index: 1; pointer-events: none; white-space: nowrap; text-transform: uppercase; }
     .content { position: relative; z-index: 10; flex: 1; display: flex; flex-direction: column; }
@@ -1160,7 +1174,7 @@ const CashFlow = () => {
     .receipt-copy { position: relative; flex: 1; display: flex; flex-direction: column; padding: 3mm 5mm; overflow: hidden; }
     .copy-label { position: absolute; top: 2mm; right: 3mm; font-size: 8px; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; font-weight: 700; }
     .scissor-line { position: relative; border: none; border-top: 1.5px dashed #94a3b8; margin: 2mm 0; overflow: visible; }
-    .scissor-line::before { content: '✂'; position: absolute; top: -10px; left: -2px; font-size: 16px; color: #94a3b8; line-height: 1; }
+    .scissor-line::before { content: 'CUT'; position: absolute; top: -8px; left: -2px; padding-right: 4px; font-size: 7px; color: #94a3b8; background: #f1f5f9; line-height: 1; letter-spacing: 1px; }
     .border-frame { position: absolute; top: 2mm; left: 2mm; right: 2mm; bottom: 2mm; border: 1px solid #cbd5e1; pointer-events: none; }
     .watermark { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-45deg); font-family: 'Cinzel', serif; font-size: 60px; color: rgba(226,232,240,0.25); font-weight: 700; z-index: 1; pointer-events: none; white-space: nowrap; text-transform: uppercase; }
     .content { position: relative; z-index: 10; flex: 1; display: flex; flex-direction: column; }
@@ -1341,7 +1355,7 @@ const CashFlow = () => {
 
     <div class="analytics-row">
       <div class="analytics-card cash">
-        <div class="card-title">💵 To Receive in Cash</div>
+        <div class="card-title">To Receive in Cash</div>
         <div class="card-sub">Cash given will return in cash</div>
         <div class="card-value ${pCashPending > 0 ? 'amber' : pCashPending < 0 ? 'red' : 'muted'}">${pCashPending < 0 ? '−' : ''}₹${escapeHtml(formatCurrency(Math.abs(pCashPending)))}</div>
         <div class="card-status ${pCashPending > 0 ? 'amber' : pCashPending < 0 ? 'red' : 'muted'}">${pCashPending > 0 ? 'He needs to pay us' : pCashPending < 0 ? 'We need to pay' : 'Settled'}</div>
@@ -1351,7 +1365,7 @@ const CashFlow = () => {
         </div>
       </div>
       <div class="analytics-card bank">
-        <div class="card-title">🏦 To Receive in Bank</div>
+        <div class="card-title">To Receive in Bank</div>
         <div class="card-sub">Bank transfer will return via bank</div>
         <div class="card-value ${pBankPending > 0 ? 'amber' : pBankPending < 0 ? 'red' : 'muted'}">${pBankPending < 0 ? '−' : ''}₹${escapeHtml(formatCurrency(Math.abs(pBankPending)))}</div>
         <div class="card-status ${pBankPending > 0 ? 'amber' : pBankPending < 0 ? 'red' : 'muted'}">${pBankPending > 0 ? 'He needs to pay us' : pBankPending < 0 ? 'We need to pay' : 'Settled'}</div>
@@ -1508,7 +1522,9 @@ const CashFlow = () => {
     return (
       <div className="max-w-7xl space-y-5">
         {/* Header */}
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="relative overflow-hidden rounded-3xl border border-slate-200/80 bg-linear-to-br from-white via-white to-blue-50/60 px-4 py-4 shadow-sm shadow-slate-900/[0.03] sm:px-5 sm:py-5">
+          <div className="pointer-events-none absolute -right-14 -top-20 h-48 w-48 rounded-full bg-blue-100/50 blur-3xl" />
+          <div className="relative flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-start gap-3">
             <button
               type="button"
@@ -1594,6 +1610,7 @@ const CashFlow = () => {
                 )}
               </DropdownMenuContent>
             </DropdownMenu>
+          </div>
           </div>
         </div>
 
@@ -1681,8 +1698,11 @@ const CashFlow = () => {
         </div>
 
         {/* Search + Filters */}
-        <div className="rounded-2xl border border-slate-200/80 bg-white px-3.5 py-2.5 shadow-sm shadow-slate-900/[0.03] space-y-2.5">
+        <div className="rounded-2xl border border-slate-200/80 bg-linear-to-br from-white to-slate-50/80 px-3.5 py-3 shadow-sm shadow-slate-900/[0.03] space-y-2.5">
           <div className="flex items-center gap-3 flex-wrap">
+            <div className="hidden h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-600 sm:flex" title="Filter entries">
+              <SlidersHorizontal className="h-4 w-4" />
+            </div>
             <div className="relative flex-1 max-w-sm min-w-[12rem]">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
               <Input
@@ -1696,9 +1716,9 @@ const CashFlow = () => {
               label="Type" value={typeFilter} onChange={setTypeFilter}
               options={[
                 { value: 'all', label: 'All' },
-                { value: 'cash', label: '💵 Cash', activeClass: 'bg-orange-500 text-white border-orange-500' },
-                { value: 'bank', label: '🏦 Bank', activeClass: 'bg-blue-600 text-white border-blue-600' },
-                { value: 'cheque', label: '📝 Cheque', activeClass: 'bg-purple-600 text-white border-purple-600' },
+                { value: 'cash', label: 'Cash', icon: Wallet, activeClass: 'bg-orange-500 text-white border-orange-500' },
+                { value: 'bank', label: 'Bank', icon: Landmark, activeClass: 'bg-blue-600 text-white border-blue-600' },
+                { value: 'cheque', label: 'Cheque', icon: FileText, activeClass: 'bg-purple-600 text-white border-purple-600' },
               ]}
             />
             <FilterChips
@@ -1724,7 +1744,10 @@ const CashFlow = () => {
                 <X className="w-3.5 h-3.5 mr-1" /> Clear
               </Button>
             )}
-            <span className="ml-auto text-[11px] text-slate-400">{filteredEntries.length} of {entries.length}</span>
+            <span className="ml-auto inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-500">
+              <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
+              {filteredEntries.length} of {entries.length} entries
+            </span>
           </div>
         </div>
 
@@ -1809,7 +1832,10 @@ const CashFlow = () => {
                     </td>
                     <td className="text-center px-3 py-2">
                       <Badge variant="outline" className={`text-xs ${getCashType(e.cash_type) === 'cash' ? 'bg-orange-50 text-orange-700 border-orange-200' : getCashType(e.cash_type) === 'cheque' ? 'bg-purple-50 text-purple-700 border-purple-200' : 'bg-blue-50 text-blue-700 border-blue-200'}`}>
-                        {getCashType(e.cash_type) === 'cash' ? '💵 Cash' : getCashType(e.cash_type) === 'cheque' ? '📝 Cheque' : '🏦 Bank'}
+                        <span className="inline-flex items-center gap-1">
+                          <CashTypeIcon type={getCashType(e.cash_type)} className="h-3.5 w-3.5" />
+                          {getCashType(e.cash_type) === 'cash' ? 'Cash' : getCashType(e.cash_type) === 'cheque' ? 'Cheque' : 'Bank'}
+                        </span>
                       </Badge>
                       <ChequeStatusControl
                         chequeStatus={e.cheque_status}

@@ -896,7 +896,7 @@ const PlotPayments = () => {
 
   // Stable row callbacks for memoized PlotRow
   const handleRowNavigate = useCallback(
-    (id) => navigate(`/customer-inventory?plot_id=${id}&tab=payments`),
+    (id) => navigate(`/plot-payments/${id}`),
     [navigate],
   );
   const handleRowToggleSelect = useCallback((id, checked) => {

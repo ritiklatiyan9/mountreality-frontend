@@ -1,0 +1,119 @@
+name: Deploy account frontend to EC2
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-account-frontend-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build account frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      VITE_API_URL: ${{ vars.VITE_API_URL }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Validate public build configuration
+        run: |
+          set -euo pipefail
+          [ -n "$VITE_API_URL" ] || { echo "Missing GitHub production variable: VITE_API_URL" >&2; exit 1; }
+          [[ "$VITE_API_URL" =~ ^https?://[A-Za-z0-9._:-]+$ ]] || { echo "VITE_API_URL must be an HTTP(S) origin with no path or trailing slash" >&2; exit 1; }
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build production frontend
+        run: npm run build
+
+      - name: Package build artifact
+        run: tar -C dist -czf "${RUNNER_TEMP}/mountreality-account-${GITHUB_SHA}.tar.gz" .
+
+      - name: Store verified build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mountreality-account-${{ github.sha }}
+          path: ${{ runner.temp }}/mountreality-account-${{ github.sha }}.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  deploy:
+    name: Deploy account frontend
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Download verified build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: mountreality-account-${{ github.sha }}
+          path: ${{ runner.temp }}
+
+      - name: Upload release to EC2 and activate it
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          EC2_SSH_KNOWN_HOSTS: ${{ secrets.EC2_SSH_KNOWN_HOSTS }}
+          EC2_STATIC_ROOT: ${{ vars.EC2_STATIC_ROOT }}
+          PUBLIC_HEALTH_URL: ${{ vars.PUBLIC_HEALTH_URL }}
+        run: |
+          set -euo pipefail
+
+          for required_name in EC2_HOST EC2_USER EC2_SSH_PRIVATE_KEY EC2_SSH_KNOWN_HOSTS EC2_STATIC_ROOT PUBLIC_HEALTH_URL; do
+            if [ -z "${!required_name:-}" ]; then
+              echo "Missing GitHub production secret/variable: ${required_name}" >&2
+              exit 1
+            fi
+          done
+
+          [[ "$EC2_HOST" =~ ^[A-Za-z0-9.-]+$ ]] || { echo "EC2_HOST has an invalid format" >&2; exit 1; }
+          [[ "$EC2_USER" =~ ^[A-Za-z_][A-Za-z0-9_-]*$ ]] || { echo "EC2_USER has an invalid format" >&2; exit 1; }
+          [[ "$EC2_STATIC_ROOT" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "EC2_STATIC_ROOT must be an absolute path without spaces" >&2; exit 1; }
+          [[ "$PUBLIC_HEALTH_URL" =~ ^https?://[A-Za-z0-9._:/-]+$ ]] || { echo "PUBLIC_HEALTH_URL has an invalid format" >&2; exit 1; }
+
+          deploy_key="${RUNNER_TEMP}/mountreality_ec2_deploy_key"
+          known_hosts="${RUNNER_TEMP}/mountreality_ec2_known_hosts"
+          release_archive="${RUNNER_TEMP}/mountreality-account-${GITHUB_SHA}.tar.gz"
+          remote_archive="/tmp/mountreality-account-${GITHUB_SHA}.tar.gz"
+          umask 077
+          printf '%s\n' "$EC2_SSH_PRIVATE_KEY" > "$deploy_key"
+          printf '%s\n' "$EC2_SSH_KNOWN_HOSTS" > "$known_hosts"
+
+          ssh_options=(
+            -i "$deploy_key"
+            -o BatchMode=yes
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+            -o UserKnownHostsFile="$known_hosts"
+          )
+
+          scp "${ssh_options[@]}" "$release_archive" "${EC2_USER}@${EC2_HOST}:${remote_archive}"
+          ssh "${ssh_options[@]}" \
+            "${EC2_USER}@${EC2_HOST}" \
+            "bash -s -- '$EC2_STATIC_ROOT' '$GITHUB_SHA' '$remote_archive' '$PUBLIC_HEALTH_URL'" \
+            < scripts/deploy-static-ec2.sh
