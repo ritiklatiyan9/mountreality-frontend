@@ -4,12 +4,14 @@ import {
   endOfMonth, endOfWeek, format, startOfMonth, startOfWeek,
 } from 'date-fns';
 import {
-  AlertTriangle, ArrowUpRight, CalendarDays, ShieldCheck,
+  AlertTriangle, ArrowUpRight, CalendarDays, CalendarPlus, ShieldCheck,
 } from 'lucide-react';
 import api from '../../api/api';
 import eventBus from '../../utils/eventBus';
 import { SkeletonBlock } from './primitives';
 import ComplianceMonthCalendar from '../compliance/ComplianceMonthCalendar';
+import ScheduleCalendarEventDialog from '../compliance/ScheduleCalendarEventDialog';
+import { Button } from '../ui/button';
 import {
   calendarEventTime, calendarIsoDate, COMPLIANCE_EVENT_META, complianceEventDate, complianceEventRoute,
 } from '../compliance/complianceCalendarMeta';
@@ -29,6 +31,8 @@ export default function ComplianceCalendar({ siteId }) {
   const [cursor, setCursor] = useState(() => startOfMonth(new Date()));
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [scheduleDate, setScheduleDate] = useState(null);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
 
   const range = useMemo(() => ({
     from: startOfWeek(startOfMonth(cursor), { weekStartsOn: 1 }),
@@ -63,6 +67,13 @@ export default function ComplianceCalendar({ siteId }) {
   const attentionCount = useMemo(() => events.filter((event) => (
     event.status === 'OVERDUE' || event.risk_level === 'CRITICAL' || event.risk_level === 'HIGH'
   )).length, [events]);
+  const openSchedule = (day) => {
+    setScheduleDate(day);
+    setScheduleOpen(true);
+  };
+  const addScheduledEvent = (event) => {
+    setEvents((current) => [...current, event].sort((a, b) => `${a.event_date} ${a.event_time || ''}`.localeCompare(`${b.event_date} ${b.event_time || ''}`)));
+  };
 
   return (
     <section aria-labelledby="dashboard-compliance-calendar-title" className="overflow-hidden rounded-panel border border-mr-line bg-mr-surface">
@@ -73,16 +84,19 @@ export default function ComplianceCalendar({ siteId }) {
           </span>
           <div className="min-w-0">
             <h2 id="dashboard-compliance-calendar-title" className="text-[15px] font-semibold tracking-[-0.01em] text-mr-text">Compliance calendar</h2>
-            <p className="mt-0.5 text-[12px] text-mr-muted">Key deadlines, hearings, inspections and licence activity</p>
+            <p className="mt-0.5 text-[12px] text-mr-muted">Key deadlines, hearings, inspections and licence activity · Double-click an open area to schedule</p>
           </div>
         </div>
-        <Link to="/compliance/calendar" className="inline-flex h-9 shrink-0 items-center gap-1 rounded-full px-3 text-[12px] font-semibold text-mr-blue transition-colors hover:bg-mr-blue-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue">
-          Open calendar <ArrowUpRight className="h-3.5 w-3.5" strokeWidth={2} aria-hidden="true" />
-        </Link>
+        <div className="flex shrink-0 items-center gap-1">
+          <Button type="button" variant="outline" className="h-9 rounded-full border-mr-line px-3 text-[12px] text-mr-text" onClick={() => openSchedule(new Date())}><CalendarPlus className="mr-1.5 h-3.5 w-3.5" />Schedule</Button>
+          <Link to="/compliance/calendar" className="inline-flex h-9 items-center gap-1 rounded-full px-3 text-[12px] font-semibold text-mr-blue transition-colors hover:bg-mr-blue-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mr-blue">
+            Open calendar <ArrowUpRight className="h-3.5 w-3.5" strokeWidth={2} aria-hidden="true" />
+          </Link>
+        </div>
       </div>
 
       <div className="grid lg:grid-cols-[minmax(0,1fr)_18rem]">
-        <ComplianceMonthCalendar cursor={cursor} events={events} loading={loading} onCursorChange={setCursor} onDayClick={(day) => navigate(`/compliance/calendar?date=${calendarIsoDate(day)}`)} onEventClick={(event) => navigate(complianceEventRoute(event))} onShowMore={(day) => navigate(`/compliance/calendar?date=${calendarIsoDate(day)}`)} maxEvents={2} compact />
+        <ComplianceMonthCalendar cursor={cursor} events={events} loading={loading} onCursorChange={setCursor} onDayClick={(day) => navigate(`/compliance/calendar?date=${calendarIsoDate(day)}`)} onDayDoubleClick={openSchedule} onEventClick={(event) => navigate(complianceEventRoute(event))} onShowMore={(day) => navigate(`/compliance/calendar?date=${calendarIsoDate(day)}`)} maxEvents={2} compact />
 
         <aside className="border-t border-mr-line lg:border-l lg:border-t-0">
           <div className="grid grid-cols-2 divide-x divide-mr-line border-b border-mr-line lg:grid-cols-1 lg:divide-x-0 lg:divide-y">
@@ -105,6 +119,7 @@ export default function ComplianceCalendar({ siteId }) {
           </div>
         </aside>
       </div>
+      <ScheduleCalendarEventDialog date={scheduleDate} open={scheduleOpen} onOpenChange={setScheduleOpen} onSaved={addScheduledEvent} siteId={siteId} />
     </section>
   );
 }

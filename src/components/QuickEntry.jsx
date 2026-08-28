@@ -106,7 +106,7 @@ const blankForm = () => ({
   particular: 'CASH',
   amount: '',
   remarks: '',
-  cheque_no: '',
+  transaction_no: '',
   farmer_id: '',
   month_id: '',
   vendor_commitment_id: '',
@@ -117,7 +117,6 @@ const blankForm = () => ({
   category: '',
   commission_plot_id: '',
   commission_id: '',
-  reference_no: '',
   voucher_url: '',
   bank_account_id: '',
 });
@@ -235,7 +234,7 @@ export default function QuickEntry() {
   };
 
   const changeMode = (m) => {
-    setF({ mode: m, particular: getParticularsForMode(m)[0], ...(m !== 'CHEQUE' ? { cheque_no: '' } : {}) });
+    setF({ mode: m, particular: getParticularsForMode(m)[0], transaction_no: '' });
   };
 
   const changeDirection = (nextDirection) => {
@@ -250,6 +249,12 @@ export default function QuickEntry() {
 
   const amt = Math.abs(parseFloat(form.amount)) || 0;
   const isCheque = form.mode === 'CHEQUE';
+  const isNonCash = form.mode !== 'CASH';
+  const transactionNumber = form.transaction_no.trim();
+  const remarksWithTransaction = (remarks) => [
+    isNonCash && transactionNumber ? `Txn: ${transactionNumber}` : null,
+    String(remarks || '').trim() || null,
+  ].filter(Boolean).join(' | ') || null;
   const debitCredit = { debit: direction === 'debit' ? amt : 0, credit: direction === 'credit' ? amt : 0 };
 
   // Same rules as before, expressed as a checklist so the summary rail can
@@ -258,8 +263,7 @@ export default function QuickEntry() {
     const amount = { label: 'Amount above zero', ok: amt > 0 };
     if (moduleKey === 'farmer') return [amount,
       { label: 'Farmer selected', ok: !!form.farmer_id },
-      { label: 'Particular chosen', ok: !!form.particular },
-      { label: 'Cheque number', ok: !isCheque || !!form.cheque_no.trim() }];
+      { label: 'Particular chosen', ok: !!form.particular }];
     if (moduleKey === 'cashflow') return [amount,
       { label: 'Ledger selected', ok: !!form.month_id },
       { label: 'Particular chosen', ok: !!form.particular }];
@@ -276,9 +280,11 @@ export default function QuickEntry() {
     return [{ label: 'Module selected', ok: false }];
   })();
 
-  const effectiveChecks = form.mode === 'CASH'
+  const effectiveChecks = !isNonCash
     ? checks
-    : [...checks, { label: 'Bank account selected', ok: !!form.bank_account_id }];
+    : [...checks,
+      { label: 'Bank account selected', ok: !!form.bank_account_id },
+      { label: isCheque ? 'Cheque number' : 'Transaction number', ok: !!transactionNumber }];
   const canSubmit = effectiveChecks.every((c) => c.ok);
   const missing = effectiveChecks.filter((c) => !c.ok);
 
@@ -298,7 +304,8 @@ export default function QuickEntry() {
           particular: form.particular,
           payment_mode: form.mode,
           amount: signed,
-          cheque_no: isCheque ? form.cheque_no.trim() : undefined,
+          bank_reference: isNonCash ? transactionNumber : null,
+          cheque_no: isCheque ? transactionNumber : undefined,
           remarks: form.remarks.trim() || null,
           voucher_url: form.voucher_url || null,
           bank_account_id: form.bank_account_id || null,
@@ -310,8 +317,8 @@ export default function QuickEntry() {
           ...debitCredit,
           date: form.date,
           cash_type: form.mode.toLowerCase(),
-          cheque_no: isCheque ? form.cheque_no.trim() || null : null,
-          remarks: form.remarks.trim() || null,
+          cheque_no: isCheque ? transactionNumber || null : null,
+          remarks: remarksWithTransaction(form.remarks),
           voucher_url: form.voucher_url || null,
           bank_account_id: form.bank_account_id || null,
         });
@@ -321,8 +328,8 @@ export default function QuickEntry() {
           payment_date: form.date,
           amount: amt,
           payment_mode: form.mode.toLowerCase(),
-          reference_no: form.reference_no.trim() || (isCheque ? form.cheque_no.trim() : null),
-          cheque_no: isCheque ? (form.reference_no.trim() || form.cheque_no.trim() || null) : null,
+          reference_no: transactionNumber,
+          cheque_no: isCheque ? transactionNumber : null,
           note: form.description.trim() || form.remarks.trim() || null,
           voucher_url: form.voucher_url || null,
           bank_account_id: form.bank_account_id || null,
@@ -332,9 +339,9 @@ export default function QuickEntry() {
           site_id: siteId,
           date: form.date,
           payment_mode: form.particular,
-          cheque_no: isCheque ? form.cheque_no.trim() || null : null,
+          cheque_no: isCheque ? transactionNumber || null : null,
           ...debitCredit,
-          remark: form.remarks.trim(),
+          remark: remarksWithTransaction(form.remarks),
           category: form.category.trim(),
           voucher_url: form.voucher_url || null,
           bank_account_id: form.bank_account_id || null,
@@ -347,7 +354,7 @@ export default function QuickEntry() {
           entry_type: 'GENERAL',
           ...debitCredit,
           payment_mode: form.particular,
-          remarks: form.remarks.trim(),
+          remarks: remarksWithTransaction(form.remarks),
           from_entity: form.from_entity.trim() || null,
           to_entity: form.to_entity.trim() || null,
           category: form.category.trim() || null,
@@ -362,8 +369,9 @@ export default function QuickEntry() {
           payment_from: form.particular,
           payment_type: form.mode,
           amount: signed,
-          cheque_no: isCheque ? form.cheque_no.trim() || null : null,
-          narration: form.remarks.trim() || null,
+          bank_details: isNonCash ? transactionNumber : null,
+          cheque_no: isCheque ? transactionNumber || null : null,
+          narration: remarksWithTransaction(form.remarks),
           voucher_url: form.voucher_url || null,
           bank_account_id: form.bank_account_id || null,
         });
@@ -376,8 +384,9 @@ export default function QuickEntry() {
           date: form.date,
           amount: direction === 'debit' ? amt : -amt,
           payment_mode: form.mode,
-          cheque_no: isCheque ? form.cheque_no.trim() || null : null,
-          remarks: form.remarks.trim() || null,
+          transaction_id: isNonCash ? transactionNumber : null,
+          cheque_no: isCheque ? transactionNumber || null : null,
+          remarks: remarksWithTransaction(form.remarks),
           voucher_url: form.voucher_url || null,
           bank_account_id: form.bank_account_id || null,
         });
@@ -565,11 +574,6 @@ export default function QuickEntry() {
           onChange={(e) => setF({ description: e.target.value })}
           className={INPUT_ROUNDED}
         />
-      </QField>
-    ),
-    moduleKey === 'vendor' && (
-      <QField key="ref" label={<QLabel icon={FileText}>Reference no.</QLabel>}>
-        <Input placeholder="Optional" value={form.reference_no} onChange={(e) => setF({ reference_no: e.target.value })} className={INPUT_ROUNDED} />
       </QField>
     ),
   ].filter(Boolean) : [];
@@ -798,9 +802,9 @@ export default function QuickEntry() {
                     disabled={submitting}
                   />
 
-                  {isCheque && moduleKey !== 'vendor' && (
-                    <QField label={<QLabel icon={FileText}>Cheque number</QLabel>} required>
-                      <Input placeholder="Cheque number" value={form.cheque_no} onChange={(e) => setF({ cheque_no: e.target.value })} className={INPUT_ROUNDED} />
+                  {isNonCash && (
+                    <QField label={<QLabel icon={FileText}>{isCheque ? 'Cheque number' : 'Transaction number'}</QLabel>} required hint={isCheque ? 'Enter the cheque number used for this payment.' : 'Enter UTR, reference, or bank transaction number.'}>
+                      <Input placeholder={isCheque ? 'Cheque number' : 'UTR / transaction number'} value={form.transaction_no} onChange={(e) => setF({ transaction_no: e.target.value })} className={INPUT_ROUNDED} />
                     </QField>
                   )}
                 </div>
@@ -850,7 +854,7 @@ export default function QuickEntry() {
                       ['Module', mod.label],
                       ['Date', form.date ? new Date(form.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'],
                       ['Mode', MODE_META[form.mode]?.label || form.mode],
-                      isCheque && form.cheque_no.trim() ? ['Cheque', form.cheque_no.trim()] : null,
+                      isNonCash && transactionNumber ? [isCheque ? 'Cheque' : 'Transaction no.', transactionNumber] : null,
                       ['Evidence', form.voucher_url ? 'Attached' : 'None'],
                     ].filter(Boolean).map((entry) => (
                       <div key={entry[0]} className="flex items-baseline justify-between gap-3">

@@ -31,9 +31,9 @@ export function CalendarEventPreview({ event, children }) {
           {eventTime && <><span className="text-mr-faint">Time</span><span className="inline-flex items-center gap-1 font-semibold text-mr-text"><Clock3 className="h-3 w-3 text-mr-faint" />{eventTime}</span></>}
           <span className="text-mr-faint">Site</span><span className="truncate font-semibold text-mr-text">{event.site_name || 'Organisation-wide'}</span>
           <span className="text-mr-faint">Status</span><span className="font-semibold text-mr-text">{readable(event.status)}</span>
-          {event.risk_level && <><span className="text-mr-faint">Risk</span><span className="font-semibold text-mr-text">{readable(event.risk_level)}</span></>}
+          {event.risk_level && <><span className="text-mr-faint">{event.event_type === 'SCHEDULED_EVENT' ? 'Priority' : 'Risk'}</span><span className="font-semibold text-mr-text">{readable(event.risk_level)}</span></>}
         </div>
-        <p className="border-t border-mr-line px-4 py-2.5 text-[10px] font-semibold text-mr-blue">Click to open this record</p>
+        <p className="border-t border-mr-line px-4 py-2.5 text-[10px] font-semibold text-mr-blue">{event.event_type === 'SCHEDULED_EVENT' ? 'Scheduled from the dashboard' : 'Click to open this record'}</p>
       </HoverCardContent>
     </HoverCard>
   );
@@ -46,6 +46,7 @@ export default function ComplianceMonthCalendar({
   onCursorChange,
   onEventClick,
   onDayClick,
+  onDayDoubleClick,
   onShowMore,
   maxEvents = 3,
   compact = false,
@@ -90,7 +91,10 @@ export default function ComplianceMonthCalendar({
             const inMonth = isSameMonth(day, cursor);
             const today = isSameDay(day, new Date());
             return (
-              <div key={day.toISOString()} className={cn('group relative bg-mr-surface transition-colors hover:bg-mr-surface-2/65', compact ? 'min-h-28 p-1.5 sm:min-h-32 sm:p-2' : 'min-h-[172px] p-2.5 sm:p-3', !inMonth && 'bg-mr-surface-2/75 text-mr-faint', today && 'bg-mr-blue-soft ring-2 ring-inset ring-mr-blue/45 before:absolute before:inset-x-0 before:top-0 before:h-1 before:bg-mr-blue')}>
+              <div key={day.toISOString()} onDoubleClick={(event) => {
+                if (event.target.closest('[data-calendar-event]')) return;
+                onDayDoubleClick?.(day);
+              }} className={cn('group relative bg-mr-surface transition-colors hover:bg-mr-surface-2/65', compact ? 'min-h-28 p-1.5 sm:min-h-32 sm:p-2' : 'min-h-[172px] p-2.5 sm:p-3', !inMonth && 'bg-mr-surface-2/75 text-mr-faint', today && 'bg-mr-blue-soft ring-2 ring-inset ring-mr-blue/45 before:absolute before:inset-x-0 before:top-0 before:h-1 before:bg-mr-blue')}>
                 <div className="flex items-center justify-between gap-2">
                   <button type="button" onClick={() => onDayClick?.(day)} className={cn('flex h-7 min-w-7 items-center justify-center rounded-full px-1.5 text-[11px] font-bold tabular-nums transition hover:bg-mr-surface-2', today && 'bg-mr-blue text-white shadow-sm shadow-mr-blue/25 ring-2 ring-mr-blue/20 hover:bg-mr-blue-deep', !inMonth && !today && 'text-mr-faint')} aria-current={today ? 'date' : undefined} aria-label={`${today ? 'Today, ' : ''}Open ${format(day, 'dd MMMM yyyy')}`}>{format(day, 'd')}</button>
                   <div className="flex items-center gap-1">
@@ -105,7 +109,7 @@ export default function ComplianceMonthCalendar({
                     const eventTime = calendarEventTime(event);
                     return (
                       <CalendarEventPreview key={`${event.event_type}-${event.id}`} event={event}>
-                        <button type="button" onClick={() => onEventClick?.(event)} className={cn('flex w-full items-center gap-1.5 overflow-hidden rounded-lg border text-left font-bold shadow-[0_1px_0_rgba(15,23,42,.03)] transition hover:-translate-y-px hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500', compact ? 'px-1 py-1 text-[8px] sm:px-1.5 sm:text-[9px]' : 'px-1.5 py-1.5 text-[9px]', meta.chip)}>
+                        <button type="button" data-calendar-event onClick={() => onEventClick?.(event)} className={cn('flex w-full items-center gap-1.5 overflow-hidden rounded-lg border text-left font-bold shadow-[0_1px_0_rgba(15,23,42,.03)] transition hover:-translate-y-px hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500', compact ? 'px-1 py-1 text-[8px] sm:px-1.5 sm:text-[9px]' : 'px-1.5 py-1.5 text-[9px]', meta.chip)}>
                           <span className={cn('flex shrink-0 items-center justify-center rounded-md', compact ? 'h-4 w-4' : 'h-5 w-5', meta.icon)}><EventIcon className={compact ? 'h-2.5 w-2.5' : 'h-3 w-3'} /></span>
                           <span className="truncate">{event.title}</span>
                           {eventTime && <span className={cn('ml-auto inline-flex shrink-0 items-center gap-0.5 font-semibold opacity-75', compact ? 'text-[7px]' : 'text-[8px]')}><Clock3 className={compact ? 'h-2 w-2' : 'h-2.5 w-2.5'} />{eventTime}</span>}
